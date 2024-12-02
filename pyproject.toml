@@ -1,0 +1,31 @@
+[project]
+authors = [{name = "jlnav", email = "jnavarro@anl.gov"}]
+dependencies = []
+description = "Add a short description here"
+name = "climpdfgetter"
+requires-python = ">= 3.11"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+climpdfgetter = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = []
+dev = ["dev"]
+
+[tool.pixi.dependencies]
+python = ">=3.13.0,<3.14"
+beautifulsoup4 = ">=4.12.3,<5"
+requests = ">=2.32.3,<3"
+
+[tool.pixi.feature.dev.dependencies]
+ipdb = ">=0.13.13,<0.14"
+pre-commit = ">=4.0.1,<5"
