@@ -1,4 +1,5 @@
 import datetime
+import re
 from pathlib import Path
 
 import click
@@ -8,21 +9,23 @@ from bs4 import BeautifulSoup
 from .sources import source_mapping
 
 
-def find_project_root():
+def find_project_root() -> str:
     """Find the project root directory."""
     root_dir = Path(__file__).resolve().parents[2]
     return str(root_dir)
 
 
-def prep_output_dir(name):
+def prep_output_dir(name: str) -> Path:
     single_crawl_dir = name + "_" + datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     path = Path(find_project_root()) / Path("data/" + single_crawl_dir)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def get_page_range(search_base):
-    pass
+def epa_total_entries(soup) -> tuple[int, int, int]:  # start, end, total
+    relevant_form = soup.find_all("form")[2].text
+    range_search = tuple(re.findall(r"\d+", relevant_form))
+    return range_search
 
 
 @click.command()
@@ -31,6 +34,7 @@ def crawl(source: str):
     source = source_mapping[source]
     r = requests.get(source.search_base)
     soup = BeautifulSoup(r.text, "html.parser")
+    page_start, page_end, total = epa_total_entries(soup)  # TODO: choose parser based on source
     DOC_IDS = []
     for line in str(soup).splitlines():
         if source.indicator in line:
