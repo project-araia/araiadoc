@@ -28,25 +28,42 @@ def epa_total_entries(soup) -> tuple[int, int, int]:  # start, end, total
     return range_search
 
 
+def epa_result_page(source, idx) -> str:
+    """EPA result page obtained by modifying last url parameter. We won't assume this for other sources"""
+    return source.search_base + idx
+
+
 @click.command()
 @click.argument("source", nargs=1, type=click.Choice(source_mapping.keys()))
-def crawl(source: str):
-    source = source_mapping[source]
-    r = requests.get(source.search_base)
-    soup = BeautifulSoup(r.text, "html.parser")
-    page_start, page_end, total = epa_total_entries(soup)  # TODO: choose parser based on source
-    DOC_IDS = []
-    for line in str(soup).splitlines():
-        if source.indicator in line:
-            DOC_IDS.append(line.split(source.indicator)[-1].split(".txt")[0])
+@click.argument("pages", nargs=1, type=click.INT)
+def crawl(source: str, pages: int):
+    """Crawl a website for climate PDFs. Options are EPA, NOAA, and OSTI.
 
-    path = prep_output_dir(source.__name__)
+    The number of pages to crawl is passed as an argument following the source.
+    """
 
-    for doc_id in DOC_IDS:
-        r = requests.get(source.pdf_base.format(doc_id, doc_id), stream=True)
-        path_to_doc = path / f"{doc_id}.PDF"
-        with path_to_doc.open("wb") as f:
-            f.write(r.content)
+    crawl_idx = 0
+    n_of_pages_crawled = 0
+
+    # we start by evaluating the page we are on: lets say we got back (0, 150, 9100)
+    while n_of_pages_crawled < pages:
+        r = requests.get(epa_result_page(source, str(crawl_idx)))  # Last url parameter is the index of first result
+        soup = BeautifulSoup(r.text, "html.parser")
+        page_start, page_end, total = epa_total_entries(soup)  # TODO: choose parser based on source
+        DOC_IDS = []
+        for line in str(soup).splitlines():
+            if source.indicator in line:
+                DOC_IDS.append(line.split(source.indicator)[-1].split(".txt")[0])
+
+        path = prep_output_dir(source.__name__)
+
+        for doc_id in DOC_IDS:
+            r = requests.get(source.pdf_base.format(doc_id, doc_id), stream=True)
+            path_to_doc = path / f"{doc_id}.PDF"
+            with path_to_doc.open("wb") as f:
+                f.write(r.content)
+            crawl_idx += 1
+        n_of_pages_crawled += 1
 
 
 @click.group()
