@@ -45,6 +45,8 @@ def crawl(source: str, pages: int):
     crawl_idx = 0
     n_of_pages_crawled = 0
 
+    source = source_mapping[source]
+
     # we start by evaluating the page we are on: lets say we got back (0, 150, 9100)
     while n_of_pages_crawled < pages:
         r = requests.get(epa_result_page(source, str(crawl_idx)))  # Last url parameter is the index of first result
