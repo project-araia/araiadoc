@@ -16,5 +16,5 @@ $ cd climpdfgetter; pip install -e .
 Specify a source out of ``EPA``, ``NOAA``, or ``OSTI`` to ``climpdf crawl``.
 Optionally specify the number of *pages* of results.
 
-For instance ``climpdf crawl EPA 3`` will download 450 pdfs since the base EPA
-results page returns 150 results.
+For instance ``climpdf crawl EPA 3`` will download 150 pdfs since the base EPA
+results page returns 50 results.
