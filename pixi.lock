@@ -349,7 +349,7 @@ packages:
 - pypi: .
   name: climpdfgetter
   version: 0.1.0
-  sha256: 5a0e7a5dd03d803f1540c7cf89f42f2a924bc58e09385e17098281f2ecca6aee
+  sha256: 6a02bfb98e8140e405485a2f7ae2cdde74d04ec9b0db3e3aee8fe31d611f02fd
   requires_dist:
   - beautifulsoup4
   - click
