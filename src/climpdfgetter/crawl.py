@@ -1,3 +1,4 @@
+import base64
 import datetime
 import re
 from pathlib import Path
@@ -68,13 +69,52 @@ def crawl(source: str, pages: int):
         n_of_pages_crawled += 1
 
 
+@click.command()
+def advanced():
+    """Asynchronously crawl a website via crawl4ai"""
+    # TODO: Generalize this solution
+    import asyncio
+
+    from crawl4ai import AsyncWebCrawler, CacheMode
+
+    source = source_mapping["EPA"].search_base + str(0)
+    kwargs = {
+        "cache_mode": CacheMode.BYPASS,
+        "screenshot": True,
+        "screenshot_wait_for": 5.0,
+        "exclude_external_links": True,
+        "exclude_social_media_link": True,
+        "css_selector": "results",
+    }
+
+    async def main():
+        # Create an instance of AsyncWebCrawler
+        async with AsyncWebCrawler(browser_type="firefox", verbose=True) as crawler:
+            # Run the crawler on EPA search result page
+            main_result_page = await crawler.arun(url=source, **kwargs)
+            search_result_links = [
+                i
+                for i in main_result_page.links["internal"]
+                if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
+            ]
+            for doc_page in search_result_links:
+                doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
+                if doc_page_result.success and doc_page_result.screenshot:
+                    screenshot_data = base64.b64decode(doc_page_result.screenshot)
+                    with open("temp_screenshot.png", "wb") as f:
+                        f.write(screenshot_data)
+
+    # Run the async main function
+    asyncio.run(main())
+
+
 @click.group()
 def main():
     pass
 
 
 main.add_command(crawl)
-
+main.add_command(advanced)
 
 if __name__ == "__main__":
     main()
