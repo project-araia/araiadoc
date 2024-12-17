@@ -103,6 +103,8 @@ def advanced():
                     screenshot_data = base64.b64decode(doc_page_result.screenshot)
                     with open("temp_screenshot.png", "wb") as f:
                         f.write(screenshot_data)
+                    # TODO: still need to extract doc token from page url
+                    # TODO: use requests to download link0, producing doc data
 
     # Run the async main function
     asyncio.run(main())
