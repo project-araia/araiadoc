@@ -1,4 +1,3 @@
-import base64
 import datetime
 import re
 from pathlib import Path
@@ -70,41 +69,65 @@ def crawl(source: str, pages: int):
 
 
 @click.command()
-def advanced():
+@click.argument("num_docs", nargs=1, type=click.INT)
+@click.argument("start_idx", nargs=1, type=click.INT)
+def advanced(num_docs: int, start_idx: int):
     """Asynchronously crawl a website via crawl4ai"""
     # TODO: Generalize this solution
     import asyncio
 
     from crawl4ai import AsyncWebCrawler, CacheMode
 
-    source = source_mapping["EPA"].search_base + str(0)
+    headers = {"Accept-Language": "en-US"}
+
+    user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0"
+
     kwargs = {
         "cache_mode": CacheMode.BYPASS,
-        "screenshot": True,
-        "screenshot_wait_for": 5.0,
         "exclude_external_links": True,
         "exclude_social_media_link": True,
-        "css_selector": "results",
+        "magic": True,
     }
 
     async def main():
         # Create an instance of AsyncWebCrawler
-        async with AsyncWebCrawler(browser_type="firefox", verbose=True) as crawler:
+        async with AsyncWebCrawler(
+            browser_type="firefox", verbose=True, headers=headers, user_agent=user_agent, simulate_user=True
+        ) as crawler:
             # Run the crawler on EPA search result page
-            main_result_page = await crawler.arun(url=source, **kwargs)
-            search_result_links = [
-                i
-                for i in main_result_page.links["internal"]
-                if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
-            ]
-            for doc_page in search_result_links:
-                doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
-                if doc_page_result.success and doc_page_result.screenshot:
-                    screenshot_data = base64.b64decode(doc_page_result.screenshot)
-                    with open("temp_screenshot.png", "wb") as f:
-                        f.write(screenshot_data)
-                    # TODO: still need to extract doc token from page url
-                    # TODO: use requests to download link0, producing doc data
+
+            n_of_pages_crawled = start_idx  # STARTING INDEX FOR RESULTS ALSO
+
+            url_base = source_mapping["EPA"].search_base.split("/Exe")[0]  # 'https://nepis.epa.gov'
+
+            while n_of_pages_crawled < num_docs:
+
+                source = source_mapping["EPA"].search_base + str(n_of_pages_crawled)
+
+                main_result_page = await crawler.arun(url=source, **kwargs)
+                search_result_links = [
+                    i
+                    for i in main_result_page.links["internal"]
+                    if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
+                ]
+
+                path = prep_output_dir("EPA")
+
+                for doc_page in search_result_links:
+                    doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
+                    if doc_page_result.success:
+                        soup = BeautifulSoup(doc_page_result.html, "html.parser")
+                        tiff_link_base = soup.find_all(
+                            "a", title=lambda x: x and "Download this document as a multipage tiff" in x
+                        )[0]
+                        tiff_link = tiff_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
+                        main_tif_link = url_base + tiff_link
+                        r = requests.get(main_tif_link, stream=True)
+                        token = re.search(r"P[^.]+\.TIF", main_tif_link).group().split(".TIF")[0]
+                        path_to_doc = path / f"{token}.TIF"
+                        with path_to_doc.open("wb") as f:
+                            f.write(r.content)
+                    n_of_pages_crawled += 1
 
     # Run the async main function
     asyncio.run(main())
