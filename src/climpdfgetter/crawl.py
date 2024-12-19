@@ -34,56 +34,20 @@ def epa_result_page(source, idx) -> str:
 
 
 @click.command()
-@click.argument("source", nargs=1, type=click.Choice(source_mapping.keys()))
-@click.argument("pages", nargs=1, type=click.INT)
-def crawl(source: str, pages: int):
-    """Crawl a website for climate PDFs. Options are EPA, NOAA, and OSTI.
-
-    The number of pages to crawl is passed as an argument following the source.
-    """
-
-    crawl_idx = 0
-    n_of_pages_crawled = 0
-
-    source = source_mapping[source]
-
-    # we start by evaluating the page we are on: lets say we got back (0, 150, 9100)
-    while n_of_pages_crawled < pages:
-        r = requests.get(epa_result_page(source, str(crawl_idx)))  # Last url parameter is the index of first result
-        soup = BeautifulSoup(r.text, "html.parser")
-        page_start, page_end, total = epa_total_entries(soup)  # TODO: choose parser based on source
-        DOC_IDS = []
-        for line in str(soup).splitlines():
-            if source.indicator in line:
-                DOC_IDS.append(line.split(source.indicator)[-1].split(".txt")[0])
-
-        path = prep_output_dir(source.__name__)
-
-        for doc_id in DOC_IDS:
-            r = requests.get(source.pdf_base.format(doc_id, doc_id), stream=True)
-            path_to_doc = path / f"{doc_id}.PDF"
-            with path_to_doc.open("wb") as f:
-                f.write(r.content)
-            crawl_idx += 1
-        n_of_pages_crawled += 1
-
-
-@click.command()
 @click.argument("num_docs", nargs=1, type=click.INT)
 @click.argument("start_idx", nargs=1, type=click.INT)
-def advanced(num_docs: int, start_idx: int):
+def crawl(num_docs: int, start_idx: int):
     """Asynchronously crawl a website via crawl4ai"""
     # TODO: Generalize this solution
     import asyncio
 
-    from crawl4ai import AsyncWebCrawler, CacheMode
+    from crawl4ai import AsyncWebCrawler
 
     headers = {"Accept-Language": "en-US"}
 
     user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0"
 
     kwargs = {
-        "cache_mode": CacheMode.BYPASS,
         "exclude_external_links": True,
         "exclude_social_media_link": True,
         "magic": True,
@@ -139,7 +103,6 @@ def main():
 
 
 main.add_command(crawl)
-main.add_command(advanced)
 
 if __name__ == "__main__":
     main()
