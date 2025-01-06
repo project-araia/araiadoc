@@ -22,21 +22,10 @@ def prep_output_dir(name: str) -> Path:
     return path
 
 
-def epa_total_entries(soup) -> tuple[int, int, int]:  # start, end, total
-    relevant_form = soup.find_all("form")[2].text
-    range_search = tuple(re.findall(r"\d+", relevant_form))
-    return range_search
-
-
-def epa_result_page(source, idx) -> str:
-    """EPA result page obtained by modifying last url parameter. We won't assume this for other sources"""
-    return source.search_base + idx
-
-
 @click.command()
-@click.argument("num_docs", nargs=1, type=click.INT)
+@click.argument("stop_idx", nargs=1, type=click.INT)
 @click.argument("start_idx", nargs=1, type=click.INT)
-def crawl(num_docs: int, start_idx: int):
+def crawl(stop_idx: int, start_idx: int):
     """Asynchronously crawl a website via crawl4ai"""
     # TODO: Generalize this solution
     import asyncio
@@ -54,7 +43,6 @@ def crawl(num_docs: int, start_idx: int):
     }
 
     async def main():
-        # Create an instance of AsyncWebCrawler
         async with AsyncWebCrawler(
             browser_type="firefox", verbose=True, headers=headers, user_agent=user_agent, simulate_user=True
         ) as crawler:
@@ -64,7 +52,7 @@ def crawl(num_docs: int, start_idx: int):
 
             url_base = source_mapping["EPA"].search_base.split("/Exe")[0]  # 'https://nepis.epa.gov'
 
-            while n_of_pages_crawled < num_docs:
+            while n_of_pages_crawled < stop_idx:
 
                 source = source_mapping["EPA"].search_base + str(n_of_pages_crawled)
 
@@ -97,12 +85,32 @@ def crawl(num_docs: int, start_idx: int):
     asyncio.run(main())
 
 
+@click.command()
+@click.argument("source", nargs=1)
+def count(source: str):
+    """Count the number of downloaded files in the data directory from a given source."""
+    total = 0
+    data_root = Path(find_project_root()) / Path("data/")
+    for directory in data_root.iterdir():
+        if directory.is_dir() and directory.name.startswith(source):
+            total += len(list(directory.iterdir()))
+    click.echo(total)
+
+
+@click.command()
+@click.argument("source", nargs=1)
+@click.option("--from")
+def convert(source: Path, from_: str):
+    """Convert the files in a given directory ``source`` from the ``from`` format to json."""
+
+
 @click.group()
 def main():
     pass
 
 
 main.add_command(crawl)
+main.add_command(count)
 
 if __name__ == "__main__":
     main()
