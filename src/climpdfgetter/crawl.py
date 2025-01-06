@@ -82,13 +82,13 @@ def crawl(num_docs: int, start_idx: int):
                     if doc_page_result.success:
                         soup = BeautifulSoup(doc_page_result.html, "html.parser")
                         tiff_link_base = soup.find_all(
-                            "a", title=lambda x: x and "Download this document as a multipage tiff" in x
+                            "a", title=lambda x: x and "Download this document as unformatted OCR text" in x
                         )[0]
                         tiff_link = tiff_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
                         main_tif_link = url_base + tiff_link
                         r = requests.get(main_tif_link, stream=True)
-                        token = re.search(r"P[^.]+\.TIF", main_tif_link).group().split(".TIF")[0]
-                        path_to_doc = path / f"{token}.TIF"
+                        token = re.search(r"P[^.]+\.txt", main_tif_link).group().split(".txt")[0]
+                        path_to_doc = path / f"{token}.txt"
                         with path_to_doc.open("wb") as f:
                             f.write(r.content)
                     n_of_pages_crawled += 1
