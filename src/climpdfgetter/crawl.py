@@ -84,13 +84,23 @@ def crawl(stop_idx: int, start_idx: int):
 @click.command()
 @click.argument("source", nargs=1)
 def count(source: str):
-    """Count the number of downloaded files in the data directory from a given source."""
+    """Count the number of downloaded files from a given source."""
     total = 0
     data_root = Path(_find_project_root()) / Path("data/")
     for directory in data_root.iterdir():
         if directory.is_dir() and directory.name.startswith(source):
             total += len(list(directory.iterdir()))
     click.echo(total)
+    return total
+
+
+@click.command()
+@click.argument("source", nargs=1)
+@click.argument("num_docs", nargs=1)
+def resume(source: str, num_docs: int):
+    """Resume a crawl from a given source. Download ``num_docs`` additional documents."""
+    begin_index = count(source)
+    crawl(begin_index + num_docs, begin_index)
 
 
 @click.group()
@@ -100,6 +110,7 @@ def main():
 
 main.add_command(crawl)
 main.add_command(count)
+main.add_command(resume)
 main.add_command(convert)
 
 if __name__ == "__main__":
