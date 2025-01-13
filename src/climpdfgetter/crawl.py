@@ -6,18 +6,14 @@ import click
 import requests
 from bs4 import BeautifulSoup
 
+from .convert import convert
 from .sources import source_mapping
+from .utils import _find_project_root
 
 
-def find_project_root() -> str:
-    """Find the project root directory."""
-    root_dir = Path(__file__).resolve().parents[2]
-    return str(root_dir)
-
-
-def prep_output_dir(name: str) -> Path:
+def _prep_output_dir(name: str) -> Path:
     single_crawl_dir = name + "_" + datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    path = Path(find_project_root()) / Path("data/" + single_crawl_dir)
+    path = Path(_find_project_root()) / Path("data/" + single_crawl_dir)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -63,7 +59,7 @@ def crawl(stop_idx: int, start_idx: int):
                     if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
                 ]
 
-                path = prep_output_dir("EPA")
+                path = _prep_output_dir("EPA")
 
                 for doc_page in search_result_links:
                     doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
@@ -90,18 +86,11 @@ def crawl(stop_idx: int, start_idx: int):
 def count(source: str):
     """Count the number of downloaded files in the data directory from a given source."""
     total = 0
-    data_root = Path(find_project_root()) / Path("data/")
+    data_root = Path(_find_project_root()) / Path("data/")
     for directory in data_root.iterdir():
         if directory.is_dir() and directory.name.startswith(source):
             total += len(list(directory.iterdir()))
     click.echo(total)
-
-
-@click.command()
-@click.argument("source", nargs=1)
-@click.option("--from")
-def convert(source: Path, from_: str):
-    """Convert the files in a given directory ``source`` from the ``from`` format to json."""
 
 
 @click.group()
@@ -111,6 +100,7 @@ def main():
 
 main.add_command(crawl)
 main.add_command(count)
+main.add_command(convert)
 
 if __name__ == "__main__":
     main()

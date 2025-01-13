@@ -4,7 +4,7 @@ description = "Download climate report PDFs from NOAA, OSTI, and EPA"
 name = "climpdfgetter"
 requires-python = ">= 3.11"
 version = "0.1.0"
-dependencies = ["beautifulsoup4", "click", "requests", "crawl4ai>=0.4.23,<0.5"]
+dependencies = ["beautifulsoup4", "click", "requests", "docling==2.15.0"]
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
@@ -25,7 +25,9 @@ default = []
 dev = ["dev"]
 
 [tool.pixi.dependencies]
-python = ">=3.13.0,<3.14"
+python = ">=3.11.0,<3.14"
+crawl4ai = ">=0.3.73,<0.4"
+soupsieve = ">=2.5,<3"
 
 [tool.pixi.feature.dev.dependencies]
 ipdb = ">=0.13.13,<0.14"
