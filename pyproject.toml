@@ -1,10 +1,10 @@
 [project]
 authors = [{name = "jlnav", email = "jnavarro@anl.gov"}]
-description = "Download climate report PDFs from NOAA, OSTI, and EPA"
+description = "Download and convert climate report PDFs from EPA"
 name = "climpdfgetter"
-requires-python = ">= 3.11"
+requires-python = ">=3.10"
 version = "0.1.0"
-dependencies = ["beautifulsoup4", "click", "requests", "docling==2.15.0"]
+dependencies = ["beautifulsoup4", "click", "requests", "tqdm>=4.67.1,<5"]
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
@@ -22,14 +22,25 @@ climpdfgetter = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = []
-dev = ["dev"]
+dev = ["dev", "climpdf"]
+climpdf = ["climpdf"]
 
 [tool.pixi.dependencies]
-python = ">=3.11.0,<3.14"
-crawl4ai = ">=0.3.73,<0.4"
-soupsieve = ">=2.5,<3"
+python = ">=3.10.0"
 
 [tool.pixi.feature.dev.dependencies]
 ipdb = ">=0.13.13,<0.14"
 pre-commit = ">=4.0.1,<5"
 pip = ">=24.3.1,<25"
+
+[tool.pixi.feature.climpdf.dependencies]
+python = ">=3.10"
+pytorch = ">=2.5.1,<3"
+lightning = ">=2.5.0.post0,<3"
+torchvision = ">=0.20.1,<0.21"
+timm = "==0.5.4"
+crawl4ai = ">=0.3.73,<0.4"
+soupsieve = ">=2.5,<3"
+
+[dependency-groups]
+climpdf = ["nougat-ocr @ git+https://github.com/facebookresearch/nougat"]

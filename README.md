@@ -66,7 +66,7 @@ Development and package management is done with [Pixi](https://pixi.sh/latest/).
 
 Enter the development environment with:
 
-``` pixi shell -e dev```
+```pixi shell -e dev```
 
 ## Additional information
 
