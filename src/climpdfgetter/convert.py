@@ -36,7 +36,7 @@ def convert(source: Path):
         else:
             collected_input_files.append(_prep_path(directory))
 
-    click.echo("* Found", collected_input_files, " input files")
+    click.echo("* Found " + str(len(collected_input_files)) + " input files")
 
     # output_files = [
     #     Path(_find_project_root()) / Path("json") / Path(Path(i).stem + ".json")
@@ -44,9 +44,9 @@ def convert(source: Path):
     #     if i is not None
     # ]
 
-    files_to_convert_to_pdf = [i for i in collected_input_files if i.suffix.lower() != ".pdf"]
+    files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
 
-    click.echo("* Found", files_to_convert_to_pdf, " files that must first be converted to PDF")
+    click.echo("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF")
 
     success_count = 0
     fail_count = 0
@@ -59,10 +59,8 @@ def convert(source: Path):
         except ValueError:
             fail_count += 1
 
-    click.echo("* Successfully converted ", success_count, " files")
-    click.echo("* Failed to convert ", fail_count, " files")
-
-    print("collected_input_files", collected_input_files)
+    click.echo("* Successfully converted " + str(success_count) + " files")
+    click.echo("* Failed to convert " + str(fail_count) + " files")
 
     # document_converter = DocumentConverter()
     # conversion_results = document_converter.convert_all(collected_input_files, raises_on_error=False)

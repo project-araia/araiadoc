@@ -43,4 +43,4 @@ crawl4ai = ">=0.3.73,<0.4"
 soupsieve = ">=2.5,<3"
 
 [dependency-groups]
-climpdf = ["nougat-ocr @ git+https://github.com/facebookresearch/nougat"]
+climpdf = ["nougat-ocr @ git+https://github.com/facebookresearch/nougat", "text-processing-package @ git+https://github.com/nesar/pdf2json"]
