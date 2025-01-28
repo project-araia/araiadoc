@@ -20,11 +20,10 @@ def convert(source: Path):
     """
 
     from PIL import Image
+
+    # from text_processing.pdf_to_text import pdf2text, text2json
     from tqdm import tqdm
 
-    # from docling.datamodel.base_models import ConversionStatus
-    # from docling.document_converter import DocumentConverter
-    # either take a directory, or list of directories each containing files to convert
     data_root = Path(source)
 
     collected_input_files = []
@@ -38,29 +37,28 @@ def convert(source: Path):
 
     click.echo("* Found " + str(len(collected_input_files)) + " input files")
 
-    # output_files = [
-    #     Path(_find_project_root()) / Path("json") / Path(Path(i).stem + ".json")
-    #     for i in collected_input_files
-    #     if i is not None
-    # ]
-
     files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
 
-    click.echo("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF")
+    if len(files_to_convert_to_pdf):
+
+        click.echo("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
+
+        success_count = 0
+        fail_count = 0
+
+        for i in tqdm(files_to_convert_to_pdf):
+            try:
+                Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
+                collected_input_files.append(i.with_suffix(".pdf"))
+                success_count += 1
+            except ValueError:
+                fail_count += 1
+
+        click.echo("* Successfully converted " + str(success_count) + " files to PDF.")
+        click.echo("* Failed to convert " + str(fail_count) + " files to PDF.")
 
     success_count = 0
     fail_count = 0
-
-    for i in tqdm(files_to_convert_to_pdf):
-        try:
-            Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
-            collected_input_files.append(i.with_suffix(".pdf"))
-            success_count += 1
-        except ValueError:
-            fail_count += 1
-
-    click.echo("* Successfully converted " + str(success_count) + " files")
-    click.echo("* Failed to convert " + str(fail_count) + " files")
 
     # document_converter = DocumentConverter()
     # conversion_results = document_converter.convert_all(collected_input_files, raises_on_error=False)
