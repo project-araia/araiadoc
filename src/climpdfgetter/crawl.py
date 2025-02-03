@@ -26,21 +26,24 @@ def crawl(stop_idx: int, start_idx: int):
     # TODO: Generalize this solution
     import asyncio
 
-    from crawl4ai import AsyncWebCrawler
+    from crawl4ai import AsyncWebCrawler, BrowserConfig  # , CrawlerRunConfig
 
-    headers = {"Accept-Language": "en-US"}
-
-    user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0"
+    browser_config = BrowserConfig(
+        browser_type="firefox",
+        headless=False,
+        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+        use_persistent_context=True,
+        user_data_dir=str(Path(_find_project_root()) / Path("data/browser_data")),
+        headers={"Accept-Language": "en-US"},
+    )
 
     kwargs = {
-        "exclude_external_links": True,
-        "exclude_social_media_link": True,
         "magic": True,
     }
 
     async def main():
         async with AsyncWebCrawler(
-            browser_type="firefox", verbose=True, headers=headers, user_agent=user_agent, simulate_user=True
+            config=browser_config,
         ) as crawler:
             # Run the crawler on EPA search result page
 
@@ -94,13 +97,13 @@ def count(source: str):
     return total
 
 
-@click.command()
-@click.argument("source", nargs=1)
-@click.argument("num_docs", nargs=1)
-def resume(source: str, num_docs: int):
-    """Resume a crawl from a given source. Download ``num_docs`` additional documents."""
-    begin_index = count(source)
-    crawl(begin_index + num_docs, begin_index)
+# @click.command()
+# @click.argument("source", nargs=1)
+# @click.argument("num_docs", nargs=1)
+# def resume(source: str, num_docs: int):
+#     """Resume a crawl from a given source. Download ``num_docs`` additional documents."""
+#     begin_index = count(source)
+#     crawl(begin_index + num_docs, begin_index)
 
 
 @click.group()
@@ -110,7 +113,7 @@ def main():
 
 main.add_command(crawl)
 main.add_command(count)
-main.add_command(resume)
+# main.add_command(resume)
 main.add_command(convert)
 
 if __name__ == "__main__":
