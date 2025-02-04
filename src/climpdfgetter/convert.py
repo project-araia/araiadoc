@@ -20,8 +20,7 @@ def convert(source: Path):
     """
 
     from PIL import Image
-
-    # from text_processing.pdf_to_text import pdf2text, text2json
+    from text_processing.pdf_to_text import pdf2text, text2json
     from tqdm import tqdm
 
     data_root = Path(source)
@@ -35,7 +34,7 @@ def convert(source: Path):
         else:
             collected_input_files.append(_prep_path(directory))
 
-    click.echo("* Found " + str(len(collected_input_files)) + " input files")
+    click.echo("* Found " + str(len(collected_input_files)) + " input files. Cleaning ineligible ones.")
 
     files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
 
@@ -54,25 +53,28 @@ def convert(source: Path):
             except ValueError:
                 fail_count += 1
 
-        click.echo("* Successfully converted " + str(success_count) + " files to PDF.")
-        click.echo("* Failed to convert " + str(fail_count) + " files to PDF.")
+        click.echo("* Conversion of files to PDF:")
+        click.echo("* Successes: " + str(success_count))
+        click.echo("* Failures: " + str(fail_count))
 
     success_count = 0
     fail_count = 0
 
-    # document_converter = DocumentConverter()
-    # conversion_results = document_converter.convert_all(collected_input_files, raises_on_error=False)
-    # success_count = 0
-    # fail_count = 0
-    # output_files[0].parent.mkdir(parents=True, exist_ok=True)  # make output data directory
-    # for i, result in enumerate(conversion_results):
-    #     out_path = output_files[i]
-    #     if result.status == ConversionStatus.SUCCESS:
-    #         success_count += 1
-    #         with open(out_path, "w") as f:
-    #             f.write(json.dumps(result.document.export_to_dict()))
-    #     else:
-    #         fail_count += 1
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
 
-    click.echo(f"Success count: {success_count}")
-    click.echo(f"Fail count: {fail_count}")
+    for i in tqdm(collected_input_files):
+        try:
+            output_text = pdf2text(str(i))
+            output_dir = Path(str(i.parent) + "_json")
+            output_file = output_dir / i.stem
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            text2json(output_text, str(output_file))
+            success_count += 1
+        except Exception as e:
+            click.echo("Failure while converting " + str(i) + ": " + e)
+            fail_count += 1
+            continue
+
+    click.echo("* Conversion of PDFs to json:")
+    click.echo("* Successes: " + str(success_count))
+    click.echo("* Failures: " + str(fail_count))
