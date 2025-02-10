@@ -6,7 +6,7 @@ import click
 import requests
 from bs4 import BeautifulSoup
 
-from .convert import convert
+from .convert import convert, ocr2json
 from .sources import source_mapping
 from .utils import _find_project_root
 
@@ -68,16 +68,23 @@ def crawl(stop_idx: int, start_idx: int):
                     doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
                     if doc_page_result.success:
                         soup = BeautifulSoup(doc_page_result.html, "html.parser")
-                        tiff_link_base = soup.find_all(
+
+                        # We get document as text first, since this contains the most metadata
+                        text_link_base = soup.find_all(
                             "a", title=lambda x: x and "Download this document as unformatted OCR text" in x
                         )[0]
-                        tiff_link = tiff_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
-                        main_tif_link = url_base + tiff_link
-                        r = requests.get(main_tif_link, stream=True)
-                        token = re.search(r"P[^.]+\.txt", main_tif_link).group().split(".txt")[0]
+
+                        text_link = text_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
+                        main_text_link = url_base + text_link
+                        r = requests.get(main_text_link, stream=True)
+
+                        token = re.search(r"P[^.]+\.txt", main_text_link).group().split(".txt")[0]
                         path_to_doc = path / f"{token}.txt"
                         with path_to_doc.open("wb") as f:
                             f.write(r.content)
+
+                        # We try obtaining the document as pdf or tiff, if possible
+
                     n_of_pages_crawled += 1
 
     # Run the async main function
@@ -115,6 +122,7 @@ main.add_command(crawl)
 main.add_command(count)
 # main.add_command(resume)
 main.add_command(convert)
+main.add_command(ocr2json)
 
 if __name__ == "__main__":
     main()

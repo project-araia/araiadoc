@@ -2,14 +2,28 @@
 from pathlib import Path
 
 import click
+from tqdm import tqdm
+import json
 
-# from .utils import _find_project_root
-
+from .schema import ParsedDocumentSchema
 
 def _prep_path(item: Path):
     if item.is_file() and not item.name.startswith("."):  # avoid .DS_store and other files
         return Path(item)
 
+
+def _collect_from_path(path: Path):
+
+    collected_input_files = []
+
+    for directory in data_root.iterdir():
+        if directory.is_dir():
+            for item in directory.iterdir():
+                collected_input_files.append(_prep_path(item))
+        else:
+            collected_input_files.append(_prep_path(directory))
+
+    return collected_input_files
 
 @click.command()
 @click.argument("source", nargs=1)
@@ -21,20 +35,10 @@ def convert(source: Path):
 
     from PIL import Image
     from text_processing.pdf_to_text import pdf2text, text2json
-    from tqdm import tqdm
 
-    data_root = Path(source)
+    collected_input_files = _collect_from_path(Path(source))
 
-    collected_input_files = []
-
-    for directory in data_root.iterdir():
-        if directory.is_dir():
-            for item in directory.iterdir():
-                collected_input_files.append(_prep_path(item))
-        else:
-            collected_input_files.append(_prep_path(directory))
-
-    click.echo("* Found " + str(len(collected_input_files)) + " input files. Cleaning ineligible ones.")
+    click.echo("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
 
     files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
 
@@ -78,3 +82,29 @@ def convert(source: Path):
     click.echo("* Conversion of PDFs to json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
+
+@click.command()
+@click.argument("source", nargs=1)
+def epa_ocr2json(source: Path):
+    """ Convert EPA's OCR fulltext to similar json format as output from pdf2json """
+
+    from text_processing.pdf_to_text import text2json
+
+    collected_input_files = _collect_from_path(Path(source))
+
+    click.echo("* Found " + str(len(collected_input_files)) + " input text files. Cleaning ineligible ones.")
+
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".txt"]
+
+    for i in tqdm(collected_input_files):
+        pass
+
+
+
+def init_pdf2json_to_parsed_doc(pdf2json: dict) -> ParsedDocumentSchema:
+
+    base_text_list = [instance["text"] for instance in pdf2json["instances"]]
+
+    return ParsedDocumentSchema(
+        text=base_text_list,
+    )
