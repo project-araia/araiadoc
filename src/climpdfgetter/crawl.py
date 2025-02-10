@@ -6,7 +6,7 @@ import click
 import requests
 from bs4 import BeautifulSoup
 
-from .convert import convert, ocr2json
+from .convert import convert, epaocr2json
 from .sources import source_mapping
 from .utils import _find_project_root
 
@@ -122,7 +122,7 @@ main.add_command(crawl)
 main.add_command(count)
 # main.add_command(resume)
 main.add_command(convert)
-main.add_command(ocr2json)
+main.add_command(epaocr2json)
 
 if __name__ == "__main__":
     main()

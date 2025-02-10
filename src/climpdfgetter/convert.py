@@ -1,6 +1,7 @@
 # import json
 from pathlib import Path
 
+import re
 import click
 from tqdm import tqdm
 import json
@@ -16,7 +17,7 @@ def _collect_from_path(path: Path):
 
     collected_input_files = []
 
-    for directory in data_root.iterdir():
+    for directory in path.iterdir():
         if directory.is_dir():
             for item in directory.iterdir():
                 collected_input_files.append(_prep_path(item))
@@ -85,7 +86,7 @@ def convert(source: Path):
 
 @click.command()
 @click.argument("source", nargs=1)
-def epa_ocr2json(source: Path):
+def epaocr2json(source: Path):
     """ Convert EPA's OCR fulltext to similar json format as output from pdf2json """
 
     from text_processing.pdf_to_text import text2json
@@ -94,12 +95,18 @@ def epa_ocr2json(source: Path):
 
     click.echo("* Found " + str(len(collected_input_files)) + " input text files. Cleaning ineligible ones.")
 
-    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".txt"]
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".txt"]
+
+    import ipdb; ipdb.set_trace()
 
     for i in tqdm(collected_input_files):
-        pass
-
-
+        with open(i, "r") as f:
+            full_text = f.read()
+            title = re.findall("<title>(.*?)</title>", full_text)[0]
+            year = re.findall("<pubyear>(.*?)</pubyear>", full_text)[0]
+            authors = re.findall("<author>(.*?)</author>", full_text)
+            abstract = re.findall("<abstract>(.*?)</abstract>", full_text)[0]
+            
 
 def init_pdf2json_to_parsed_doc(pdf2json: dict) -> ParsedDocumentSchema:
 
