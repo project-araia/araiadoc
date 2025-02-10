@@ -5,7 +5,7 @@ Download and convert climate pdfs from EPA and (in the future) other sources.
 ## Installation
 
 ```
-$ git clone https://github.com/jlnav/climpdfgetter.git
+$ git clone https://git-out.gss.anl.gov/callm/climpdfgetter.git
 $ cd climpdfgetter; pip install -e .
 ```
 
@@ -15,11 +15,11 @@ $ cd climpdfgetter; pip install -e .
 
 ```Usage: climpdf crawl [OPTIONS] STOP_IDX START_IDX```
 
-Specify a source out of ``EPA``, ``NOAA``, or ``OSTI`` to ``climpdf crawl``. Then specify
+Specify a source out of ``EPA``, (future: ``NOAA``, or ``OSTI``) to ``climpdf crawl``. Then specify
 the *stop index* and *start index* out of the search results. For instance, to download
 the first hundred documents:
 
-```climpdf crawl 100 0```
+```climpdf crawl EPA 100 0```
 
 ### Counting results
 
@@ -76,4 +76,5 @@ Enter the development environment with:
 library. Downloads are at "human speeds" to try avoiding being blocked
 or rate-limited.
 
-- [docling](https://ds4sd.github.io/docling/) as its document conversion engine.
+- [pdf2json](https://github.com/nesar/pdf2json/), via [nougat](https://github.com/facebookresearch/nougat),
+as its document-conversion engine.
