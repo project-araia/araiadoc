@@ -32,6 +32,7 @@ python = ">=3.10.0"
 ipdb = ">=0.13.13,<0.14"
 pre-commit = ">=4.0.1,<5"
 pip = ">=24.3.1,<25"
+black = ">=25.1.0,<26"
 
 [tool.pixi.feature.climpdf.dependencies]
 python = ">=3.10"

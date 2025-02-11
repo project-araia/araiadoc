@@ -9,3 +9,4 @@ class ParsedDocumentSchema(BaseModel):
     origin_format: str = ""
     publisher: str = ""
     year: int = 0
+    unique_id: str = ""
