@@ -270,12 +270,3 @@ def epa_ocr_to_json(source: Path):
     click.echo("* Conversion of EPA OCR text to json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
-
-
-def init_pdf2json_to_parsed_doc(pdf2json: dict) -> ParsedDocumentSchema:
-
-    base_text_list = [instance["text"] for instance in pdf2json["instances"]]
-
-    return ParsedDocumentSchema(
-        text=base_text_list,
-    )

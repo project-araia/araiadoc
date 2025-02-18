@@ -26,22 +26,31 @@ def crawl(stop_idx: int, start_idx: int):
     # TODO: Generalize this solution
     import asyncio
 
-    from crawl4ai import AsyncWebCrawler, BrowserConfig  # , CrawlerRunConfig
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
     browser_config = BrowserConfig(
-        browser_type="firefox",
+        browser_type="chromium",
         headless=False,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         use_persistent_context=True,
         user_data_dir=str(Path(_find_project_root()) / Path("data/browser_data")),
         headers={"Accept-Language": "en-US"},
+        verbose=True,
     )
 
-    kwargs = {
-        "magic": True,
-    }
+    run_config = CrawlerRunConfig(
+        exclude_external_links=True,
+        remove_overlay_elements=True,
+        simulate_user=True,
+        magic=True,
+        wait_for_images=True,
+        wait_for="js:() => document.getElementById('results_header').offsetParent !== null"
+    )
+
+    doc_run_config = run_config.clone(wait_for="js:() => document.getElementById('pageDisplay').offsetParent !== null")
 
     async def main():
+
         async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
@@ -55,7 +64,8 @@ def crawl(stop_idx: int, start_idx: int):
 
                 source = source_mapping["EPA"].search_base + str(n_of_pages_crawled)
 
-                main_result_page = await crawler.arun(url=source, **kwargs)
+                main_result_page = await crawler.arun(url=source, config=run_config)
+
                 search_result_links = [
                     i
                     for i in main_result_page.links["internal"]
@@ -65,7 +75,7 @@ def crawl(stop_idx: int, start_idx: int):
                 path = _prep_output_dir("EPA")
 
                 for doc_page in search_result_links:
-                    doc_page_result = await crawler.arun(url=doc_page["href"], **kwargs)
+                    doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
                     if doc_page_result.success:
                         soup = BeautifulSoup(doc_page_result.html, "html.parser")
 
