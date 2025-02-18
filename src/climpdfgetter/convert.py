@@ -89,6 +89,8 @@ def convert(source: Path):
         i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"
     ]
 
+    output_files = []
+
     for i in tqdm(collected_input_files):
         try:
             output_text = pdf2text(str(i))
@@ -96,6 +98,7 @@ def convert(source: Path):
             output_file = output_dir / i.stem
             output_file.parent.mkdir(parents=True, exist_ok=True)
             text2json(output_text, str(output_file))
+            output_files.append(output_file)
             success_count += 1
         except Exception as e:
             click.echo("Failure while converting " + str(i) + ": " + str(e))
@@ -103,6 +106,32 @@ def convert(source: Path):
             continue
 
     click.echo("* Conversion of PDFs to json:")
+    click.echo("* Successes: " + str(success_count))
+    click.echo("* Failures: " + str(fail_count))
+    click.echo("* Entering json postprocessing step")
+
+    output_files = [i.with_suffix(".json") for i in output_files if i.is_file()]
+
+    success_count = 0
+    fail_count = 0
+
+    for i in tqdm(output_files):
+        try:
+            with open(i, "rw") as f:
+                json_data = json.load(f)
+                base_text_list = [instance["text"] for instance in json_data["instances"]]
+                representation = ParsedDocumentSchema(
+                    source="EPA",
+                    text=base_text_list,
+                )
+                json.dump(representation.model_dump(mode="json"), f)
+            success_count += 1
+        except Exception as e:
+            click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
+            fail_count += 1
+            continue
+
+    click.echo("* Postprocessing of json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
 
@@ -146,7 +175,7 @@ def _strip_sequential_nonalphanumeric(text: str):
 
 @click.command()
 @click.argument("source", nargs=1)
-def epaocr2json(source: Path):
+def epa_ocr_to_json(source: Path):
     """Convert EPA's OCR fulltext to similar json format as output from pdf2json"""
 
     from bs4 import BeautifulSoup
