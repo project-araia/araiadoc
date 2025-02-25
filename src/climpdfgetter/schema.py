@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class ParsedDocumentSchema(BaseModel):
     source: str = ""
     title: str = ""

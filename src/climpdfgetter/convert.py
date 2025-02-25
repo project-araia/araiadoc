@@ -119,7 +119,9 @@ def convert(source: Path):
         try:
             with open(i, "rw") as f:
                 json_data = json.load(f)
-                base_text_list = [instance["text"] for instance in json_data["instances"]]
+                base_text_list = [
+                    instance["text"] for instance in json_data["instances"]
+                ]
                 representation = ParsedDocumentSchema(
                     source="EPA",
                     text=base_text_list,
@@ -173,6 +175,16 @@ def _strip_sequential_nonalphanumeric(text: str):
     return text
 
 
+import signal
+
+
+def timeout_handler(signum, frame):
+    raise TimeoutError()
+
+
+signal.signal(signal.SIGALRM, timeout_handler)
+
+
 @click.command()
 @click.argument("source", nargs=1)
 def epa_ocr_to_json(source: Path):
@@ -182,11 +194,7 @@ def epa_ocr_to_json(source: Path):
 
     collected_input_files = _collect_from_path(Path(source))
 
-    click.echo(
-        "* Found "
-        + str(len(collected_input_files))
-        + " input text files. Cleaning ineligible ones."
-    )
+    click.echo("* Found " + str(len(collected_input_files)) + " input text files.")
 
     success_count = 0
     fail_count = 0
@@ -195,8 +203,10 @@ def epa_ocr_to_json(source: Path):
         i for i in collected_input_files if i is not None and i.suffix.lower() == ".txt"
     ]
 
-    for i in tqdm(collected_input_files):
+    click.echo("* Beginning Conversion:")
 
+    for i in tqdm(collected_input_files):
+        signal.alarm(60)
         try:
 
             with open(i, "rb") as f:
@@ -262,10 +272,20 @@ def epa_ocr_to_json(source: Path):
                 json.dump(representation.model_dump(mode="json"), f)
             success_count += 1
 
-        except Exception as e:
-            click.echo("Failure while converting " + str(i) + ": " + str(e))
+        except KeyboardInterrupt:
+            click.echo("Skipping current document: " + str(i))
             fail_count += 1
             continue
+        except TimeoutError:
+            click.echo("Timeout while converting: " + str(i) + ". Skipping.")
+            fail_count += 1
+            continue
+        except Exception as e:
+            click.echo("Failure while converting: " + str(i) + ": " + str(e))
+            fail_count += 1
+            continue
+        finally:
+            signal.alarm(0)
 
     click.echo("* Conversion of EPA OCR text to json:")
     click.echo("* Successes: " + str(success_count))

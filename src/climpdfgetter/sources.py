@@ -7,11 +7,13 @@ class Source:
 
 
 class OSTI(Source):
-    search_base = "https://www.osti.gov/search/term:climate/availability:fulltext"
+    search_base = "https://www.osti.gov/search/availability:fulltext/term:climate wildfire/publish-date-start:01/01/2005/product-type:Journal%20Article,%20Technical%20Report:"
 
 
 class NOAA(Source):
-    search_base = "https://repository.library.noaa.gov/cbrowse?pid=noaa%3A9&parentId=noaa%3A9"
+    search_base = (
+        "https://repository.library.noaa.gov/cbrowse?pid=noaa%3A9&parentId=noaa%3A9"
+    )
 
 
 class EPA(Source):
