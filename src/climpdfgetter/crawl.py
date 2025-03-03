@@ -1,4 +1,3 @@
-import datetime
 import re
 from pathlib import Path
 
@@ -9,16 +8,7 @@ from bs4 import BeautifulSoup
 
 from .convert import convert, epa_ocr_to_json
 from .sources import source_mapping
-from .utils import _find_project_root
-
-
-def _prep_output_dir(name: str) -> Path:
-    single_crawl_dir = (
-        name + "_" + datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    )
-    path = Path(_find_project_root()) / Path("data/" + single_crawl_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+from .utils import _find_project_root, _prep_output_dir
 
 
 @click.command()
@@ -50,10 +40,6 @@ def crawl_epa(stop_idx: int, start_idx: int):
         wait_for="js:() => document.getElementById('results_header').offsetParent !== null",
     )
 
-    doc_run_config = run_config.clone(
-        wait_for="js:() => document.getElementById('pageDisplay').offsetParent !== null"
-    )
-
     async def main_epa():
 
         async with AsyncWebCrawler(
@@ -63,9 +49,7 @@ def crawl_epa(stop_idx: int, start_idx: int):
 
             n_of_pages_crawled = start_idx  # STARTING INDEX FOR RESULTS ALSO
 
-            url_base = source_mapping["EPA"].search_base.split("/Exe")[
-                0
-            ]  # 'https://nepis.epa.gov'
+            url_base = source_mapping["EPA"].search_base.split("/Exe")[0]  # 'https://nepis.epa.gov'
 
             while n_of_pages_crawled < stop_idx:
 
@@ -82,30 +66,21 @@ def crawl_epa(stop_idx: int, start_idx: int):
                 path = _prep_output_dir("EPA")
 
                 for doc_page in search_result_links:
-                    doc_page_result = await crawler.arun(
-                        url=doc_page["href"], config=run_config
-                    )
+                    doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
                     if doc_page_result.success:
                         soup = BeautifulSoup(doc_page_result.html, "html.parser")
 
                         # We get document as text first, since this contains the most metadata
                         text_link_base = soup.find_all(
                             "a",
-                            title=lambda x: x
-                            and "Download this document as unformatted OCR text" in x,
+                            title=lambda x: x and "Download this document as unformatted OCR text" in x,
                         )[0]
 
-                        text_link = text_link_base.get("onclick").split("'")[
-                            1
-                        ]  # necessary link hidden within js
+                        text_link = text_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
                         main_text_link = url_base + text_link
                         r = requests.get(main_text_link, stream=True)
 
-                        token = (
-                            re.search(r"P[^.]+\.txt", main_text_link)
-                            .group()
-                            .split(".txt")[0]
-                        )
+                        token = re.search(r"P[^.]+\.txt", main_text_link).group().split(".txt")[0]
                         path_to_doc = path / f"{token}.txt"
                         with path_to_doc.open("wb") as f:
                             f.write(r.content)
@@ -146,14 +121,15 @@ def crawl_osti(stop_page: int, start_page: int):
     )
 
     presumptive_num_docs = (stop_page - start_page) * 10
-    n_successful_crawls = 0
-    n_failed_crawls = 0
 
     click.echo("* Crawling OSTI")
     click.echo("* Starting from page " + str(start_page) + " to page " + str(stop_page))
     click.echo("* Presumptive number of documents: " + str(presumptive_num_docs))
 
     async def main_osti():
+
+        n_successful_crawls = 0
+        n_failed_crawls = 0
 
         async with AsyncWebCrawler(
             config=browser_config,
@@ -163,53 +139,35 @@ def crawl_osti(stop_page: int, start_page: int):
 
             url_base = "https://www.osti.gov/biblio/"
 
-            n_docs_downloaded = 0
-
             while n_of_result_pages_crawled < stop_page:
 
-                source = source_mapping["OSTI"].search_base + str(
-                    n_of_result_pages_crawled
-                )
+                source = source_mapping["OSTI"].search_base + str(n_of_result_pages_crawled)
 
                 main_result_page = await crawler.arun(url=source, config=run_config)
 
-                search_result_links = [
-                    i
-                    for i in main_result_page.links["internal"]
-                    if i["href"].startswith(url_base)
-                ]
+                search_result_links = [i for i in main_result_page.links["internal"] if i["href"].startswith(url_base)]
 
                 path = _prep_output_dir("OSTI")
 
                 for doc_page in tqdm(search_result_links):
-                    doc_page_result = await crawler.arun(
-                        url=doc_page["href"], config=run_config
-                    )
+                    doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
                     if doc_page_result.success:
                         soup = BeautifulSoup(doc_page_result.html, "html.parser")
 
                         internal_titles = soup.find_all(
                             "a",
-                            title=lambda x: x
-                            and "View Technical Report"
-                            or "View Accepted Manuscript (DOE)" in x,
+                            title=lambda x: x and "View Technical Report" or "View Accepted Manuscript (DOE)" in x,
                         )[0]
 
-                        external_titles = soup.find_all(
-                            "a", title=lambda x: x and "View Journal Article" in x
-                        )[0]
+                        external_titles = soup.find_all("a", title=lambda x: x and "View Journal Article" in x)[0]
 
-                        skip_titles = soup.find_all(
-                            "a", title=lambda x: x and "View Dataset" in x
-                        )[0]
+                        skip_titles = soup.find_all("a", title=lambda x: x and "View Dataset" in x)[0]
 
                         if len(skip_titles):
                             n_failed_crawls += 1
                             continue
 
-                        token = doc_page["href"].split(url_base)[
-                            0
-                        ]  # https://www.osti.gov/pages/biblio/2387003
+                        token = doc_page["href"].split(url_base)[0]  # https://www.osti.gov/pages/biblio/2387003
 
                         if len(internal_titles):
                             # reliably grab internal download
@@ -222,14 +180,10 @@ def crawl_osti(stop_page: int, start_page: int):
                         elif len(external_titles):
                             # do our best to download pdfs from external link - if those links end in .pdf
                             text_link = external_titles.get("href")
-                            external_page = await crawler.arun(
-                                url=text_link, config=run_config
-                            )
+                            external_page = await crawler.arun(url=text_link, config=run_config)
                             if external_page.success:
                                 soup = BeautifulSoup(external_page.html, "html.parser")
-                                pdf_links = soup.find_all(
-                                    "a", title=lambda x: x and x.endswith(".pdf")
-                                )
+                                pdf_links = soup.find_all("a", title=lambda x: x and x.endswith(".pdf"))
                                 for i, link in enumerate(pdf_links):
                                     r = requests.get(link.get("href"), stream=True)
                                     path_to_doc = path / f"{token}_{i}.pdf"
@@ -249,7 +203,7 @@ def crawl_osti(stop_page: int, start_page: int):
                 n_of_result_pages_crawled += 1
 
     # Run the async main function
-    asyncio.run(main_epa())
+    asyncio.run(main_osti())
 
 
 @click.command()

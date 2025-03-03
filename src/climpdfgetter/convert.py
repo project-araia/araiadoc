@@ -1,37 +1,22 @@
-# import json
+import json
+import re
+import signal
 from pathlib import Path
 
-import re
-import click
-from tqdm import tqdm
-import json
 import chardet
+import click
+from bs4 import BeautifulSoup
+from PIL import Image
+from tqdm import tqdm
 
 from .schema import ParsedDocumentSchema
-
-# regex from https://www.geeksforgeeks.org/python-check-url-string/ - cant answer any questions about it :)
-URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
-
-
-def _prep_path(item: Path):
-    if item.is_file() and not item.name.startswith(
-        "."
-    ):  # avoid .DS_store and other files
-        return Path(item)
-
-
-def _collect_from_path(path: Path):
-
-    collected_input_files = []
-
-    for directory in path.iterdir():
-        if directory.is_dir():
-            for item in directory.iterdir():
-                collected_input_files.append(_prep_path(item))
-        else:
-            collected_input_files.append(_prep_path(directory))
-
-    return collected_input_files
+from .utils import (
+    _collect_from_path,
+    _is_url_dominant,
+    _strip_phone_numbers,
+    _strip_sequential_nonalphanumeric,
+    _strip_urls,
+)
 
 
 @click.command()
@@ -42,37 +27,25 @@ def convert(source: Path):
     they'll first be converted to PDF.
     """
 
-    from PIL import Image
-    from text_processing.pdf_to_text import pdf2text, text2json
+    # import this here since it's a heavy dependency - we don't want to import it if we don't need to
+    from text_processing.pdf_to_text import pdf2text, text2json  # noqa
 
     collected_input_files = _collect_from_path(Path(source))
 
-    click.echo(
-        "* Found "
-        + str(len(collected_input_files))
-        + " input pdf files. Cleaning ineligible ones."
-    )
+    click.echo("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
 
-    files_to_convert_to_pdf = [
-        i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"
-    ]
+    files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
 
     if len(files_to_convert_to_pdf):
 
-        click.echo(
-            "* Found "
-            + str(len(files_to_convert_to_pdf))
-            + " files that must first be converted to PDF."
-        )
+        click.echo("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
 
         success_count = 0
         fail_count = 0
 
         for i in tqdm(files_to_convert_to_pdf):
             try:
-                Image.open(i).save(
-                    i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100
-                )
+                Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
                 collected_input_files.append(i.with_suffix(".pdf"))
                 success_count += 1
             except ValueError:
@@ -85,9 +58,7 @@ def convert(source: Path):
     success_count = 0
     fail_count = 0
 
-    collected_input_files = [
-        i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"
-    ]
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
 
     output_files = []
 
@@ -119,9 +90,7 @@ def convert(source: Path):
         try:
             with open(i, "rw") as f:
                 json_data = json.load(f)
-                base_text_list = [
-                    instance["text"] for instance in json_data["instances"]
-                ]
+                base_text_list = [instance["text"] for instance in json_data["instances"]]
                 representation = ParsedDocumentSchema(
                     source="EPA",
                     text=base_text_list,
@@ -138,46 +107,6 @@ def convert(source: Path):
     click.echo("* Failures: " + str(fail_count))
 
 
-def _is_url_dominant(text: str):
-    """if more than a third of the characters in the subsection belong to URLs, return True"""
-    all_urls = re.findall(URL_RE, text)
-    all_urls_chars = "".join([i[0] for i in all_urls])
-    if len(all_urls_chars) > len(text) / 3:
-        return True
-    return False
-
-
-def _strip_urls(text: str):
-    """remove URLs from text"""
-    all_urls = re.findall(URL_RE, text)
-    all_urls = [i[0] for i in all_urls]
-    for i in all_urls:
-        text = text.replace(i, "")
-    return text
-
-
-def _strip_phone_numbers(text: str):
-    """remove phone numbers from text"""
-    all_phone_numbers = re.findall(
-        r"(\d{3}[-.]?\d{3}[-.]?\d{4}|\(\d{3}\)\s*\d{3}[-.]?\d{4}|\d{3}[-.]?\d{4})",
-        text,
-    )
-    for i in all_phone_numbers:
-        text = text.replace(i, "")
-    return text
-
-
-def _strip_sequential_nonalphanumeric(text: str):
-    """remove groups of 3+ consecutive non-alphanumeric characters from text"""
-    all_groups = re.findall("[^a-zA-Z0-9]{3,}", text)
-    for i in all_groups:
-        text = text.replace(i, " ")
-    return text
-
-
-import signal
-
-
 def timeout_handler(signum, frame):
     raise TimeoutError()
 
@@ -190,8 +119,6 @@ signal.signal(signal.SIGALRM, timeout_handler)
 def epa_ocr_to_json(source: Path):
     """Convert EPA's OCR fulltext to similar json format as output from pdf2json"""
 
-    from bs4 import BeautifulSoup
-
     collected_input_files = _collect_from_path(Path(source))
 
     click.echo("* Found " + str(len(collected_input_files)) + " input text files.")
@@ -199,9 +126,7 @@ def epa_ocr_to_json(source: Path):
     success_count = 0
     fail_count = 0
 
-    collected_input_files = [
-        i for i in collected_input_files if i is not None and i.suffix.lower() == ".txt"
-    ]
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".txt"]
 
     click.echo("* Beginning Conversion:")
 
@@ -246,9 +171,7 @@ def epa_ocr_to_json(source: Path):
                         cleaned_subsections.append(cached_section)
                         cached_section = ""
 
-            cleaned_subsections.append(
-                cleaned
-            )  # append last section, since it doesn't have a continuation
+            cleaned_subsections.append(cleaned)  # append last section, since it doesn't have a continuation
 
             # remove pubnumber from first section
             cleaned_subsections[0] = cleaned_subsections[0].replace(pubnumber, "")
