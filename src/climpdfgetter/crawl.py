@@ -7,6 +7,8 @@ import tqdm
 from bs4 import BeautifulSoup
 
 from .convert import convert, epa_ocr_to_json
+
+# from .searches import RESILIENCE_SEARCHES, YEAR_RANGES
 from .sources import source_mapping
 from .utils import _find_project_root, _prep_output_dir
 
@@ -15,7 +17,7 @@ from .utils import _find_project_root, _prep_output_dir
 @click.argument("stop_idx", nargs=1, type=click.INT)
 @click.argument("start_idx", nargs=1, type=click.INT)
 def crawl_epa(stop_idx: int, start_idx: int):
-    """Asynchronously crawl a website via crawl4ai"""
+    """Asynchronously crawl EPA result pages"""
     # TODO: Generalize this solution
     import asyncio
 
@@ -94,20 +96,25 @@ def crawl_epa(stop_idx: int, start_idx: int):
 
 
 @click.command()
-@click.argument("stop_page", nargs=1, type=click.INT)
-@click.argument("start_page", nargs=1, type=click.INT)
-def crawl_osti(stop_page: int, start_page: int):
+@click.argument("search_term", nargs=1, type=click.STRING)
+@click.argument("start_year", nargs=1, type=click.INT)
+@click.argument("stop_year", nargs=1, type=click.INT)
+def crawl_osti(search_term: str, start_year: int, stop_year: int):
     """Asynchronously crawl OSTI result pages"""
     import asyncio
 
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
+    assert start_year <= stop_year
+    assert stop_year <= 2025
+    assert start_year >= 2000
+
     browser_config = BrowserConfig(
-        browser_type="chromium",
-        headless=False,
+        browser_type="firefox",
+        headless=True,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         use_persistent_context=True,
-        user_data_dir=str(Path(_find_project_root()) / Path("data/browser_data")),
+        user_data_dir=str(Path(_find_project_root()) / Path("browser_data")),
         headers={"Accept-Language": "en-US"},
         verbose=True,
     )
@@ -120,11 +127,9 @@ def crawl_osti(stop_page: int, start_page: int):
         wait_for_images=True,
     )
 
-    presumptive_num_docs = (stop_page - start_page) * 10
-
     click.echo("* Crawling OSTI")
-    click.echo("* Starting from page " + str(start_page) + " to page " + str(stop_page))
-    click.echo("* Presumptive number of documents: " + str(presumptive_num_docs))
+    click.echo("* Searching for: " + search_term)
+    click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
 
     async def main_osti():
 
@@ -135,11 +140,28 @@ def crawl_osti(stop_page: int, start_page: int):
             config=browser_config,
         ) as crawler:
 
-            n_of_result_pages_crawled = start_page  # STARTING INDEX FOR RESULTS ALSO
+            click.echo("* Calculating starting URL")
 
-            url_base = "https://www.osti.gov/biblio/"
+            search_base = source_mapping["OSTI"].search_base
+            formatted_search_base_init = search_base.format(search_term, start_year, stop_year, 0)
+            url_base = "https://www.osti.gov/servlets/purl/"
 
-            while n_of_result_pages_crawled < stop_page:
+            click.echo("* Performing first search")
+            first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
+
+            first_soup = BeautifulSoup(first_result_page.html, "html.parser")
+            # will be searching for num docs, num pages
+
+            first_result_page_links = [i for i in first_result_page.links["internal"] if i["href"].startswith(url_base)]
+            print(first_result_page_links)
+
+            max_pages = int(first_soup.find_all("select")[0].find_all("option")[-1].get("value"))  # TODO: incorrect
+
+            n_of_result_pages_crawled = 1
+
+            path = _prep_output_dir("OSTI_" + start_year + "_" + stop_year + "_" + search_term)
+
+            while n_of_result_pages_crawled < max_pages:
 
                 source = source_mapping["OSTI"].search_base + str(n_of_result_pages_crawled)
 
@@ -225,6 +247,7 @@ def main():
 
 
 main.add_command(crawl_epa)
+main.add_command(crawl_osti)
 main.add_command(count)
 main.add_command(convert)
 main.add_command(epa_ocr_to_json)

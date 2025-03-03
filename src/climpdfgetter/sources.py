@@ -7,7 +7,7 @@ class Source:
 
 
 class OSTI(Source):
-    search_base = "https://www.osti.gov/search/availability:fulltext/term:{}/publish-date-end:{}/publish-date-start:{}/product-type:Journal%20Article,%20Technical%20Report:{}"  # noqa
+    search_base = "https://www.osti.gov/search/availability:fulltext/term:{}/publish-date-end:01/01/{}/publish-date-start:01/01/{}/product-type:Journal%20Article,%20Technical%20Report/page:{}"  # noqa
 
 
 class NOAA(Source):

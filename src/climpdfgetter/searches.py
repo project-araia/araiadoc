@@ -24,3 +24,19 @@ RESILIENCE_SEARCHES = [
     "Extreme Rainfall",
     "Blizzard",
 ]
+
+YEAR_RANGES = [
+    ["2000", "2005"],
+    ["2005", "2010"],
+    ["2010", "2015"],
+    ["2015", "2020"],
+    ["2020", "2025"],
+]
+
+# for term in search_terms:             # KNOWN
+#     for range in year_ranges:         # KNOWN
+#         for page in result_pages:     # UNKNOWN
+#             for document in page:     # UNKNOWN
+
+# index = [term, range, page, document]
+# e.g. index = ["Extreme Heat", "2000-2005", 1, 1]
