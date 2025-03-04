@@ -25,7 +25,6 @@ def crawl_epa(stop_idx: int, start_idx: int):
 
     browser_config = BrowserConfig(
         browser_type="chromium",
-        headless=False,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         use_persistent_context=True,
         user_data_dir=str(Path(_find_project_root()) / Path("data/browser_data")),
@@ -111,20 +110,31 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
 
     browser_config = BrowserConfig(
         browser_type="firefox",
-        headless=True,
+        headless=False,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
-        use_persistent_context=True,
-        user_data_dir=str(Path(_find_project_root()) / Path("browser_data")),
         headers={"Accept-Language": "en-US"},
         verbose=True,
     )
 
     run_config = CrawlerRunConfig(
         exclude_external_links=True,
-        remove_overlay_elements=True,
         simulate_user=True,
         magic=True,
         wait_for_images=True,
+    )
+
+    metadata_config = CrawlerRunConfig(
+        exclude_external_links=True,
+        simulate_user=True,
+        magic=True,
+        wait_for_images=True,
+        js_code="""
+            const downloadLink = document.querySelector('a[href$=".json"]');
+            if (downloadLink) {
+                downloadLink.click();
+            }
+        """,
+        wait_for=3,
     )
 
     click.echo("* Crawling OSTI")
@@ -143,86 +153,84 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
             click.echo("* Calculating starting URL")
 
             search_base = source_mapping["OSTI"].search_base
-            formatted_search_base_init = search_base.format(search_term, start_year, stop_year, 0)
+            formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
             url_base = "https://www.osti.gov/servlets/purl/"
 
             click.echo("* Performing first search")
-            first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
+            first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
+
+            if first_result_page.downloaded_files:
+                click.echo("* Metadata collected.")
+            else:
+                click.echo("* Unable to collect metadata.")
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
             # will be searching for num docs, num pages
 
             first_result_page_links = [i for i in first_result_page.links["internal"] if i["href"].startswith(url_base)]
-            print(first_result_page_links)
 
-            max_pages = int(first_soup.find_all("select")[0].find_all("option")[-1].get("value"))  # TODO: incorrect
+            max_pages = int(
+                first_soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+            )  # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
+            max_results = int(
+                first_soup.find("h1").getText().split()[0]
+            )  # <div class="col-12 col-md-5"><h1>535 Search Results</h1></div>
 
-            n_of_result_pages_crawled = 1
+            if max_results >= 1000:
+                click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
 
-            path = _prep_output_dir("OSTI_" + start_year + "_" + stop_year + "_" + search_term)
+            path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
 
-            while n_of_result_pages_crawled < max_pages:
+            t = tqdm.tqdm(total=max_results)
 
-                source = source_mapping["OSTI"].search_base + str(n_of_result_pages_crawled)
+            for doc_page in first_result_page_links:
+                try:
+                    token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
+                    r = requests.get(doc_page["href"], stream=True)
+                    path_to_doc = path / f"{token}.pdf"
+                    with path_to_doc.open("wb") as f:
+                        f.write(r.content)
+                    n_successful_crawls += 1
+                    t.update(1)
 
-                main_result_page = await crawler.arun(url=source, config=run_config)
+                except Exception as e:
+                    click.echo(str(e))
+                    n_failed_crawls += 1
+                    t.update(1)
 
-                search_result_links = [i for i in main_result_page.links["internal"] if i["href"].startswith(url_base)]
+            click.echo("* Performing subsequent searches")
+            for result_page in range(1, max_pages):
+                try:
+                    formatted_search_base = search_base.format(search_term, stop_year, start_year, result_page)
+                    main_result_page = await crawler.arun(url=formatted_search_base, config=run_config)
 
-                path = _prep_output_dir("OSTI")
+                    search_result_links = [
+                        i for i in main_result_page.links["internal"] if i["href"].startswith(url_base)
+                    ]
 
-                for doc_page in tqdm(search_result_links):
-                    doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
-                    if doc_page_result.success:
-                        soup = BeautifulSoup(doc_page_result.html, "html.parser")
-
-                        internal_titles = soup.find_all(
-                            "a",
-                            title=lambda x: x and "View Technical Report" or "View Accepted Manuscript (DOE)" in x,
-                        )[0]
-
-                        external_titles = soup.find_all("a", title=lambda x: x and "View Journal Article" in x)[0]
-
-                        skip_titles = soup.find_all("a", title=lambda x: x and "View Dataset" in x)[0]
-
-                        if len(skip_titles):
-                            n_failed_crawls += 1
-                            continue
-
-                        token = doc_page["href"].split(url_base)[0]  # https://www.osti.gov/pages/biblio/2387003
-
-                        if len(internal_titles):
-                            # reliably grab internal download
-                            text_link = internal_titles.get("href")
-                            r = requests.get(text_link, stream=True)
+                    for doc_page in search_result_links:
+                        try:
+                            token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
+                            r = requests.get(doc_page["href"], stream=True)
                             path_to_doc = path / f"{token}.pdf"
                             with path_to_doc.open("wb") as f:
                                 f.write(r.content)
                             n_successful_crawls += 1
-                        elif len(external_titles):
-                            # do our best to download pdfs from external link - if those links end in .pdf
-                            text_link = external_titles.get("href")
-                            external_page = await crawler.arun(url=text_link, config=run_config)
-                            if external_page.success:
-                                soup = BeautifulSoup(external_page.html, "html.parser")
-                                pdf_links = soup.find_all("a", title=lambda x: x and x.endswith(".pdf"))
-                                for i, link in enumerate(pdf_links):
-                                    r = requests.get(link.get("href"), stream=True)
-                                    path_to_doc = path / f"{token}_{i}.pdf"
-                                    with path_to_doc.open("wb") as f:
-                                        f.write(r.content)
-                                n_successful_crawls += 1
-                            else:
-                                n_failed_crawls += 1
-                                continue
-                        else:
-                            n_failed_crawls += 1
-                            continue
-                    else:
-                        n_failed_crawls += 1
-                        continue
+                            t.update(1)
 
-                n_of_result_pages_crawled += 1
+                        except Exception as e:
+                            click.echo(str(e))
+                            n_failed_crawls += 1
+                            t.update(1)
+
+                except Exception as e:
+                    click.echo(str(e))
+                    n_failed_crawls += 10
+                    t.update(10)
+
+            t.close()
+            click.echo("* Successes: " + str(n_successful_crawls))
+            click.echo("* Failures: " + str(n_failed_crawls))
 
     # Run the async main function
     asyncio.run(main_osti())
