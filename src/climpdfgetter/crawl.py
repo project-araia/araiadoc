@@ -108,12 +108,16 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
     assert stop_year <= 2025
     assert start_year >= 2000
 
+    path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+
     browser_config = BrowserConfig(
         browser_type="firefox",
-        headless=False,
+        headless=True,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         headers={"Accept-Language": "en-US"},
         verbose=True,
+        accept_downloads=True,
+        downloads_path=path,
     )
 
     run_config = CrawlerRunConfig(
@@ -129,12 +133,11 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
         magic=True,
         wait_for_images=True,
         js_code="""
-            const downloadLink = document.querySelector('a[href$=".json"]');
-            if (downloadLink) {
-                downloadLink.click();
-            }
+            document.querySelector('a.export-link[data-format="json"]').click()
         """,
-        wait_for=3,
+        wait_for="""
+            document.readyState === "complete"
+        """,
     )
 
     click.echo("* Crawling OSTI")
@@ -157,6 +160,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
             url_base = "https://www.osti.gov/servlets/purl/"
 
             click.echo("* Performing first search")
+
             first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
 
             if first_result_page.downloaded_files:
@@ -179,7 +183,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
             if max_results >= 1000:
                 click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
 
-            path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+            collected_exceptions = []
 
             t = tqdm.tqdm(total=max_results)
 
@@ -194,7 +198,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                     t.update(1)
 
                 except Exception as e:
-                    click.echo(str(e))
+                    collected_exceptions.append(str(e))
                     n_failed_crawls += 1
                     t.update(1)
 
@@ -219,18 +223,21 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                             t.update(1)
 
                         except Exception as e:
-                            click.echo(str(e))
+                            collected_exceptions.append(str(e))
                             n_failed_crawls += 1
                             t.update(1)
 
                 except Exception as e:
-                    click.echo(str(e))
+                    collected_exceptions.append(str(e))
                     n_failed_crawls += 10
                     t.update(10)
 
             t.close()
             click.echo("* Successes: " + str(n_successful_crawls))
             click.echo("* Failures: " + str(n_failed_crawls))
+            click.echo("* Exceptions: ")
+            for i in collected_exceptions:
+                click.echo("* " + i + "\n")
 
     # Run the async main function
     asyncio.run(main_osti())
