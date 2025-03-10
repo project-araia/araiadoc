@@ -23,6 +23,7 @@ RESILIENCE_SEARCHES = [
     "Coastal Flooding",  # terms from here onward from jlnav
     "Extreme Rainfall",
     "Blizzard",
+    "Climate",
 ]
 
 YEAR_RANGES = [
@@ -39,4 +40,4 @@ YEAR_RANGES = [
 #             for document in page:     # UNKNOWN
 
 # index = [term, range, page, document]
-# e.g. index = ["Extreme Heat", "2000-2005", 1, 1]
+# e.g. index = ["Extreme Heat", "2000-2005", 4, 8]

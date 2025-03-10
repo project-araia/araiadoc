@@ -115,7 +115,6 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
         headless=True,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         headers={"Accept-Language": "en-US"},
-        verbose=True,
         accept_downloads=True,
         downloads_path=path,
     )
@@ -187,6 +186,8 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
 
             t = tqdm.tqdm(total=max_results)
 
+            click.echo("* Beginning document crawl.")
+
             for doc_page in first_result_page_links:
                 try:
                     token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
@@ -198,7 +199,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                     t.update(1)
 
                 except Exception as e:
-                    collected_exceptions.append(str(e))
+                    collected_exceptions.append([doc_page["href"], str(e)])
                     n_failed_crawls += 1
                     t.update(1)
 
@@ -223,12 +224,12 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                             t.update(1)
 
                         except Exception as e:
-                            collected_exceptions.append(str(e))
+                            collected_exceptions.append([doc_page["href"], str(e)])
                             n_failed_crawls += 1
                             t.update(1)
 
                 except Exception as e:
-                    collected_exceptions.append(str(e))
+                    collected_exceptions.append([formatted_search_base, str(e)])
                     n_failed_crawls += 10
                     t.update(10)
 
@@ -237,7 +238,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
             click.echo("* Failures: " + str(n_failed_crawls))
             click.echo("* Exceptions: ")
             for i in collected_exceptions:
-                click.echo("* " + i + "\n")
+                click.echo("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
     # Run the async main function
     asyncio.run(main_osti())
