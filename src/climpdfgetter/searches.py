@@ -39,5 +39,7 @@ YEAR_RANGES = [
 #         for page in result_pages:     # UNKNOWN
 #             for document in page:     # UNKNOWN
 
+# could probably just cache result_page
+
 # index = [term, range, page, document]
 # e.g. index = ["Extreme Heat", "2000-2005", 4, 8]

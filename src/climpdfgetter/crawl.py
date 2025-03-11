@@ -5,6 +5,7 @@ import click
 import requests
 import tqdm
 from bs4 import BeautifulSoup
+from tqdm import auto
 
 from .convert import convert, epa_ocr_to_json
 
@@ -94,21 +95,8 @@ def crawl_epa(stop_idx: int, start_idx: int):
     asyncio.run(main_epa())
 
 
-@click.command()
-@click.argument("search_term", nargs=1, type=click.STRING)
-@click.argument("start_year", nargs=1, type=click.INT)
-@click.argument("stop_year", nargs=1, type=click.INT)
-def crawl_osti(search_term: str, start_year: int, stop_year: int):
-    """Asynchronously crawl OSTI result pages"""
-    import asyncio
-
-    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
-
-    assert start_year <= stop_year
-    assert stop_year <= 2025
-    assert start_year >= 2000
-
-    path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+def _get_configs(path: Path):
+    from crawl4ai import BrowserConfig, CrawlerRunConfig
 
     browser_config = BrowserConfig(
         browser_type="firefox",
@@ -139,6 +127,76 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
         """,
     )
 
+    return browser_config, run_config, metadata_config
+
+
+def _download_document(doc_page: dict, url_base: str, path: Path, n_successful_crawls: int, t: tqdm):
+    token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
+    r = requests.get(doc_page["href"], stream=True)
+    path_to_doc = path / f"{token}.pdf"
+    with path_to_doc.open("wb") as f:
+        f.write(r.content)
+    n_successful_crawls += 1
+    t.update(1)
+
+
+def _get_result_links(result_page: dict, url_base: str):
+    return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
+
+
+def _get_max_results(soup):
+    max_pages = int(
+        soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+    )  # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
+
+    max_results_soup = soup.find("h1").getText().split()[0]
+    # <div class="col-12 col-md-5"><h1>535 Search Results</h1></div>
+
+    max_results = int("".join(max_results_soup.split(",")))  # handle results like '1,000'
+
+    if max_results >= 1000:
+        click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
+        click.echo("* Try adjusting the year range on future crawls.")
+    return max_pages, max_results
+
+
+def _checkpoint(
+    path, search_term: str, start_year: int, stop_year: int, result_page: int, max_pages: int, max_results: int
+):
+    import json
+
+    with open(path / "checkpoint.json", "w") as f:
+        json.dump(
+            {
+                "search_term": search_term,
+                "start_year": start_year,
+                "stop_year": stop_year,
+                "result_page": result_page,
+                "max_pages": max_pages,
+                "max_results": max_results,
+            },
+            f,
+        )
+
+
+@click.command()
+@click.argument("search_term", nargs=1, type=click.STRING)
+@click.argument("start_year", nargs=1, type=click.INT)
+@click.argument("stop_year", nargs=1, type=click.INT)
+def crawl_osti(search_term: str, start_year: int, stop_year: int):
+    """Asynchronously crawl OSTI result pages"""
+    import asyncio
+
+    from crawl4ai import AsyncWebCrawler
+
+    assert start_year <= stop_year
+    assert stop_year <= 2025
+    assert start_year >= 2000
+
+    path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+
+    browser_config, run_config, metadata_config = _get_configs(path)
+
     click.echo("* Crawling OSTI")
     click.echo("* Searching for: " + search_term)
     click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
@@ -168,40 +226,24 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                 click.echo("* Unable to collect metadata.")
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
-            # will be searching for num docs, num pages
 
-            first_result_page_links = [i for i in first_result_page.links["internal"] if i["href"].startswith(url_base)]
-
-            max_pages = int(
-                first_soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
-            )  # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
-            max_results = int(
-                first_soup.find("h1").getText().split()[0]
-            )  # <div class="col-12 col-md-5"><h1>535 Search Results</h1></div>
-
-            if max_results >= 1000:
-                click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
+            first_result_page_links = _get_result_links(first_result_page, url_base)
+            max_pages, max_results = _get_max_results(first_soup)
 
             collected_exceptions = []
-
-            t = tqdm.tqdm(total=max_results)
-
             click.echo("* Beginning document crawl.")
+
+            t = auto.tqdm(total=max_results)
 
             for doc_page in first_result_page_links:
                 try:
-                    token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
-                    r = requests.get(doc_page["href"], stream=True)
-                    path_to_doc = path / f"{token}.pdf"
-                    with path_to_doc.open("wb") as f:
-                        f.write(r.content)
-                    n_successful_crawls += 1
-                    t.update(1)
+                    _download_document(doc_page, url_base, path, n_successful_crawls, t)
 
                 except Exception as e:
                     collected_exceptions.append([doc_page["href"], str(e)])
                     n_failed_crawls += 1
                     t.update(1)
+            _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
 
             click.echo("* Performing subsequent searches")
             for result_page in range(1, max_pages):
@@ -209,19 +251,11 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                     formatted_search_base = search_base.format(search_term, stop_year, start_year, result_page)
                     main_result_page = await crawler.arun(url=formatted_search_base, config=run_config)
 
-                    search_result_links = [
-                        i for i in main_result_page.links["internal"] if i["href"].startswith(url_base)
-                    ]
+                    search_result_links = _get_result_links(main_result_page, url_base)
 
                     for doc_page in search_result_links:
                         try:
-                            token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
-                            r = requests.get(doc_page["href"], stream=True)
-                            path_to_doc = path / f"{token}.pdf"
-                            with path_to_doc.open("wb") as f:
-                                f.write(r.content)
-                            n_successful_crawls += 1
-                            t.update(1)
+                            _download_document(doc_page, url_base, path, n_successful_crawls, t)
 
                         except Exception as e:
                             collected_exceptions.append([doc_page["href"], str(e)])
@@ -232,6 +266,7 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                     collected_exceptions.append([formatted_search_base, str(e)])
                     n_failed_crawls += 10
                     t.update(10)
+                _checkpoint(path, search_term, start_year, stop_year, result_page, max_pages, max_results)
 
             t.close()
             click.echo("* Successes: " + str(n_successful_crawls))
