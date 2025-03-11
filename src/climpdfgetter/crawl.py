@@ -161,7 +161,13 @@ def _get_max_results(soup):
 
 
 def _checkpoint(
-    path, search_term: str, start_year: int, stop_year: int, result_page: int, max_pages: int, max_results: int
+    path,
+    search_term: str,
+    start_year: int,
+    stop_year: int,
+    result_page: int,
+    max_pages: int,
+    max_results: int,
 ):
     import json
 
@@ -171,7 +177,7 @@ def _checkpoint(
                 "search_term": search_term,
                 "start_year": start_year,
                 "stop_year": stop_year,
-                "result_page": result_page,
+                "last_result_page": result_page,
                 "max_pages": max_pages,
                 "max_results": max_results,
             },
@@ -189,19 +195,19 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
 
     from crawl4ai import AsyncWebCrawler
 
-    assert start_year <= stop_year
-    assert stop_year <= 2025
-    assert start_year >= 2000
+    async def main_osti(search_term: str, start_year: int, stop_year: int):
 
-    path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+        assert start_year <= stop_year
+        assert stop_year <= 2025
+        assert start_year >= 2000
 
-    browser_config, run_config, metadata_config = _get_configs(path)
+        path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
 
-    click.echo("* Crawling OSTI")
-    click.echo("* Searching for: " + search_term)
-    click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
+        browser_config, run_config, metadata_config = _get_configs(path)
 
-    async def main_osti():
+        click.echo("* Crawling OSTI")
+        click.echo("* Searching for: " + search_term)
+        click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
 
         n_successful_crawls = 0
         n_failed_crawls = 0
@@ -266,7 +272,15 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                     collected_exceptions.append([formatted_search_base, str(e)])
                     n_failed_crawls += 10
                     t.update(10)
-                _checkpoint(path, search_term, start_year, stop_year, result_page, max_pages, max_results)
+                _checkpoint(
+                    path,
+                    search_term,
+                    start_year,
+                    stop_year,
+                    result_page,
+                    max_pages,
+                    max_results,
+                )
 
             t.close()
             click.echo("* Successes: " + str(n_successful_crawls))
@@ -276,7 +290,16 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
                 click.echo("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
     # Run the async main function
-    asyncio.run(main_osti())
+    # CURRENT
+    asyncio.run(main_osti(search_term, start_year, stop_year))
+
+    # FUTURE
+    # await asyncio.gather(
+    #     *[
+    #         main_osti(search_term, start_year, stop_year)
+    #         for search_term in ["Extreme Heat", "Extreme Cold", "Heat Waves", "..."]
+    #     ]
+    # )
 
 
 @click.command()
