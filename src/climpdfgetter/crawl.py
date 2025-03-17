@@ -186,11 +186,16 @@ def _checkpoint(
 
 
 @click.command()
-@click.argument("search_term", nargs=1, type=click.STRING)
+# -t Heat Waves -t Drought -t Flooding -t Arctic Sea Ice
 @click.argument("start_year", nargs=1, type=click.INT)
 @click.argument("stop_year", nargs=1, type=click.INT)
-def crawl_osti(search_term: str, start_year: int, stop_year: int):
-    """Asynchronously crawl OSTI result pages"""
+@click.option("--search-term", "-t", multiple=True)
+def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
+    """Asynchronously crawl OSTI result pages:
+
+    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
+
+    """
     import asyncio
 
     from crawl4ai import AsyncWebCrawler
@@ -289,17 +294,13 @@ def crawl_osti(search_term: str, start_year: int, stop_year: int):
             for i in collected_exceptions:
                 click.echo("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
-    # Run the async main function
-    # CURRENT
-    asyncio.run(main_osti(search_term, start_year, stop_year))
+    async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int):
+        await asyncio.gather(*[main_osti(search_term, start_year, stop_year) for search_term in search_terms])
 
-    # FUTURE
-    # await asyncio.gather(
-    #     *[
-    #         main_osti(search_term, start_year, stop_year)
-    #         for search_term in ["Extreme Heat", "Extreme Cold", "Heat Waves", "..."]
-    #     ]
-    # )
+    if len(search_term) == 1:
+        asyncio.run(main_osti(search_term[0], start_year, stop_year))
+    else:
+        asyncio.run(main_multiple_osti(search_term, start_year, stop_year))
 
 
 @click.command()

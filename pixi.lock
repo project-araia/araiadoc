@@ -1460,15 +1460,15 @@ packages:
 - pypi: .
   name: climpdfgetter
   version: 0.1.0
-  sha256: c62c5aaa144074cbcaa3c53a673025f02428ca65946c16307acf8d4ca9279f91
+  sha256: 26c9c27f354f110266179153a2a8b32b813e149853ea598fd73e5f61b1da49b4
   requires_dist:
   - beautifulsoup4
-  - click
   - requests
   - tqdm>=4.67.1,<5
   - pydantic>=2.10.6,<3
   - chardet>=5.2.0,<6
   - crawl4ai>=0.5.0.post4,<0.6
+  - click
   requires_python: '>=3.10'
   editable: true
 - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
