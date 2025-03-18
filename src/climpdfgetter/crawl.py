@@ -12,11 +12,15 @@ from .utils import _find_project_root, _prep_output_dir
 
 
 @click.command()
-@click.argument("stop_idx", nargs=1, type=click.INT)
 @click.argument("start_idx", nargs=1, type=click.INT)
-def crawl_epa(stop_idx: int, start_idx: int):
-    """Asynchronously crawl EPA result pages"""
-    # TODO: Generalize this solution
+@click.argument("stop_idx", nargs=1, type=click.INT)
+@click.option("--search-term", "-t", multiple=True)
+def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
+    """Asynchronously crawl EPA result pages:
+
+    `climpdf crawl-epa 0 2000 -t "Heat Waves" -t Flooding`
+
+    """
     import asyncio
 
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
@@ -39,12 +43,25 @@ def crawl_epa(stop_idx: int, start_idx: int):
         wait_for="js:() => document.getElementById('results_header').offsetParent !== null",
     )
 
-    async def main_epa():
+    async def main_epa(stop_idx: int, start_idx: int, search_term: str):
+
+        assert stop_idx > start_idx
+
+        path = _prep_output_dir("EPA_" + str(start_idx) + "_" + str(stop_idx) + "_" + search_term)
+
+        click.echo("* Crawling EPA")
+        click.echo("* Searching for: " + search_term)
+        click.echo("* Document indexes: " + str(start_idx) + " to " + str(stop_idx))
+
+        n_successful_crawls = 0
+        n_failed_crawls = 0
+        collected_exceptions = []
+
+        click.echo("* Beginning document crawl.")
 
         async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
-            # Run the crawler on EPA search result page
 
             n_of_pages_crawled = start_idx  # STARTING INDEX FOR RESULTS ALSO
 
@@ -53,43 +70,59 @@ def crawl_epa(stop_idx: int, start_idx: int):
             while n_of_pages_crawled < stop_idx:
 
                 source = source_mapping["EPA"].search_base + str(n_of_pages_crawled)
+                source = source.format(search_term)
 
-                main_result_page = await crawler.arun(url=source, config=run_config)
+                try:
 
-                search_result_links = [
-                    i
-                    for i in main_result_page.links["internal"]
-                    if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
-                ]
+                    main_result_page = await crawler.arun(url=source, config=run_config)
 
-                path = _prep_output_dir("EPA")
+                    search_result_links = [
+                        i
+                        for i in main_result_page.links["internal"]
+                        if i["href"].startswith("https://nepis.epa.gov/Exe/ZyNET.exe/P")
+                    ]
 
-                for doc_page in search_result_links:
-                    doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
-                    if doc_page_result.success:
-                        soup = BeautifulSoup(doc_page_result.html, "html.parser")
+                    for doc_page in search_result_links:
+                        doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
+                        if doc_page_result.success:
+                            soup = BeautifulSoup(doc_page_result.html, "html.parser")
 
-                        # We get document as text first, since this contains the most metadata
-                        text_link_base = soup.find_all(
-                            "a",
-                            title=lambda x: x and "Download this document as unformatted OCR text" in x,
-                        )[0]
+                            # We get document as text first, since this contains the most metadata
+                            text_link_base = soup.find_all(
+                                "a",
+                                title=lambda x: x and "Download this document as unformatted OCR text" in x,
+                            )[0]
 
-                        text_link = text_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
-                        main_text_link = url_base + text_link
-                        r = requests.get(main_text_link, stream=True)
+                            text_link = text_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
+                            main_text_link = url_base + text_link
+                            r = requests.get(main_text_link, stream=True)
 
-                        token = re.search(r"P[^.]+\.txt", main_text_link).group().split(".txt")[0]
-                        path_to_doc = path / f"{token}.txt"
-                        with path_to_doc.open("wb") as f:
-                            f.write(r.content)
+                            token = re.search(r"P[^.]+\.txt", main_text_link).group().split(".txt")[0]
+                            path_to_doc = path / f"{token}.txt"
+                            with path_to_doc.open("wb") as f:
+                                f.write(r.content)
 
-                        # We try obtaining the document as pdf or tiff, if possible
+                            # We try obtaining the document as pdf or tiff, if possible
 
-                    n_of_pages_crawled += 1
+                        n_of_pages_crawled += 1
+
+                except Exception as e:
+                    click.echo(f"* Failed to crawl page {source}: {e}")
+                    n_failed_crawls += 1
+                    collected_exceptions.append(str(e))
+
+        click.echo(
+            f"* Finished crawling EPA. {n_successful_crawls} successful crawls and {n_failed_crawls} failed crawls."
+        )
 
     # Run the async main function
-    asyncio.run(main_epa())
+    async def main_multiple_epa(search_terms: list[str], start_idx: int, stop_idx: int):
+        await asyncio.gather(*[main_epa(search_term, start_idx, stop_idx) for search_term in search_terms])
+
+    if len(search_term) == 1:
+        asyncio.run(main_epa(search_term[0], start_idx, stop_idx))
+    else:
+        asyncio.run(main_multiple_epa(search_term, start_idx, stop_idx))
 
 
 def _get_configs(path: Path):
@@ -182,7 +215,6 @@ def _checkpoint(
 
 
 @click.command()
-# -t Heat Waves -t Drought -t Flooding -t Arctic Sea Ice
 @click.argument("start_year", nargs=1, type=click.INT)
 @click.argument("stop_year", nargs=1, type=click.INT)
 @click.option("--search-term", "-t", multiple=True)

@@ -1,11 +1,11 @@
 # climpdfgetter
 
-Download and convert climate pdfs from EPA and (in the future) other sources.
+Download and convert climate pdfs from EPA and OSTI.
 
 ## Installation
 
 ```
-$ git clone https://git-out.gss.anl.gov/callm/climpdfgetter.git
+$ git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
 $ cd climpdfgetter; pip install -e .
 ```
 
@@ -13,10 +13,11 @@ $ cd climpdfgetter; pip install -e .
 
 ### Downloading documents
 
-```Usage: climpdf crawl [OPTIONS] STOP_IDX START_IDX```
+#### EPA
 
-Specify a source out of ``EPA``, (future: ``NOAA``, or ``OSTI``) to ``climpdf crawl``. Then specify
-the *stop index* and *start index* out of the search results. For instance, to download
+```Usage: climpdf crawl-epa [OPTIONS] STOP_IDX START_IDX```
+
+Specify the *stop index* and *start index* out of the search results. For instance, to download
 the first hundred documents:
 
 ```climpdf crawl EPA 100 0```
