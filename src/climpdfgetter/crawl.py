@@ -3,13 +3,10 @@ from pathlib import Path
 
 import click
 import requests
-import tqdm
 from bs4 import BeautifulSoup
-from tqdm import auto
+from tqdm.rich import tqdm
 
 from .convert import convert, epa_ocr_to_json
-
-# from .searches import RESILIENCE_SEARCHES, YEAR_RANGES
 from .sources import source_mapping
 from .utils import _find_project_root, _prep_output_dir
 
@@ -130,13 +127,12 @@ def _get_configs(path: Path):
     return browser_config, run_config, metadata_config
 
 
-def _download_document(doc_page: dict, url_base: str, path: Path, n_successful_crawls: int, t: tqdm):
+def _download_document(doc_page: dict, url_base: str, path: Path, t: tqdm):
     token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
     r = requests.get(doc_page["href"], stream=True)
     path_to_doc = path / f"{token}.pdf"
     with path_to_doc.open("wb") as f:
         f.write(r.content)
-    n_successful_crawls += 1
     t.update(1)
 
 
@@ -244,11 +240,12 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
             collected_exceptions = []
             click.echo("* Beginning document crawl.")
 
-            t = auto.tqdm(total=max_results)
+            t = tqdm(total=max_results, desc=search_term + ": ")
 
             for doc_page in first_result_page_links:
                 try:
-                    _download_document(doc_page, url_base, path, n_successful_crawls, t)
+                    _download_document(doc_page, url_base, path, t)
+                    n_successful_crawls += 1
 
                 except Exception as e:
                     collected_exceptions.append([doc_page["href"], str(e)])
@@ -266,7 +263,8 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
 
                     for doc_page in search_result_links:
                         try:
-                            _download_document(doc_page, url_base, path, n_successful_crawls, t)
+                            _download_document(doc_page, url_base, path, t)
+                            n_successful_crawls += 1
 
                         except Exception as e:
                             collected_exceptions.append([doc_page["href"], str(e)])
