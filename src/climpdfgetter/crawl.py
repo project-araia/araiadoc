@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from tqdm.rich import tqdm
 
 from .convert import convert, epa_ocr_to_json
+from .searches import RESILIENCE_SEARCHES
 from .sources import source_mapping
 from .utils import _find_project_root, _prep_output_dir
 
@@ -335,7 +336,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
 
 @click.command()
 @click.argument("source", nargs=1)
-def count(source: str):
+def count_local(source: str):
     """Count the number of downloaded files from a given source."""
     total = 0
     data_root = Path(_find_project_root()) / Path("data/")
@@ -346,6 +347,58 @@ def count(source: str):
     return total
 
 
+@click.command()
+@click.option("--search-term", "-t", multiple=True)
+def count_remote_osti(search_term: list[str]):
+    """Count potentially download-able files from OSTI, for any number of search terms. Leave blank for all."""
+    import asyncio
+    import json
+
+    from crawl4ai import AsyncWebCrawler
+
+    click.echo("* Determining OSTI search results.")
+    click.echo("* Using default year range: 2000-2025.")
+
+    async def main_osti(search_term: str):
+
+        start_year = 2000
+        stop_year = 2025
+
+        browser_config, run_config, _ = _get_configs(path)
+
+        async with AsyncWebCrawler(
+            config=browser_config,
+        ) as crawler:
+
+            search_base = source_mapping["OSTI"].search_base
+            formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
+
+            first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
+
+            first_soup = BeautifulSoup(first_result_page.html, "html.parser")
+
+            _, max_results = _get_max_results(first_soup)
+            click.echo(search_term + ": " + str(max_results))
+            return max_results
+
+    async def main_multiple_osti(search_terms: list[str], path: Path):
+        results = await asyncio.gather(*[main_osti(search_term) for search_term in search_terms])
+        output = {}
+        for i, term in enumerate(search_terms):
+            output[term] = results[i]
+        with open(path / "osti_counts.json", "w") as f:
+            json.dump(output, f)
+
+    path = _prep_output_dir("OSTI_counts")
+
+    if len(search_term) == 1:
+        asyncio.run(main_osti(search_term[0]))
+    elif len(search_term) > 1:
+        asyncio.run(main_multiple_osti(search_term, path))
+    else:
+        asyncio.run(main_multiple_osti(RESILIENCE_SEARCHES, path))
+
+
 @click.group()
 def main():
     pass
@@ -353,9 +406,10 @@ def main():
 
 main.add_command(crawl_epa)
 main.add_command(crawl_osti)
-main.add_command(count)
+main.add_command(count_local)
 main.add_command(convert)
 main.add_command(epa_ocr_to_json)
+main.add_command(count_remote_osti)
 
 if __name__ == "__main__":
     main()
