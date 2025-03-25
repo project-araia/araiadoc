@@ -1,12 +1,12 @@
 RESILIENCE_SEARCHES = [
     "Extreme Heat",
     "Extreme Cold",
-    "Heat Waves",
+    "Heat Wave Climate",  # Wave Heating" is a very common Physics research term
     "Drought",
     "Flooding",
     "Tropical Cyclone",
     "Hurricane",
-    "Wildfires",
+    "Wildfire",
     "Convective Storm",
     "Sea Level Rise",
     "Permafrost Thaw",

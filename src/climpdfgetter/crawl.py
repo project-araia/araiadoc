@@ -174,17 +174,16 @@ def _get_result_links(result_page: dict, url_base: str):
     return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
 
 
-def _get_max_results(soup):
-    max_pages = int(
-        soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
-    )  # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
+def _get_max_results(soup, counting: bool) -> tuple[int, int]:
+    max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+    # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
+    max_pages = int("".join(max_pages_soup.split(",")))
 
     max_results_soup = soup.find("h1").getText().split()[0]
     # <div class="col-12 col-md-5"><h1>535 Search Results</h1></div>
-
     max_results = int("".join(max_results_soup.split(",")))  # handle results like '1,000'
 
-    if max_results >= 1000:
+    if max_results >= 1000 and not counting:
         click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
         click.echo("* Try adjusting the year range on future crawls.")
     return max_pages, max_results
@@ -268,7 +267,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
             first_result_page_links = _get_result_links(first_result_page, url_base)
-            max_pages, max_results = _get_max_results(first_soup)
+            max_pages, max_results = _get_max_results(first_soup, counting=False)
 
             collected_exceptions = []
             click.echo("* Beginning document crawl.")
@@ -349,20 +348,19 @@ def count_local(source: str):
 
 @click.command()
 @click.option("--search-term", "-t", multiple=True)
-def count_remote_osti(search_term: list[str]):
-    """Count potentially download-able files from OSTI, for any number of search terms. Leave blank for all."""
+@click.argument("start_year", nargs=1, type=click.INT)
+@click.argument("stop_year", nargs=1, type=click.INT)
+def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year: int = 2025):
+    """Count potentially downloadable files from OSTI, for any number of search terms. Leave blank for all."""
     import asyncio
     import json
 
     from crawl4ai import AsyncWebCrawler
 
-    click.echo("* Determining OSTI search results.")
-    click.echo("* Using default year range: 2000-2025.")
+    click.echo("* Determining OSTI search result counts.")
+    click.echo("* Year range: " + str(start_year) + " to " + str(stop_year))
 
-    async def main_osti(search_term: str):
-
-        start_year = 2000
-        stop_year = 2025
+    async def main_osti(search_term: str, start_year: int, stop_year: int) -> int:
 
         browser_config, run_config, _ = _get_configs(path)
 
@@ -377,12 +375,12 @@ def count_remote_osti(search_term: list[str]):
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
-            _, max_results = _get_max_results(first_soup)
+            _, max_results = _get_max_results(first_soup, counting=True)
             click.echo(search_term + ": " + str(max_results))
             return max_results
 
-    async def main_multiple_osti(search_terms: list[str], path: Path):
-        results = await asyncio.gather(*[main_osti(search_term) for search_term in search_terms])
+    async def main_multiple_osti(search_terms: list[str], path: Path, start_year: int, stop_year: int):
+        results = await asyncio.gather(*[main_osti(search_term, start_year, stop_year) for search_term in search_terms])
         output = {}
         for i, term in enumerate(search_terms):
             output[term] = results[i]
@@ -392,11 +390,11 @@ def count_remote_osti(search_term: list[str]):
     path = _prep_output_dir("OSTI_counts")
 
     if len(search_term) == 1:
-        asyncio.run(main_osti(search_term[0]))
+        asyncio.run(main_osti(search_term[0], start_year, stop_year))
     elif len(search_term) > 1:
-        asyncio.run(main_multiple_osti(search_term, path))
+        asyncio.run(main_multiple_osti(search_term, path, start_year, stop_year))
     else:
-        asyncio.run(main_multiple_osti(RESILIENCE_SEARCHES, path))
+        asyncio.run(main_multiple_osti(RESILIENCE_SEARCHES, path, start_year, stop_year))
 
 
 @click.group()
