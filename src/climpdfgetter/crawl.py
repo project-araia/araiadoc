@@ -214,11 +214,16 @@ def _checkpoint(
         )
 
 
+def _conversion_process(path):
+    pass
+
+
 @click.command()
 @click.argument("start_year", nargs=1, type=click.INT)
 @click.argument("stop_year", nargs=1, type=click.INT)
 @click.option("--search-term", "-t", multiple=True)
-def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
+@click.option("--convert", "-c", is_flag=True, default=False, help="Convert PDFs to text.", type=click.BOOL)
+def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert: bool):
     """Asynchronously crawl OSTI result pages:
 
     `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
@@ -228,13 +233,16 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str]):
 
     from crawl4ai import AsyncWebCrawler
 
-    async def main_osti(search_term: str, start_year: int, stop_year: int):
+    async def main_osti(search_term: str, start_year: int, stop_year: int, convert: bool):
 
         assert start_year <= stop_year
         assert stop_year <= 2025
         assert start_year >= 2000
 
         path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
+
+        if convert:
+            _conversion_process(path)
 
         browser_config, run_config, metadata_config = _get_configs(path)
 

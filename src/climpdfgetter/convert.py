@@ -19,14 +19,14 @@ from .utils import (
 )
 
 
-@click.command()
-@click.argument("source", nargs=1)
-def convert(source: Path):
-    """
-    Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
-    they'll first be converted to PDF.
-    """
+def timeout_handler(signum, frame):
+    raise TimeoutError()
 
+
+signal.signal(signal.SIGALRM, timeout_handler)
+
+
+def _convert(source: Path):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
     from text_processing.pdf_to_text import pdf2text, text2json  # noqa
 
@@ -107,11 +107,14 @@ def convert(source: Path):
     click.echo("* Failures: " + str(fail_count))
 
 
-def timeout_handler(signum, frame):
-    raise TimeoutError()
-
-
-signal.signal(signal.SIGALRM, timeout_handler)
+@click.command()
+@click.argument("source", nargs=1)
+def convert(source: Path):
+    """
+    Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
+    they'll first be converted to PDF.
+    """
+    _convert(source)
 
 
 @click.command()
