@@ -11,7 +11,16 @@ from tqdm.rich import tqdm
 from .convert import convert, epa_ocr_to_json
 from .searches import RESILIENCE_SEARCHES
 from .sources import source_mapping
-from .utils import _find_project_root, _prep_output_dir
+from .utils import (
+    _checkpoint,
+    _download_document,
+    _find_project_root,
+    _get_configs,
+    _get_max_results,
+    _get_result_links,
+    _prep_output_dir,
+    count_local,
+)
 
 
 @click.command()
@@ -128,95 +137,11 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
         asyncio.run(main_multiple_epa(search_term, start_idx, stop_idx))
 
 
-def _get_configs(path: Path):
-    from crawl4ai import BrowserConfig, CrawlerRunConfig
-
-    browser_config = BrowserConfig(
-        browser_type="firefox",
-        headless=True,
-        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
-        headers={"Accept-Language": "en-US"},
-        accept_downloads=True,
-        downloads_path=path,
-    )
-
-    run_config = CrawlerRunConfig(
-        exclude_external_links=True,
-        simulate_user=True,
-        magic=True,
-        wait_for_images=True,
-    )
-
-    metadata_config = CrawlerRunConfig(
-        exclude_external_links=True,
-        simulate_user=True,
-        magic=True,
-        wait_for_images=True,
-        js_code="""
-            document.querySelector('a.export-link[data-format="json"]').click()
-        """,
-        wait_for="""
-            document.readyState === "complete"
-        """,
-    )
-
-    return browser_config, run_config, metadata_config
-
-
-def _download_document(doc_page: dict, url_base: str, path: Path, t: tqdm):
-    token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
-    r = requests.get(doc_page["href"], stream=True)
-    path_to_doc = path / f"{token}.pdf"
-    with path_to_doc.open("wb") as f:
-        f.write(r.content)
-    t.update(1)
-
-
-def _get_result_links(result_page: dict, url_base: str):
-    return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
-
-
-def _get_max_results(soup, counting: bool) -> tuple[int, int]:
-    max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
-    # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
-    max_pages = int("".join(max_pages_soup.split(",")))
-
-    max_results_soup = soup.find("h1").getText().split()[0]
-    # <div class="col-12 col-md-5"><h1>535 Search Results</h1></div>
-    max_results = int("".join(max_results_soup.split(",")))  # handle results like '1,000'
-
-    if max_results >= 1000 and not counting:
-        click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
-        click.echo("* Try adjusting the year range on future crawls.")
-    return max_pages, max_results
-
-
-def _checkpoint(
-    path,
-    search_term: str,
-    start_year: int,
-    stop_year: int,
-    result_page: int,
-    max_pages: int,
-    max_results: int,
-):
-    import json
-
-    with open(path / "checkpoint.json", "w") as f:
-        json.dump(
-            {
-                "search_term": search_term,
-                "start_year": start_year,
-                "stop_year": stop_year,
-                "last_result_page": result_page,
-                "max_pages": max_pages,
-                "max_results": max_results,
-            },
-            f,
-        )
-
-
 def _conversion_process(path):
+    pass
+
+
+def _conversion(path):
     pass
 
 
@@ -228,7 +153,7 @@ def _conversion_process(path):
 def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert: bool):
     """Asynchronously crawl OSTI result pages:
 
-    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
+    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding --convert`
 
     """
     import asyncio
@@ -338,19 +263,6 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
         await asyncio.gather(*[main_osti(search_term, start_year, stop_year, convert) for search_term in search_terms])
 
     asyncio.run(main_multiple_osti(search_term, start_year, stop_year, convert))
-
-
-@click.command()
-@click.argument("source", nargs=1)
-def count_local(source: str):
-    """Count the number of downloaded files from a given source."""
-    total = 0
-    data_root = Path(_find_project_root()) / Path("data/")
-    for directory in data_root.iterdir():
-        if directory.is_dir() and directory.name.startswith(source):
-            total += len(list(directory.iterdir()))
-    click.echo(total)
-    return total
 
 
 @click.command()
