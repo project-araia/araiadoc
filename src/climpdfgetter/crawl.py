@@ -4,6 +4,8 @@ from pathlib import Path
 import click
 import requests
 from bs4 import BeautifulSoup
+
+# from rich.progress import Progress
 from tqdm.rich import tqdm
 
 from .convert import convert, epa_ocr_to_json
@@ -241,9 +243,6 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
         path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
 
-        if convert:
-            _conversion_process(path)
-
         browser_config, run_config, metadata_config = _get_configs(path)
 
         click.echo("* Crawling OSTI")
@@ -332,13 +331,13 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             for i in collected_exceptions:
                 click.echo("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
-    async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int):
-        await asyncio.gather(*[main_osti(search_term, start_year, stop_year) for search_term in search_terms])
+    async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int, convert: bool):
+        if convert:
+            click.echo("* Converting PDFs to text.")
 
-    if len(search_term) == 1:
-        asyncio.run(main_osti(search_term[0], start_year, stop_year))
-    else:
-        asyncio.run(main_multiple_osti(search_term, start_year, stop_year))
+        await asyncio.gather(*[main_osti(search_term, start_year, stop_year, convert) for search_term in search_terms])
+
+    asyncio.run(main_multiple_osti(search_term, start_year, stop_year, convert))
 
 
 @click.command()
