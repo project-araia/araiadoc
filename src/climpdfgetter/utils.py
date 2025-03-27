@@ -16,9 +16,12 @@ def _get_downloaded_source_doc_ids(source: str):
     for directory in data_root.iterdir():
         if directory.is_dir() and directory.name.startswith(source):
             for doc in directory.iterdir():
-                ids.append(doc.stem)
+                if doc.stem.isdigit():
+                    ids.append(doc.stem)
+    ids = sorted(ids)
     with open(data_root / f"{source}_doc_ids.json", "w") as f:
         json.dump(ids, f)
+    return ids
 
 
 def _count_local(source: str):
