@@ -84,13 +84,14 @@ def _get_max_results(soup, counting: bool) -> tuple[int, int]:
     return max_pages, max_results
 
 
-def _download_document(doc_page: dict, url_base: str, path: Path, t):
+def _download_document(doc_page: dict, url_base: str, path: Path, progress, task):
     token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
-    r = requests.get(doc_page["href"], stream=True)
+    r = requests.get(doc_page["href"], stream=True, timeout=10)
+    r.raise_for_status()
     path_to_doc = path / f"{token}.pdf"
     with path_to_doc.open("wb") as f:
         f.write(r.content)
-    t.update(1)
+    progress.update(task, advance=1)
 
 
 def _get_configs(path: Path):

@@ -67,7 +67,7 @@ def _convert(source: Path):
     output_files = []
 
     for i in tqdm(collected_input_files):
-        signal.alarm(180)
+        signal.alarm(300)
         try:
             output_text = pdf2text(str(i))
             output_dir = Path(str(i.parent) + "_json")
@@ -95,6 +95,7 @@ def _convert(source: Path):
     success_count = 0
     fail_count = 0
 
+    # TODO: Why wasn't this postprocessing hit during OSTI conversion?
     for i in tqdm(output_files):
         try:
             with open(i, "rw") as f:
@@ -114,6 +115,26 @@ def _convert(source: Path):
     click.echo("* Postprocessing of json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
+    click.echo("* Entering metadata association step")
+
+    success_count = 0
+    fail_count = 0
+
+    metadata_file = [i for i in source.glob("*metadata.json")][0]
+    metadata = json.load(metadata_file.open("r"))  # noqa
+
+    for i in tqdm(output_files):
+        try:
+            with open(i, "rw") as f:
+                json_data = json.load(f)
+                text = json_data["text"]  # noqa
+                # TODO: Update representation with metadata
+                json.dump(representation.model_dump(mode="json"), f)
+            success_count += 1
+        except Exception as e:
+            click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
+            fail_count += 1
+            continue
 
 
 @click.command()
