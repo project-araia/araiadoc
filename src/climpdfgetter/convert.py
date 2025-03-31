@@ -7,7 +7,7 @@ import chardet
 import click
 from bs4 import BeautifulSoup
 from PIL import Image
-from tqdm import tqdm
+from tqdm.rich import tqdm
 
 from .schema import ParsedDocumentSchema
 from .utils import (
@@ -30,11 +30,15 @@ def _convert(source: Path):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
     from text_processing.pdf_to_text import pdf2text, text2json  # noqa
 
+    org = source.split("_")[0]
     collected_input_files = _collect_from_path(Path(source))
 
+    click.echo("* Document Source: " + org)
     click.echo("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
 
-    files_to_convert_to_pdf = [i for i in collected_input_files if i is not None and i.suffix.lower() != ".pdf"]
+    files_to_convert_to_pdf = [
+        i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
+    ]  # skip pdfs, checkpoints, metadata
 
     if len(files_to_convert_to_pdf):
 
@@ -63,6 +67,7 @@ def _convert(source: Path):
     output_files = []
 
     for i in tqdm(collected_input_files):
+        signal.alarm(180)
         try:
             output_text = pdf2text(str(i))
             output_dir = Path(str(i.parent) + "_json")
@@ -71,6 +76,10 @@ def _convert(source: Path):
             text2json(output_text, str(output_file))
             output_files.append(output_file)
             success_count += 1
+        except TimeoutError:
+            click.echo("Timeout while converting: " + str(i) + ". Skipping.")
+            fail_count += 1
+            continue
         except Exception as e:
             click.echo("Failure while converting " + str(i) + ": " + str(e))
             fail_count += 1
@@ -92,7 +101,7 @@ def _convert(source: Path):
                 json_data = json.load(f)
                 base_text_list = [instance["text"] for instance in json_data["instances"]]
                 representation = ParsedDocumentSchema(
-                    source="EPA",
+                    source=org,
                     text=base_text_list,
                 )
                 json.dump(representation.model_dump(mode="json"), f)
