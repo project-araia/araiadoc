@@ -5,6 +5,8 @@ from pathlib import Path
 
 import chardet
 import click
+import langdetect
+import pymupdf
 from bs4 import BeautifulSoup
 from PIL import Image
 from rich.progress import Progress
@@ -28,7 +30,7 @@ signal.signal(signal.SIGALRM, timeout_handler)
 
 def _convert(source: Path, progress):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
-    from text_processing.pdf_to_text import pdf2text, text2json  # noqa
+    from text_processing.pdf_to_text import text2json  # noqa
 
     org = source.split("_")[0]
     collected_input_files = _collect_from_path(Path(source))
@@ -58,7 +60,7 @@ def _convert(source: Path, progress):
                 fail_count += 1
             progress.update(task1, advance=1)
 
-        click.echo("* Conversion of files to PDF:")
+        click.echo("\n* Conversion of files to PDF:")
         click.echo("* Successes: " + str(success_count))
         click.echo("* Failures: " + str(fail_count))
 
@@ -69,31 +71,53 @@ def _convert(source: Path, progress):
 
     output_files = []
 
-    task2 = progress.add_task("[bright_green]Converting to json", total=len(collected_input_files))
+    task2 = progress.add_task("[bright_green]Converting to text", total=len(collected_input_files))
+
+    # TODO: Try pymupdf first, then if that doesn't work try pdf2text
 
     for i in collected_input_files:
         signal.alarm(300)
         try:
-            output_text = pdf2text(str(i))
-            output_dir = Path(str(i.parent) + "_json")
-            output_file = output_dir / i.stem
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            text2json(output_text, str(output_file))
-            output_files.append(output_file)
-            progress.update(task2, advance=1)
-            success_count += 1
+            try:
+                with pymupdf.open(i) as doc:  # open document
+                    text = [page.get_text() for page in doc]
+                if any([langdetect.detect(i) != "en" for i in text]):
+                    raise ValueError("Document is unintelligible.")
+
+            except Exception as e:
+                click.echo("\nFailure with default PDF conversion of " + str(i) + ": " + str(e))
+                click.echo("Trying AI converter...")
+                from text_processing.pdf_to_text import pdf2text
+
+                try:
+                    text = pdf2text(str(i))
+                except TimeoutError:
+                    click.echo("Timeout with AI converstion of " + str(i) + ". Skipping.")
+                    fail_count += 1
+                    progress.update(task2, advance=1)
+                    continue
+                except Exception as e:
+                    click.echo("Failure with AI conversion of " + str(i) + ": " + str(e))
+                    fail_count += 1
+                    progress.update(task2, advance=1)
+                    continue
+
+            else:
+                output_dir = Path(str(i.parent) + "_json")
+                output_file = output_dir / i.stem
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                text2json(text, str(output_file))
+                output_files.append(output_file)
+                progress.update(task2, advance=1)
+                success_count += 1
+
         except TimeoutError:
             click.echo("Timeout while converting: " + str(i) + ". Skipping.")
             fail_count += 1
             progress.update(task2, advance=1)
             continue
-        except Exception as e:
-            click.echo("Failure while converting " + str(i) + ": " + str(e))
-            fail_count += 1
-            progress.update(task2, advance=1)
-            continue
 
-    click.echo("* Conversion of PDFs to json:")
+    click.echo("\n* Conversion of PDFs to json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
     click.echo("* Entering json postprocessing step")
@@ -123,7 +147,7 @@ def _convert(source: Path, progress):
             progress.update(task3, advance=1)
             continue
 
-    click.echo("* Postprocessing of json:")
+    click.echo("\n* Postprocessing of json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
     click.echo("* Entering metadata matching step")
@@ -131,7 +155,7 @@ def _convert(source: Path, progress):
     success_count = 0
     fail_count = 0
 
-    metadata_file = [i for i in source.glob("*metadata.json")][0]
+    metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
     metadata = json.load(metadata_file.open("r"))  # noqa
 
     task4 = progress.add_task("[bright_green]Matching metadata", total=len(output_files))
