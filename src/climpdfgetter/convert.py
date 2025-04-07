@@ -79,9 +79,11 @@ def _convert(source: Path, progress):
         signal.alarm(300)
         try:
             try:
-                with pymupdf.open(i) as doc:  # open document
+                with pymupdf.open(i) as doc:
                     text = [page.get_text() for page in doc]
-                if any([langdetect.detect(i) != "en" for i in text]):
+                if (
+                    sum([langdetect.detect(i) != "en" for i in text]) / len(text) > 0.33
+                ):  # more than 33% of text is indecipherable
                     raise ValueError("Document is unintelligible.")
 
             except Exception as e:
@@ -92,7 +94,7 @@ def _convert(source: Path, progress):
                 try:
                     text = pdf2text(str(i))
                 except TimeoutError:
-                    click.echo("Timeout with AI converstion of " + str(i) + ". Skipping.")
+                    click.echo("Timeout with AI conversion of " + str(i) + ". Skipping.")
                     fail_count += 1
                     progress.update(task2, advance=1)
                     continue
