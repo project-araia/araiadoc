@@ -9,7 +9,7 @@ import langdetect
 import pymupdf
 from bs4 import BeautifulSoup
 from PIL import Image
-from rich.progress import Progress
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
 from .utils import (
@@ -35,8 +35,8 @@ def _convert(source: Path, progress):
     org = source.split("_")[0]
     collected_input_files = _collect_from_path(Path(source))
 
-    click.echo("* Document Source: " + org)
-    click.echo("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
+    progress.log("* Document Source: " + org)
+    progress.log("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
 
     files_to_convert_to_pdf = [
         i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
@@ -44,7 +44,7 @@ def _convert(source: Path, progress):
 
     if len(files_to_convert_to_pdf):
 
-        click.echo("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
+        progress.log("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
 
         success_count = 0
         fail_count = 0
@@ -60,23 +60,34 @@ def _convert(source: Path, progress):
                 fail_count += 1
             progress.update(task1, advance=1)
 
-        click.echo("\n* Conversion of files to PDF:")
-        click.echo("* Successes: " + str(success_count))
-        click.echo("* Failures: " + str(fail_count))
+        progress.log("\n* Conversion of files to PDF:")
+        progress.log("* Successes: " + str(success_count))
+        progress.log("* Failures: " + str(fail_count))
 
     success_count = 0
     fail_count = 0
 
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
 
-    output_files = []
-
     task2 = progress.add_task("[bright_green]Converting to text", total=len(collected_input_files))
 
-    # TODO: Try pymupdf first, then if that doesn't work try pdf2text
+    # already-completed output files
+    output_dir = Path(str(collected_input_files[0].parent) + "_json")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_files = [i.stem for i in output_dir.iterdir()]
+
+    # timeout_json = output_dir / "timeout.json"
+    # timeout_files = []
 
     for i in collected_input_files:
         signal.alarm(300)
+
+        output_file = output_dir / i.stem
+        if i.stem in output_files:  # skip if already converted
+            success_count += 1
+            progress.update(task2, advance=1)
+            continue
+
         try:
             try:
                 with pymupdf.open(i) as doc:
@@ -87,42 +98,40 @@ def _convert(source: Path, progress):
                     raise ValueError("Document is unintelligible.")
 
             except Exception as e:
-                click.echo("\nFailure with default PDF conversion of " + str(i) + ": " + str(e))
-                click.echo("Trying AI converter...")
+                progress.log("\nFailure with default PDF conversion of " + str(i) + ": " + str(e))
+                progress.log("Trying AI converter...")
                 from text_processing.pdf_to_text import pdf2text
 
                 try:
                     text = pdf2text(str(i))
+                    progress.log("... Success!")
                 except TimeoutError:
-                    click.echo("Timeout with AI conversion of " + str(i) + ". Skipping.")
+                    progress.log("Timeout with AI conversion of " + str(i) + ". Skipping.")
                     fail_count += 1
                     progress.update(task2, advance=1)
                     continue
                 except Exception as e:
-                    click.echo("Failure with AI conversion of " + str(i) + ": " + str(e))
+                    progress.log("Failure with AI conversion of " + str(i) + ": " + str(e))
                     fail_count += 1
                     progress.update(task2, advance=1)
                     continue
 
             else:
-                output_dir = Path(str(i.parent) + "_json")
-                output_file = output_dir / i.stem
-                output_file.parent.mkdir(parents=True, exist_ok=True)
                 text2json(text, str(output_file))
                 output_files.append(output_file)
                 progress.update(task2, advance=1)
                 success_count += 1
 
         except TimeoutError:
-            click.echo("Timeout while converting: " + str(i) + ". Skipping.")
+            progress.log("Timeout while converting: " + str(i) + ". Skipping.")
             fail_count += 1
             progress.update(task2, advance=1)
             continue
 
-    click.echo("\n* Conversion of PDFs to json:")
-    click.echo("* Successes: " + str(success_count))
-    click.echo("* Failures: " + str(fail_count))
-    click.echo("* Entering json postprocessing step")
+    progress.log("\n* Conversion of PqDFs to json:")
+    progress.log("* Successes: " + str(success_count))
+    progress.log("* Failures: " + str(fail_count))
+    progress.log("* Entering json postprocessing step")
     output_files = [i.with_suffix(".json") for i in output_files if i.is_file()]
 
     success_count = 0
@@ -144,15 +153,15 @@ def _convert(source: Path, progress):
             success_count += 1
             progress.update(task3, advance=1)
         except Exception as e:
-            click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
+            progress.log("Failure while postprocessing " + str(i) + ": " + str(e))
             fail_count += 1
             progress.update(task3, advance=1)
             continue
 
-    click.echo("\n* Postprocessing of json:")
-    click.echo("* Successes: " + str(success_count))
-    click.echo("* Failures: " + str(fail_count))
-    click.echo("* Entering metadata matching step")
+    progress.log("\n* Postprocessing of json:")
+    progress.log("* Successes: " + str(success_count))
+    progress.log("* Failures: " + str(fail_count))
+    progress.log("* Entering metadata matching step")
 
     success_count = 0
     fail_count = 0
@@ -172,7 +181,7 @@ def _convert(source: Path, progress):
             success_count += 1
             progress.update(task4, advance=1)
         except Exception as e:
-            click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
+            progress.log("Failure while postprocessing " + str(i) + ": " + str(e))
             fail_count += 1
             progress.update(task4, advance=1)
             continue
@@ -185,7 +194,7 @@ def convert(source: Path):
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    with Progress() as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _convert(source, progress)
 
 
