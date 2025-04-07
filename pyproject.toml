@@ -4,7 +4,7 @@ description = "Download and convert climate report PDFs from EPA"
 name = "climpdfgetter"
 requires-python = ">=3.10"
 version = "0.1.0"
-dependencies = ["beautifulsoup4", "requests", "tqdm>=4.67.1,<5", "pydantic>=2.10.6,<3", "chardet>=5.2.0,<6", "crawl4ai>=0.5.0.post4,<0.6", "click>=8.1.8,<9"]
+dependencies = ["beautifulsoup4", "requests", "pydantic", "chardet", "click", "transformers", "pillow"]
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
@@ -43,7 +43,9 @@ soupsieve = ">=2.5,<3"
 timm = ">=1.0.14,<2"
 nltk = ">=3.9.1,<4"
 python-levenshtein = ">=0.26.1,<0.27"
+pillow = "==10.4"
+libgfortran = ">=5.0.0,<15"
 
 [dependency-groups]
-climpdf = [ "pymupdf>=1.25.2,<2", "text-processing-package @ git+https://github.com/jlnav/pdf2json"]
+climpdf = ["text-processing-package @ git+https://github.com/jlnav/pdf2json", "tf-playwright-stealth", "crawl4ai>=0.5.0.post1"]
 dev = ["wat>=0.5.1,<0.6"]

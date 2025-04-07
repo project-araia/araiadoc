@@ -7,7 +7,7 @@ import chardet
 import click
 from bs4 import BeautifulSoup
 from PIL import Image
-from tqdm.rich import tqdm
+from rich.progress import Progress
 
 from .schema import ParsedDocumentSchema
 from .utils import (
@@ -26,7 +26,7 @@ def timeout_handler(signum, frame):
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
-def _convert(source: Path):
+def _convert(source: Path, progress):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
     from text_processing.pdf_to_text import pdf2text, text2json  # noqa
 
@@ -47,13 +47,16 @@ def _convert(source: Path):
         success_count = 0
         fail_count = 0
 
-        for i in tqdm(files_to_convert_to_pdf):
+        task1 = progress.add_task("[green]Converting to PDF", total=len(files_to_convert_to_pdf))
+
+        for i in files_to_convert_to_pdf:
             try:
                 Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
                 collected_input_files.append(i.with_suffix(".pdf"))
                 success_count += 1
             except ValueError:
                 fail_count += 1
+            progress.update(task1, advance=1)
 
         click.echo("* Conversion of files to PDF:")
         click.echo("* Successes: " + str(success_count))
@@ -66,7 +69,9 @@ def _convert(source: Path):
 
     output_files = []
 
-    for i in tqdm(collected_input_files):
+    task2 = progress.add_task("[bright_green]Converting to json", total=len(collected_input_files))
+
+    for i in collected_input_files:
         signal.alarm(300)
         try:
             output_text = pdf2text(str(i))
@@ -75,28 +80,32 @@ def _convert(source: Path):
             output_file.parent.mkdir(parents=True, exist_ok=True)
             text2json(output_text, str(output_file))
             output_files.append(output_file)
+            progress.update(task2, advance=1)
             success_count += 1
         except TimeoutError:
             click.echo("Timeout while converting: " + str(i) + ". Skipping.")
             fail_count += 1
+            progress.update(task2, advance=1)
             continue
         except Exception as e:
             click.echo("Failure while converting " + str(i) + ": " + str(e))
             fail_count += 1
+            progress.update(task2, advance=1)
             continue
 
     click.echo("* Conversion of PDFs to json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
     click.echo("* Entering json postprocessing step")
-
     output_files = [i.with_suffix(".json") for i in output_files if i.is_file()]
 
     success_count = 0
     fail_count = 0
 
+    task3 = progress.add_task("[bright_green]Postprocessing json", total=len(output_files))
+
     # TODO: Why wasn't this postprocessing hit during OSTI conversion?
-    for i in tqdm(output_files):
+    for i in output_files:
         try:
             with open(i, "rw") as f:
                 json_data = json.load(f)
@@ -107,15 +116,17 @@ def _convert(source: Path):
                 )
                 json.dump(representation.model_dump(mode="json"), f)
             success_count += 1
+            progress.update(task3, advance=1)
         except Exception as e:
             click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
             fail_count += 1
+            progress.update(task3, advance=1)
             continue
 
     click.echo("* Postprocessing of json:")
     click.echo("* Successes: " + str(success_count))
     click.echo("* Failures: " + str(fail_count))
-    click.echo("* Entering metadata association step")
+    click.echo("* Entering metadata matching step")
 
     success_count = 0
     fail_count = 0
@@ -123,7 +134,9 @@ def _convert(source: Path):
     metadata_file = [i for i in source.glob("*metadata.json")][0]
     metadata = json.load(metadata_file.open("r"))  # noqa
 
-    for i in tqdm(output_files):
+    task4 = progress.add_task("[bright_green]Matching metadata", total=len(output_files))
+
+    for i in output_files:
         try:
             with open(i, "rw") as f:
                 json_data = json.load(f)
@@ -131,9 +144,11 @@ def _convert(source: Path):
                 # TODO: Update representation with metadata
                 json.dump(representation.model_dump(mode="json"), f)
             success_count += 1
+            progress.update(task4, advance=1)
         except Exception as e:
             click.echo("Failure while postprocessing " + str(i) + ": " + str(e))
             fail_count += 1
+            progress.update(task4, advance=1)
             continue
 
 
@@ -144,7 +159,8 @@ def convert(source: Path):
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    _convert(source)
+    with Progress() as progress:
+        _convert(source, progress)
 
 
 @click.command()
@@ -163,7 +179,7 @@ def epa_ocr_to_json(source: Path):
 
     click.echo("* Beginning Conversion:")
 
-    for i in tqdm(collected_input_files):
+    for i in collected_input_files:
         signal.alarm(60)
         try:
 

@@ -23,8 +23,6 @@ from .utils import (
     count_local,
 )
 
-# from tqdm.rich import tqdm
-
 
 def timeout_handler(signum, frame):
     raise TimeoutError()

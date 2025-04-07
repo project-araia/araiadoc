@@ -10,7 +10,7 @@ import requests
 URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"  # noqa
 
 
-def _get_downloaded_source_doc_ids(source: str):
+def _count_local(source: str):
     ids = []
     data_root = Path(_find_project_root()) / Path("data/")
     for directory in data_root.iterdir():
@@ -18,20 +18,11 @@ def _get_downloaded_source_doc_ids(source: str):
             for doc in directory.iterdir():
                 if doc.stem.isdigit():
                     ids.append(doc.stem)
-    ids = sorted(ids)
+    ids = list(set(sorted(ids)))
     with open(data_root / f"{source}_doc_ids.json", "w") as f:
         json.dump(ids, f)
-    return ids
-
-
-def _count_local(source: str):
-    total = 0
-    data_root = Path(_find_project_root()) / Path("data/")
-    for directory in data_root.iterdir():
-        if directory.is_dir() and directory.name.startswith(source):
-            total += len(list(directory.iterdir()))
-    click.echo(total)
-    return total
+    click.echo(len(ids))
+    return len(ids)
 
 
 @click.command()
