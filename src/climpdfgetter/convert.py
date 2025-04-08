@@ -76,11 +76,15 @@ def _convert(source: Path, progress):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_files = [i.stem for i in output_dir.iterdir()]
 
-    # timeout_json = output_dir / "timeout.json"
-    # timeout_files = []
+    timeout_json = output_dir / "timeout.json"
+    if timeout_json.exists():
+        with open(timeout_json, "r") as f:
+            timeout_files = json.load(f)
+    else:
+        timeout_files = []
 
     for i in collected_input_files:
-        signal.alarm(300)
+        signal.alarm(180)
 
         output_file = output_dir / i.stem
         if i.stem in output_files:  # skip if already converted
@@ -98,23 +102,25 @@ def _convert(source: Path, progress):
                     raise ValueError("Document is unintelligible.")
 
             except Exception as e:
-                progress.log("\nFailure with default PDF conversion of " + str(i) + ": " + str(e))
-                progress.log("Trying AI converter...")
+                progress.log("\nFailure with default PDF conversion of " + str(i.name) + ": " + str(e))
+                progress.log("Falling back to AI OCR converter...")
                 from text_processing.pdf_to_text import pdf2text
 
                 try:
                     text = pdf2text(str(i))
-                    progress.log("... Success!")
                 except TimeoutError:
-                    progress.log("Timeout with AI conversion of " + str(i) + ". Skipping.")
+                    progress.log("Timeout with AI conversion of " + str(i.name) + ". Skipping.")
                     fail_count += 1
                     progress.update(task2, advance=1)
+                    timeout_files.append(i.stem)
                     continue
                 except Exception as e:
-                    progress.log("Failure with AI conversion of " + str(i) + ": " + str(e))
+                    progress.log("Failure with AI conversion of " + str(i.name) + ": " + str(e))
                     fail_count += 1
                     progress.update(task2, advance=1)
                     continue
+                else:
+                    progress.log("... Success!")
 
             else:
                 text2json(text, str(output_file))
@@ -123,10 +129,14 @@ def _convert(source: Path, progress):
                 success_count += 1
 
         except TimeoutError:
-            progress.log("Timeout while converting: " + str(i) + ". Skipping.")
+            progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
             fail_count += 1
             progress.update(task2, advance=1)
+            timeout_files.append(i.stem)
             continue
+
+    with open(timeout_json, "w") as f:
+        json.dump(timeout_files, f)
 
     progress.log("\n* Conversion of PqDFs to json:")
     progress.log("* Successes: " + str(success_count))
