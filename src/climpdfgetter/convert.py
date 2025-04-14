@@ -110,7 +110,6 @@ def _convert(source: Path, progress):
                     text = pdf2text(str(i))
                 except TimeoutError:
                     progress.log("Timeout with AI conversion of " + str(i.name) + ". Skipping.")
-                    fail_count += 1
                     progress.update(task2, advance=1)
                     timeout_files.append(i.stem)
                     continue
@@ -138,19 +137,30 @@ def _convert(source: Path, progress):
     with open(timeout_json, "w") as f:
         json.dump(timeout_files, f)
 
-    progress.log("\n* Conversion of PqDFs to json:")
+    progress.log("\n* Conversion of PDFs to json:")
     progress.log("* Successes: " + str(success_count))
     progress.log("* Failures: " + str(fail_count))
-    progress.log("* Entering json postprocessing step")
-    output_files = [i.with_suffix(".json") for i in output_files if i.is_file()]
+    progress.log("* Timeout failures: " + str(len(timeout_files)))
+    progress.log(
+        "Timed out files appended to "
+        + str(timeout_json)
+        + ". These will be skipped on future conversions."
+        + "\nDelete the file if you want to retry them."
+    )
+    progress.log("\n* Entering json postprocessing step")
+    output_files_to_json = [
+        output_dir / Path(i).with_suffix(".json")
+        for i in output_files
+        if ((output_dir / Path(i)).with_suffix(".json").is_file() and i != "timeout")
+    ]
 
     success_count = 0
     fail_count = 0
 
-    task3 = progress.add_task("[bright_green]Postprocessing json", total=len(output_files))
+    task3 = progress.add_task("[bright_green]Postprocessing json", total=len(output_files_to_json))
 
     # TODO: Why wasn't this postprocessing hit during OSTI conversion?
-    for i in output_files:
+    for i in output_files_to_json:
         try:
             with open(i, "rw") as f:
                 json_data = json.load(f)

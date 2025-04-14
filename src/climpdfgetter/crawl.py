@@ -183,6 +183,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
         click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
 
         n_successful_crawls = 0
+        n_known_crawls = 0
         n_failed_crawls = 0
 
         # TODO: Start conversion subprocess. User won't need to run `climpdf convert` on output
@@ -228,6 +229,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
                 # TODO: Does a known-document constitute a failed crawl?
                 if doc_page["href"].split(url_base)[-1] in known_documents:
+                    n_known_crawls += 1
                     progress.update(task, advance=1)
                     continue
 
@@ -251,7 +253,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             click.echo("* Performing subsequent searches")
             for result_page in range(1, max_pages):
-                signal.alarm(660)
+                signal.alarm(660)  # 11 minutes - one minute a page, since there's 10 pages max
                 try:
                     formatted_search_base = search_base.format(search_term, stop_year, start_year, result_page)
                     main_result_page = await crawler.arun(url=formatted_search_base, config=run_config)
@@ -260,6 +262,12 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
                     for doc_page in search_result_links:
                         signal.alarm(60)
+
+                        if doc_page["href"].split(url_base)[-1] in known_documents:
+                            n_known_crawls += 1
+                            progress.update(task, advance=1)
+                            continue
+
                         try:
                             _download_document(doc_page, url_base, path, progress, task)
                             n_successful_crawls += 1
@@ -298,6 +306,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                 )
 
             click.echo("\n* Successes: " + str(n_successful_crawls))
+            click.echo("* Known documents skipped: " + str(n_known_crawls))
             click.echo("* Failures: " + str(n_failed_crawls))
             click.echo("* Exceptions: ")
             for i in collected_exceptions:
