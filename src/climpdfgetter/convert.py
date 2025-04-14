@@ -84,7 +84,7 @@ def _convert(source: Path, progress):
         timeout_files = []
 
     for i in collected_input_files:
-        signal.alarm(180)
+        signal.alarm(300)
 
         output_file = output_dir / i.stem
         if i.stem in output_files:  # skip if already converted
@@ -117,6 +117,7 @@ def _convert(source: Path, progress):
                     progress.log("Failure with AI conversion of " + str(i.name) + ": " + str(e))
                     fail_count += 1
                     progress.update(task2, advance=1)
+                    timeout_files.append(i.stem)
                     continue
                 else:
                     progress.log("... Success!")
@@ -147,28 +148,35 @@ def _convert(source: Path, progress):
         + ". These will be skipped on future conversions."
         + "\nDelete the file if you want to retry them."
     )
-    progress.log("\n* Entering json postprocessing step")
-    output_files_to_json = [
-        output_dir / Path(i).with_suffix(".json")
-        for i in output_files
-        if ((output_dir / Path(i)).with_suffix(".json").is_file() and i != "timeout")
-    ]
+    progress.log("\n* Entering json postprocessing and metadata-matching step")
+
+    output_files_to_json = [i for i in output_dir.iterdir() if str(i.stem) != "timeout"]
 
     success_count = 0
     fail_count = 0
 
     task3 = progress.add_task("[bright_green]Postprocessing json", total=len(output_files_to_json))
 
-    # TODO: Why wasn't this postprocessing hit during OSTI conversion?
+    metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
+    metadata = json.load(metadata_file.open("r"))
+
     for i in output_files_to_json:
         try:
-            with open(i, "rw") as f:
+            with open(i, "r") as f:
                 json_data = json.load(f)
-                base_text_list = [instance["text"] for instance in json_data["instances"]]
-                representation = ParsedDocumentSchema(
-                    source=org,
-                    text=base_text_list,
-                )
+            matching_metadata = [entry for entry in metadata if i.stem == entry["osti_id"]][0]
+            base_text_list = [instance["text"] for instance in json_data["instances"]]
+            representation = ParsedDocumentSchema(
+                source=org,
+                title=matching_metadata["title"],
+                text=base_text_list,
+                abstract=matching_metadata["description"],
+                authors=matching_metadata["authors"],
+                publisher=matching_metadata["journal_name"],
+                date=matching_metadata["publication_date"],
+                unique_id=matching_metadata["osti_id"],
+            )
+            with open(i, "w") as f:
                 json.dump(representation.model_dump(mode="json"), f)
             success_count += 1
             progress.update(task3, advance=1)
@@ -181,30 +189,6 @@ def _convert(source: Path, progress):
     progress.log("\n* Postprocessing of json:")
     progress.log("* Successes: " + str(success_count))
     progress.log("* Failures: " + str(fail_count))
-    progress.log("* Entering metadata matching step")
-
-    success_count = 0
-    fail_count = 0
-
-    metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
-    metadata = json.load(metadata_file.open("r"))  # noqa
-
-    task4 = progress.add_task("[bright_green]Matching metadata", total=len(output_files))
-
-    for i in output_files:
-        try:
-            with open(i, "rw") as f:
-                json_data = json.load(f)
-                text = json_data["text"]  # noqa
-                # TODO: Update representation with metadata
-                json.dump(representation.model_dump(mode="json"), f)
-            success_count += 1
-            progress.update(task4, advance=1)
-        except Exception as e:
-            progress.log("Failure while postprocessing " + str(i) + ": " + str(e))
-            fail_count += 1
-            progress.update(task4, advance=1)
-            continue
 
 
 @click.command()

@@ -7,7 +7,6 @@ class ParsedDocumentSchema(BaseModel):
     text: list[str] = []
     abstract: str = ""
     authors: list[str] = []
-    origin_format: str = ""
     publisher: str = ""
-    year: int = 0
+    date: int | str = 0
     unique_id: str = ""
