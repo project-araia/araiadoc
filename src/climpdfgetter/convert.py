@@ -35,8 +35,8 @@ def _convert(source: Path, progress):
     org = source.split("_")[0]
     collected_input_files = _collect_from_path(Path(source))
 
-    progress.log("* Document Source: " + org)
-    progress.log("* Found " + str(len(collected_input_files)) + " input pdf files. Cleaning ineligible ones.")
+    progress.log("\n* Document Source: " + org)
+    progress.log("* Found " + str(len(collected_input_files)) + " input files. Discarding ineligible ones.")
 
     files_to_convert_to_pdf = [
         i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
@@ -68,6 +68,7 @@ def _convert(source: Path, progress):
     fail_count = 0
 
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
+    progress.log("\n* Found " + str(len(collected_input_files)) + " input PDFs.")
 
     task2 = progress.add_task("[bright_green]Converting to text", total=len(collected_input_files))
 
