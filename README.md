@@ -4,9 +4,25 @@ Download and convert climate pdfs from EPA and OSTI.
 
 ## Installation
 
+```bash
+git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
+cd climpdfgetter
 ```
-$ git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
-$ cd climpdfgetter; pip install -e .
+
+Then either:
+
+**Recommended**: Use [Pixi](https://pixi.sh/latest/) to take advantage of the included, guaranteed-working environment:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+pixi shell
+```
+
+
+
+```bash
+git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
+cd climpdfgetter; pip install -e .
 ```
 
 ## Basic Usage
