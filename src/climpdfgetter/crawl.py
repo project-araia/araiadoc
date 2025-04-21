@@ -222,7 +222,10 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
 
             # TODO: This should be generated automatically. Currently from `count-local`.
-            known_documents = json.load(open(path.parent / "OSTI_doc_ids.json", "r"))
+            try:
+                known_documents = json.load(open(path.parent / "OSTI_doc_ids.json", "r"))
+            except FileNotFoundError:
+                known_documents = []
 
             for doc_page in first_result_page_links:
                 signal.alarm(60)
