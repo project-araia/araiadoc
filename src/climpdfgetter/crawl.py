@@ -216,7 +216,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             max_pages, max_results = _get_max_results(first_soup, counting=False)
 
             collected_exceptions = []
-            click.echo("* Beginning document crawl.")
+            click.echo("* Expecting " + str(max_results) + " documents. Beginning document crawl.")
 
             color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
