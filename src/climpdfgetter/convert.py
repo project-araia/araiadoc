@@ -12,13 +12,7 @@ from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .utils import (
-    _collect_from_path,
-    _is_url_dominant,
-    _strip_phone_numbers,
-    _strip_sequential_nonalphanumeric,
-    _strip_urls,
-)
+from .utils import _clean_subsections, _collect_from_path
 
 
 def timeout_handler(signum, frame):
@@ -97,6 +91,7 @@ def _convert(source: Path, progress):
             try:
                 with pymupdf.open(i) as doc:
                     text = [page.get_text() for page in doc]
+                    text = _clean_subsections(text)
                 if (
                     sum([langdetect.detect(i) != "en" for i in text]) / len(text) > 0.33
                 ):  # more than 33% of text is indecipherable
@@ -109,6 +104,7 @@ def _convert(source: Path, progress):
 
                 try:
                     text = pdf2text(str(i))
+                    text = _clean_subsections(text)
                 except TimeoutError:
                     progress.log("Timeout with AI conversion of " + str(i.name) + ". Skipping.")
                     progress.update(task2, advance=1)
@@ -121,9 +117,13 @@ def _convert(source: Path, progress):
                     timeout_files.append(i.stem)
                     continue
                 else:
-                    progress.log("... Success!")
+                    progress.log("...AI OCR Success!")
+                    text2json(text, str(output_file))
+                    output_files.append(output_file)
+                    progress.update(task2, advance=1)
+                    success_count += 1
 
-            else:
+            else:  # because of the ValueError above, this else doesn't get hit even on AI OCR success
                 text2json(text, str(output_file))
                 output_files.append(output_file)
                 progress.update(task2, advance=1)
@@ -173,7 +173,7 @@ def _convert(source: Path, progress):
                 text=base_text_list,
                 abstract=matching_metadata["description"],
                 authors=matching_metadata["authors"],
-                publisher=matching_metadata["journal_name"],
+                publisher=matching_metadata.get("journal_name", ""),
                 date=matching_metadata["publication_date"],
                 unique_id=matching_metadata["osti_id"],
             )
@@ -240,28 +240,8 @@ def epa_ocr_to_json(source: Path):
             ocr_soup = BeautifulSoup(full_text, "html.parser")
             text = ocr_soup.getText()
 
-            cleaned_subsections = []
             sub_sections = text.split("\n\n\n")
-
-            cached_section = ""
-
-            for section in sub_sections:
-                cleaned = "".join([i.strip() for i in section.split("\n") if len(i)])
-                if len(cleaned) and not _is_url_dominant(cleaned):
-                    cleaned = _strip_urls(cleaned)
-                    cleaned = _strip_phone_numbers(cleaned)
-                    cleaned = _strip_sequential_nonalphanumeric(cleaned)
-                    if not cleaned.endswith(" "):
-                        cleaned_subsections.append(cleaned)
-                    else:  # want to combine lines that are continuations
-                        cached_section += cleaned
-                    # once continuation ends, append and reset
-                    if not cached_section.endswith(" ") and len(cached_section):
-                        cleaned_subsections.append(cached_section)
-                        cached_section = ""
-
-            cleaned_subsections.append(cleaned)  # append last section, since it doesn't have a continuation
-
+            cleaned_subsections = _clean_subsections(sub_sections)
             # remove pubnumber from first section
             cleaned_subsections[0] = cleaned_subsections[0].replace(pubnumber, "")
 

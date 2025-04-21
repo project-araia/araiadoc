@@ -133,6 +133,29 @@ def _prep_output_dir(name: str) -> Path:
     return path
 
 
+def _clean_subsections(sub_sections: list[str]) -> list[str]:
+    cleaned_subsections = []
+    cached_section = ""
+
+    for section in sub_sections:
+        cleaned = "".join([i.strip() for i in section.split("\n") if len(i)])
+        if len(cleaned) and not _is_url_dominant(cleaned):
+            cleaned = _strip_urls(cleaned)
+            cleaned = _strip_phone_numbers(cleaned)
+            cleaned = _strip_sequential_nonalphanumeric(cleaned)
+            if not cleaned.endswith(" "):
+                cleaned_subsections.append(cleaned)
+            else:  # want to combine lines that are continuations
+                cached_section += cleaned
+            # once continuation ends, append and reset
+            if not cached_section.endswith(" ") and len(cached_section):
+                cleaned_subsections.append(cached_section)
+                cached_section = ""
+
+    cleaned_subsections.append(cleaned)  # append last section, since it doesn't have a continuation
+    return cleaned_subsections
+
+
 def _is_url_dominant(text: str):
     """if more than a third of the characters in the subsection belong to URLs, return True"""
     all_urls = re.findall(URL_RE, text)
