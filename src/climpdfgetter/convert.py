@@ -171,7 +171,7 @@ def _convert(source: Path, progress):
                 source=org,
                 title=matching_metadata["title"],
                 text=base_text_list,
-                abstract=matching_metadata["description"],
+                abstract=matching_metadata.get("description", ""),
                 authors=matching_metadata["authors"],
                 publisher=matching_metadata.get("journal_name", ""),
                 date=matching_metadata["publication_date"],
