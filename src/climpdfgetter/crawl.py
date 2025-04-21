@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 import requests
 from bs4 import BeautifulSoup
-from rich.progress import Progress
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .convert import convert, epa_ocr_to_json
 from .searches import RESILIENCE_SEARCHES
@@ -178,9 +178,9 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
         browser_config, run_config, metadata_config = _get_configs(path)
 
-        click.echo("\n* Crawling OSTI")
-        click.echo("* Searching for: " + search_term)
-        click.echo("* Documents from " + str(start_year) + " to " + str(stop_year))
+        progress.log("\n* Crawling OSTI")
+        progress.log("* Searching for: " + search_term)
+        progress.log("* Documents from " + str(start_year) + " to " + str(stop_year))
 
         n_successful_crawls = 0
         n_known_crawls = 0
@@ -188,38 +188,38 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
         # TODO: Start conversion subprocess. User won't need to run `climpdf convert` on output
         if convert:
-            click.echo("* Converting PDFs to text.")
+            progress.log("* Converting PDFs to text.")
             _conversion_process(path)
 
         async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
 
-            click.echo("* Calculating starting URL")
+            progress.log("* Calculating starting URL")
 
             search_base = source_mapping["OSTI"].search_base
             formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
             url_base = "https://www.osti.gov/servlets/purl/"
 
-            click.echo("* Performing first search")
+            progress.log("* Performing first search")
 
             first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
 
             if first_result_page.downloaded_files:
-                click.echo("* Metadata collected.")
+                progress.log("* Metadata collected.")
             else:
-                click.echo("* Unable to collect metadata.")
+                progress.log("* Unable to collect metadata.")
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
             first_result_page_links = _get_result_links(first_result_page, url_base)
             max_pages, max_results = _get_max_results(first_soup, counting=False)
 
-            collected_exceptions = []
-            click.echo("* Expecting " + str(max_results) + " documents. Beginning document crawl.")
-
             color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
+
+            collected_exceptions = []
+            progress.log("* Expecting " + str(max_results) + " documents. Beginning document crawl.")
 
             # TODO: This should be generated automatically. Currently from `count-local`.
             try:
@@ -241,7 +241,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     n_successful_crawls += 1
 
                 except TimeoutError:
-                    click.echo("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                    progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
                     n_failed_crawls += 1
                     progress.update(task, advance=1)
                     continue
@@ -254,7 +254,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
 
-            click.echo("* Performing subsequent searches")
+            progress.log("* Performing subsequent searches")
             for result_page in range(1, max_pages):
                 signal.alarm(660)  # 11 minutes - one minute a page, since there's 10 pages max
                 try:
@@ -276,7 +276,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                             n_successful_crawls += 1
 
                         except TimeoutError:
-                            click.echo("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                            progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
                             n_failed_crawls += 1
                             progress.update(task, advance=1)
                             continue
@@ -287,7 +287,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                             progress.update(task, advance=1)
 
                 except TimeoutError:
-                    click.echo("Timeout on result page: " + str(result_page) + ". Skipping.")
+                    progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
                     n_failed_crawls += 10
                     progress.update(task, advance=10)
                     continue
@@ -308,18 +308,18 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     max_results,
                 )
 
-            click.echo("\n* Successes: " + str(n_successful_crawls))
-            click.echo("* Known documents skipped: " + str(n_known_crawls))
-            click.echo("* Failures: " + str(n_failed_crawls))
-            click.echo("* Exceptions: ")
+            progress.log("\n* Successes: " + str(n_successful_crawls))
+            progress.log("* Known documents skipped: " + str(n_known_crawls))
+            progress.log("* Failures: " + str(n_failed_crawls))
+            progress.log("* Exceptions: ")
             for i in collected_exceptions:
-                click.echo("* " + str(i[0]) + ": " + str(i[1]) + "\n")
+                progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
     async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int, convert: bool):
         if convert:
             click.echo("* Converting PDFs to text.")
 
-        with Progress() as progress:
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
             await asyncio.gather(
                 *[main_osti(search_term, start_year, stop_year, convert, progress) for search_term in search_terms]
             )
