@@ -136,6 +136,7 @@ def _prep_output_dir(name: str) -> Path:
 def _clean_subsections(sub_sections: list[str]) -> list[str]:
     cleaned_subsections = []
     cached_section = ""
+    cleaned = ""
 
     for section in sub_sections:
         cleaned = "".join([i.strip() for i in section.split("\n") if len(i)])
