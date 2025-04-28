@@ -75,8 +75,12 @@ $ climpdf count-local EPA
 
 ```Usage: climpdf convert [OPTIONS] SOURCE```
 
-Try converting downloaded files in a given directory
-to json, plus match any metadata. Subdirectories are also searched.
+Collects downloaded files in a given directory and:
+  1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).
+  2. Extract text, using either standard PDF text extraction or OCR as a fallback.
+  3. Clean text of extraneous URLs, phone numbers, whitespace, etc.
+  4. Match text with any collected corresponding metadata.
+  5. Concatenate all information together in the below schema and dump.
 
 For instance:
 
@@ -86,9 +90,22 @@ or:
 
 ```climpdf convert data```
 
-Non-PDF eligible documents are first converted to PDF. Then the corresponding text is extracted. If this
-step raises exceptions, the conversion process next tries using AI to read the text. If this step fails,
-the document is noted as problematic for future conversion attempts.
+Problematic documents are noted as-such for future conversion attempts.
+
+#### JSON Schema
+
+```python
+class ParsedDocumentSchema(BaseModel):
+    source: str = ""
+    title: str = ""
+    text: list[str] = []
+    abstract: str = ""
+    authors: list[str] = []
+    publisher: str = ""
+    date: int | str = 0
+    unique_id: str = ""
+    doi: str = ""
+```
 
 ## Development
 
