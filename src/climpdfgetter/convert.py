@@ -82,7 +82,7 @@ def _convert(source: Path, progress):
         signal.alarm(300)
 
         output_file = output_dir / i.stem
-        if i.stem in output_files:  # skip if already converted
+        if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
             success_count += 1
             progress.update(task2, advance=1)
             continue
@@ -136,11 +136,12 @@ def _convert(source: Path, progress):
             timeout_files.append(i.stem)
             continue
 
+    signal.alarm(0)
     with open(timeout_json, "w") as f:
         json.dump(timeout_files, f)
 
     progress.log("\n* Conversion of PDFs to json:")
-    progress.log("* Successes: " + str(success_count))
+    progress.log("* Successes or predetermined-skipped: " + str(success_count))
     progress.log("* Failures: " + str(fail_count))
     progress.log("* Timeout failures: " + str(len(timeout_files)))
     progress.log(
@@ -176,6 +177,7 @@ def _convert(source: Path, progress):
                 publisher=matching_metadata.get("journal_name", ""),
                 date=matching_metadata["publication_date"],
                 unique_id=matching_metadata["osti_id"],
+                doi=matching_metadata.get("doi", ""),
             )
             with open(i, "w") as f:
                 json.dump(representation.model_dump(mode="json"), f)

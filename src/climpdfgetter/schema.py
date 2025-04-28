@@ -10,3 +10,4 @@ class ParsedDocumentSchema(BaseModel):
     publisher: str = ""
     date: int | str = 0
     unique_id: str = ""
+    doi: str = ""
