@@ -134,13 +134,12 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/78/2b/999b2a1e1ba2206f2d3bca267d68f350beb2b048a41ea827e08ce7260098/cryptography-44.0.2-cp39-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9f/9e/1ed0964081abafb530173f68f9182a98aa2d82550cc843e1f7c844bc06e7/fake_useragent-2.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
       - pypi: https://files.pythonhosted.org/packages/f6/b8/260791bde9198c87a465224e0e2bb62c4e716f5d198fc3a1dacc4895dbd1/frozenlist-1.5.0-cp313-cp313-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/37/fa/71599c3fd06336cdc3eac52e6871cfebab4d9d70674a9a9e7a482c318e99/greenlet-3.1.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl
@@ -303,13 +302,12 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/be/7a26142e6d0f7683d8a382dd963745e65db895a79a280a30525ec92be890/cryptography-44.0.2-cp39-abi3-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9f/9e/1ed0964081abafb530173f68f9182a98aa2d82550cc843e1f7c844bc06e7/fake_useragent-2.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
       - pypi: https://files.pythonhosted.org/packages/3a/c8/76f23bf9ab15d5f760eb48701909645f686f9c64fbb8982674c241fbef14/frozenlist-1.5.0-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/f3/57/0db4940cd7bb461365ca8d6fd53e68254c9dbbcc2b452e69d0d41f10a85e/greenlet-3.1.1-cp313-cp313-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl
@@ -566,19 +564,19 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a1/ee/48ca1a7c89ffec8b6a0c5d02b89c305671d5ffd8d3c94acf8b8c408575bb/anyio-4.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/ac/a3/d98d2472e0130b7dd3acdbb7f390d478123dbf62b7d32bda5c830a96116d/Brotli-1.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/38/fc/bce832fd4fd99766c04d1ee0eead6b0ec6486fb100ae5e74c1d91292b982/certifi-2025.1.31-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/9f/1aab65a6c0db35f43c4d1b4f580e8df53914310afc10ae0397d29d697af4/cffi-1.17.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/52/ed/b7f4f07de100bdb95c1756d3a4d17b90c1a3c53715c1a476f8738058e0fa/charset_normalizer-3.4.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/7e/d4/7ebdbd03970677812aac39c869717059dbb71a4cfc033ca6e5221787892c/click-8.1.8-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/78/2b/999b2a1e1ba2206f2d3bca267d68f350beb2b048a41ea827e08ce7260098/cryptography-44.0.2-cp39-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/37/b3ea9cd5558ff4cb51957caca2193981c6b0ff30bd0d2630ac62505d99d0/fake_useragent-2.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
       - pypi: https://files.pythonhosted.org/packages/4d/36/2a115987e2d8c300a974597416d9de88f2444426de9571f4b59b2cca3acc/filelock-3.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f6/b8/260791bde9198c87a465224e0e2bb62c4e716f5d198fc3a1dacc4895dbd1/frozenlist-1.5.0-cp313-cp313-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/44/4b/e0cfc1a6f17e990f3e64b7d941ddc4acdc7b19d6edd51abf495f32b1a9e4/fsspec-2025.3.2-py3-none-any.whl
@@ -696,19 +694,19 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a1/ee/48ca1a7c89ffec8b6a0c5d02b89c305671d5ffd8d3c94acf8b8c408575bb/anyio-4.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/0a/9f/fb37bb8ffc52a8da37b1c03c459a8cd55df7a57bdccd8831d500e994a0ca/Brotli-1.1.0-cp313-cp313-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/38/fc/bce832fd4fd99766c04d1ee0eead6b0ec6486fb100ae5e74c1d91292b982/certifi-2025.1.31-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8b/f1/672d303ddf17c24fc83afd712316fda78dc6fce1cd53011b839483e1ecc8/cffi-1.17.1-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/94/ce8e6f63d18049672c76d07d119304e1e2d7c6098f0841b51c666e9f44a0/charset_normalizer-3.4.1-cp313-cp313-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/7e/d4/7ebdbd03970677812aac39c869717059dbb71a4cfc033ca6e5221787892c/click-8.1.8-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/be/7a26142e6d0f7683d8a382dd963745e65db895a79a280a30525ec92be890/cryptography-44.0.2-cp39-abi3-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/37/b3ea9cd5558ff4cb51957caca2193981c6b0ff30bd0d2630ac62505d99d0/fake_useragent-2.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
       - pypi: https://files.pythonhosted.org/packages/4d/36/2a115987e2d8c300a974597416d9de88f2444426de9571f4b59b2cca3acc/filelock-3.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/3a/c8/76f23bf9ab15d5f760eb48701909645f686f9c64fbb8982674c241fbef14/frozenlist-1.5.0-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/44/4b/e0cfc1a6f17e990f3e64b7d941ddc4acdc7b19d6edd51abf495f32b1a9e4/fsspec-2025.3.2-py3-none-any.whl
@@ -1076,13 +1074,12 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/78/2b/999b2a1e1ba2206f2d3bca267d68f350beb2b048a41ea827e08ce7260098/cryptography-44.0.2-cp39-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9f/9e/1ed0964081abafb530173f68f9182a98aa2d82550cc843e1f7c844bc06e7/fake_useragent-2.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/81/33/a705c39e89b7ca7564b90c1a4ab4d4c2c0534cde911191d87a89b87b6c60/faust_cchardet-2.1.19-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/af/f2/64b73a9bb86f5a89fb55450e97cd5c1f84a862d4ff90d9fd1a73ab0f64a5/frozenlist-1.5.0-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f1/66/033e58a50fd9ec9df00a8671c74f1f3a320564c6415a4ed82a1c651654ba/greenlet-3.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl
@@ -1281,13 +1278,12 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f9/49/6abb616eb3cbab6a7cca303dc02fdf3836de2e0b834bf966a7f5271a34d8/beautifulsoup4-4.13.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/be/7a26142e6d0f7683d8a382dd963745e65db895a79a280a30525ec92be890/cryptography-44.0.2-cp39-abi3-macosx_10_9_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/ee/58/257350f7db99b4ae12b614a36256d9cc870d71d9e451e79c2dc3b23d7c3c/cssselect-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e3/0b/2849c87d9f13766e29c0a2f4d31681aa72e035016b251ab19d99bde7b592/fake_http_header-0.3.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9f/9e/1ed0964081abafb530173f68f9182a98aa2d82550cc843e1f7c844bc06e7/fake_useragent-2.1.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
       - pypi: https://files.pythonhosted.org/packages/3a/c8/76f23bf9ab15d5f760eb48701909645f686f9c64fbb8982674c241fbef14/frozenlist-1.5.0-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/f3/57/0db4940cd7bb461365ca8d6fd53e68254c9dbbcc2b452e69d0d41f10a85e/greenlet-3.1.1-cp313-cp313-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl
@@ -1916,10 +1912,18 @@ packages:
   - pkg:pypi/black?source=hash-mapping
   size: 172678
   timestamp: 1742502887437
+- pypi: https://files.pythonhosted.org/packages/0a/9f/fb37bb8ffc52a8da37b1c03c459a8cd55df7a57bdccd8831d500e994a0ca/Brotli-1.1.0-cp313-cp313-macosx_10_13_universal2.whl
+  name: brotli
+  version: 1.1.0
+  sha256: 8bf32b98b75c13ec7cf774164172683d6e7891088f6316e54425fde1efc276d5
 - pypi: https://files.pythonhosted.org/packages/7e/c1/ec214e9c94000d1c1974ec67ced1c970c148aa6b8d8373066123fc3dbf06/Brotli-1.1.0-cp313-cp313-win_amd64.whl
   name: brotli
   version: 1.1.0
   sha256: 9011560a466d2eb3f5a6e4929cf4a09be405c64154e12df0dd72713f6500e32b
+- pypi: https://files.pythonhosted.org/packages/ac/a3/d98d2472e0130b7dd3acdbb7f390d478123dbf62b7d32bda5c830a96116d/Brotli-1.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+  name: brotli
+  version: 1.1.0
+  sha256: a93dde851926f4f2678e704fadeb39e16c35d8baebd5252c9fd94ce8ce68c4a0
 - conda: https://conda.anaconda.org/conda-forge/linux-64/brotli-python-1.1.0-py312h2ec8cdc_2.conda
   sha256: f2a59ccd20b4816dea9a2a5cb917eb69728271dbf1aeab4e1b7e609330a50b6f
   md5: b0b867af6fc74b2a0aa206da29c0f3cf
@@ -2227,7 +2231,7 @@ packages:
 - pypi: .
   name: climpdfgetter
   version: 0.1.0
-  sha256: c0d92eb8d0cf5eba14d746bc82986c0a8f16cda2a8d291343c07cb89868380f2
+  sha256: 80286c53a46b0be629503006c624ce448306988a2d9e490db6cfa09c4b827d51
   requires_dist:
   - beautifulsoup4
   - requests
@@ -2243,9 +2247,9 @@ packages:
   - levenshtein
   - langdetect
   - pymupdf
-  - crawl4ai
   - tf-playwright-stealth
   - text-processing-package @ git+https://github.com/jlnav/pdf2json
+  - crawl4ai
   requires_python: '>=3.10'
   editable: true
 - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
@@ -2286,60 +2290,6 @@ packages:
   purls: []
   size: 47792
   timestamp: 1739800762370
-- pypi: https://files.pythonhosted.org/packages/12/bb/ab3a07cac6860a9f4ae144b5cc9652e12f6d8321269ecf7b6e36859477a1/crawl4ai-0.5.0.post8-py3-none-any.whl
-  name: crawl4ai
-  version: 0.5.0.post8
-  sha256: ad7b59e4a4df721cda40510e493e1b9058899071ac175f9b06d11dd1c7fe79fa
-  requires_dist:
-  - aiosqlite~=0.20
-  - lxml~=5.3
-  - litellm>=1.53.1
-  - numpy>=1.26.0,<3
-  - pillow~=10.4
-  - playwright>=1.49.0
-  - python-dotenv~=1.0
-  - requests~=2.26
-  - beautifulsoup4~=4.12
-  - tf-playwright-stealth>=1.1.0
-  - xxhash~=3.4
-  - rank-bm25~=0.2
-  - aiofiles>=24.1.0
-  - colorama~=0.4
-  - snowballstemmer~=2.2
-  - pydantic>=2.10
-  - pyopenssl>=24.3.0
-  - psutil>=6.1.1
-  - nltk>=3.9.1
-  - playwright
-  - aiofiles
-  - rich>=13.9.4
-  - cssselect>=1.2.0
-  - httpx>=0.27.2
-  - fake-useragent>=2.0.3
-  - click>=8.1.7
-  - pyperclip>=1.8.2
-  - faust-cchardet>=2.1.19
-  - aiohttp>=3.11.11
-  - humanize>=4.10.0
-  - pypdf2 ; extra == 'pdf'
-  - torch ; extra == 'torch'
-  - nltk ; extra == 'torch'
-  - scikit-learn ; extra == 'torch'
-  - transformers ; extra == 'transformer'
-  - tokenizers ; extra == 'transformer'
-  - torch ; extra == 'cosine'
-  - transformers ; extra == 'cosine'
-  - nltk ; extra == 'cosine'
-  - selenium ; extra == 'sync'
-  - pypdf2 ; extra == 'all'
-  - torch ; extra == 'all'
-  - nltk ; extra == 'all'
-  - scikit-learn ; extra == 'all'
-  - transformers ; extra == 'all'
-  - tokenizers ; extra == 'all'
-  - selenium ; extra == 'all'
-  - pypdf2 ; extra == 'all'
-  requires_python: '>=3.9'
 - pypi: https://files.pythonhosted.org/packages/de/35/a604b5bc889c23f0960823092a75241fe81d1c7ae0762c5277583da08c5b/crawl4ai-0.6.2-py3-none-any.whl
   name: crawl4ai
   version: 0.6.2
@@ -2592,14 +2542,6 @@ packages:
   requires_dist:
   - importlib-resources>=6 ; python_full_version < '3.10'
   requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/81/33/a705c39e89b7ca7564b90c1a4ab4d4c2c0534cde911191d87a89b87b6c60/faust_cchardet-2.1.19-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-  name: faust-cchardet
-  version: 2.1.19
-  sha256: 5eded4811f4a6d5a12ee5eed3c0b95312b0644ca504966043fdcc2f20637d7d5
-- pypi: https://files.pythonhosted.org/packages/e9/53/2125d17d7c2a14b76303bf5c3c5db35ea8e4b8a14817bb191c601d67e288/faust-cchardet-2.1.19.tar.gz
-  name: faust-cchardet
-  version: 2.1.19
-  sha256: f89386297cde0c8e0f5e21464bc2d6d0e4a4fc1b1d77cdb238ca24d740d872e0
 - pypi: https://files.pythonhosted.org/packages/4d/36/2a115987e2d8c300a974597416d9de88f2444426de9571f4b59b2cca3acc/filelock-3.18.0-py3-none-any.whl
   name: filelock
   version: 3.18.0
