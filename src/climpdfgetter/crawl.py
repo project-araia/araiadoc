@@ -16,6 +16,7 @@ from .utils import (  # _download_document,
     _checkpoint,
     _find_project_root,
     _get_configs,
+    _get_dispatcher,
     _get_max_results,
     _get_result_links,
     _prep_output_dir,
@@ -177,7 +178,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
         path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
 
-        browser_config, run_config, metadata_config, dispatcher = _get_configs(path)
+        browser_config, run_config, metadata_config = _get_configs(path)
 
         # progress.log("\n* Crawling OSTI")
         # progress.log("* Searching for: " + search_term)
@@ -215,6 +216,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             first_result_page_links = _get_result_links(first_result_page, url_base)
             max_pages, max_results = _get_max_results(first_soup, counting=False)
+            dispatcher = _get_dispatcher(max_results)
 
             # color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
             # task = progress.add_task(f"[{color}]" + search_term, total=max_results)
@@ -228,12 +230,8 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             except FileNotFoundError:
                 known_documents = []
 
-            filtered_links = []
             for doc_page in first_result_page_links:
-                if doc_page["href"].split(url_base)[-1] not in known_documents:
-                    filtered_links.append(doc_page)
-                else:
-                    # progress.update(task, advance=1)
+                if doc_page["href"].split(url_base)[-1] in known_documents:
                     n_known_crawls += 1
             first_result_page_links = [
                 i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
@@ -278,7 +276,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
 
-            progress.log("* Performing subsequent searches")
+            # progress.log("* Performing subsequent searches")
             for result_page in range(1, max_pages):
                 signal.alarm(660)  # 11 minutes - one minute a page, since there's 10 pages max
                 try:
@@ -288,15 +286,14 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     search_result_links = _get_result_links(main_result_page, url_base)
 
                     for doc_page in search_result_links:
-                        if doc_page["href"].split(url_base)[-1] not in known_documents:
-                            filtered_links.append(doc_page)
-                        else:
-                            # progress.update(task, advance=1)
+                        if doc_page["href"].split(url_base)[-1] in known_documents:
                             n_known_crawls += 1
-                    search_result_links = [i["href"] for i in filtered_links]
+                    search_result_links = [
+                        i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
+                    ]
 
                     results = await crawler.arun_many(
-                        urls=first_result_page_links, dispatcher=dispatcher, config=run_config
+                        urls=search_result_links, dispatcher=dispatcher, config=run_config
                     )
 
                     for result in results:
@@ -333,7 +330,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     #         progress.update(task, advance=1)
 
                 except TimeoutError:
-                    progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
+                    # progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
                     n_failed_crawls += 10
                     # progress.update(task, advance=10)
                     continue
@@ -354,12 +351,12 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     max_results,
                 )
 
-            progress.log("\n* Successes: " + str(n_successful_crawls))
-            progress.log("* Known documents skipped: " + str(n_known_crawls))
-            progress.log("* Failures: " + str(n_failed_crawls))
-            progress.log("* Exceptions: ")
-            for i in collected_exceptions:
-                progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
+            # progress.log("\n* Successes: " + str(n_successful_crawls))
+            # progress.log("* Known documents skipped: " + str(n_known_crawls))
+            # progress.log("* Failures: " + str(n_failed_crawls))
+            # progress.log("* Exceptions: ")
+            # for i in collected_exceptions:
+            #     progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
     async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int, convert: bool):
         if convert:

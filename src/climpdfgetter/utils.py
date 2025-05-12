@@ -86,18 +86,7 @@ def _download_document(doc_page: dict, url_base: str, path: Path, progress, task
 
 
 def _get_configs(path: Path):
-    from crawl4ai import BrowserConfig, CrawlerMonitor, CrawlerRunConfig, RateLimiter  # DisplayMode, RateLimiter
-    from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
-
-    dispatcher = MemoryAdaptiveDispatcher(
-        memory_threshold_percent=90.0,  # Pause if memory exceeds this
-        check_interval=1.0,  # How often to check memory
-        max_session_permit=2,  # Maximum concurrent tasks
-        rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
-        monitor=CrawlerMonitor(  # Optional monitoring
-            enable_ui=True,
-        ),
-    )
+    from crawl4ai import BrowserConfig, CrawlerRunConfig
 
     browser_config = BrowserConfig(
         browser_type="firefox",
@@ -128,7 +117,24 @@ def _get_configs(path: Path):
         """,
     )
 
-    return browser_config, run_config, metadata_config, dispatcher
+    return browser_config, run_config, metadata_config
+
+
+def _get_dispatcher(max_results: int):
+    from crawl4ai import CrawlerMonitor, RateLimiter
+    from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
+
+    dispatcher = MemoryAdaptiveDispatcher(
+        memory_threshold_percent=90.0,  # Pause if memory exceeds this
+        check_interval=1.0,  # How often to check memory
+        max_session_permit=1,  # Maximum concurrent tasks
+        rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
+        monitor=CrawlerMonitor(  # Optional monitoring
+            enable_ui=True,
+            urls_total=max_results,
+        ),
+    )
+    return dispatcher
 
 
 def _find_project_root() -> str:
