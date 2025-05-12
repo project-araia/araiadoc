@@ -37,6 +37,7 @@ pre-commit = ">=4.0.1,<5"
 pip = ">=24.3.1,<25"
 black = ">=25.1.0,<26"
 pytest = ">=8.3.5,<9"
+pixi-pack = ">=0.6.4,<0.7"
 
 [tool.pixi.feature.climpdf.dependencies]
 python = ">=3.10"

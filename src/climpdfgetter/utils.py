@@ -89,7 +89,7 @@ def _get_configs(path: Path):
     from crawl4ai import BrowserConfig, CrawlerRunConfig
 
     browser_config = BrowserConfig(
-        browser_type="firefox",
+        browser_type="chromium",
         headless=True,
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         headers={"Accept-Language": "en-US"},
