@@ -95,6 +95,7 @@ def _convert(source: Path, progress):
             config = {
                 "output_dir": output_file.parent / output_file.stem,
                 "disable_links": True,
+                "force_ocr": False,
             }
 
             config_parser = ConfigParser(config)
@@ -105,7 +106,16 @@ def _convert(source: Path, progress):
             )
 
             rendered = converter(str(i))
-            text, _, _2 = text_from_rendered(rendered)
+            text, _, images = text_from_rendered(rendered)
+
+        except TimeoutError:
+            progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
+            fail_count += 1
+            progress.update(task2, advance=1)
+            timeout_files.append(i.stem)
+            continue
+
+        else:
             lines = text.splitlines()
 
             indexes = []
@@ -125,14 +135,6 @@ def _convert(source: Path, progress):
                 new_section = [i for i in section if i not in [header, "\n"]]
                 text[new_header] = new_section
 
-        except TimeoutError:
-            progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
-            fail_count += 1
-            progress.update(task2, advance=1)
-            timeout_files.append(i.stem)
-            continue
-
-        else:  # because of the ValueError above, this else doesn't get hit even on AI OCR success
             output_files.append(output_file)
             try:
                 matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
@@ -150,6 +152,9 @@ def _convert(source: Path, progress):
                 )
                 with open(output_file.with_suffix(".json"), "w") as f:
                     json.dump(representation.model_dump(mode="json"), f)
+                Path(output_file.parent / output_file.stem).mkdir(parents=True, exist_ok=True)
+                for name, image in images.items():
+                    image.save(output_file.parent / output_file.stem / name)
                 progress.update(task2, advance=1)
                 success_count += 1
             except Exception as e:
