@@ -5,14 +5,16 @@ from pathlib import Path
 
 import chardet
 import click
-import langdetect
-import pymupdf
 from bs4 import BeautifulSoup
+from marker.config.parser import ConfigParser
+from marker.converters.pdf import PdfConverter
+from marker.models import create_model_dict
+from marker.output import text_from_rendered
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .utils import _clean_subsections, _collect_from_path
+from .utils import _clean_subsections, _collect_from_path, clean_header
 
 
 def timeout_handler(signum, frame):
@@ -24,9 +26,8 @@ signal.signal(signal.SIGALRM, timeout_handler)
 
 def _convert(source: Path, progress):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
-    from text_processing.pdf_to_text import text2json  # noqa
 
-    org = source.split("_")[0]
+    org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
 
     progress.log("\n* Document Source: " + org)
@@ -64,7 +65,7 @@ def _convert(source: Path, progress):
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
     progress.log("\n* Found " + str(len(collected_input_files)) + " input PDFs.")
 
-    task2 = progress.add_task("[bright_green]Converting to text", total=len(collected_input_files))
+    task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
     # already-completed output files
     output_dir = Path(str(collected_input_files[0].parent) + "_json")
@@ -91,67 +92,38 @@ def _convert(source: Path, progress):
             continue
 
         try:
-            try:
-                with pymupdf.open(i) as doc:
-                    text = [page.get_text() for page in doc]
-                    text = _clean_subsections(text)
-                if (
-                    sum([langdetect.detect(i) != "en" for i in text]) / len(text) > 0.33
-                ):  # more than 33% of text is indecipherable
-                    raise ValueError("Document is unintelligible.")
+            config = {
+                "output_dir": output_file.parent / output_file.stem,
+                "disable_links": True,
+            }
 
-            except Exception as e:
-                progress.log("\nFailure with default PDF conversion of " + str(i.name) + ": " + str(e))
-                progress.log("Falling back to AI OCR converter...")
-                from text_processing.pdf_to_text import pdf2text
+            config_parser = ConfigParser(config)
 
-                try:
-                    text = pdf2text(str(i))
-                    text = _clean_subsections(text)
-                except TimeoutError:
-                    progress.log("Timeout with AI conversion of " + str(i.name) + ". Skipping.")
-                    progress.update(task2, advance=1)
-                    timeout_files.append(i.stem)
-                    continue
-                except Exception as e:
-                    progress.log("Failure with AI conversion of " + str(i.name) + ": " + str(e))
-                    fail_count += 1
-                    progress.update(task2, advance=1)
-                    timeout_files.append(i.stem)
-                    continue
-                else:
-                    progress.log("...AI OCR Success!")
-                    text2json(text, str(output_file))
-                    output_files.append(output_file)
+            converter = PdfConverter(
+                config=config_parser.generate_config_dict(),
+                artifact_dict=create_model_dict(),
+            )
 
-            else:  # because of the ValueError above, this else doesn't get hit even on AI OCR success
-                text2json(text, str(output_file))
-                output_files.append(output_file)
-                try:
-                    with open(output_file.with_suffix(".json"), "r") as f:
-                        json_data = json.load(f)
-                    matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
-                    base_text_list = [instance["text"] for instance in json_data["instances"]]
-                    representation = ParsedDocumentSchema(
-                        source=org,
-                        title=matching_metadata["title"],
-                        text=base_text_list,
-                        abstract=matching_metadata.get("description", ""),
-                        authors=matching_metadata["authors"],
-                        publisher=matching_metadata.get("journal_name", ""),
-                        date=matching_metadata["publication_date"],
-                        unique_id=matching_metadata["osti_id"],
-                        doi=matching_metadata.get("doi", ""),
-                    )
-                    with open(output_file.with_suffix(".json"), "w") as f:
-                        json.dump(representation.model_dump(mode="json"), f)
-                    progress.update(task2, advance=1)
-                    success_count += 1
-                except Exception as e:
-                    progress.log("Failure while postprocessing " + str(output_file) + ": " + str(e))
-                    fail_count += 1
-                    progress.update(task2, advance=1)
-                    continue
+            rendered = converter(str(i))
+            text, _, _2 = text_from_rendered(rendered)
+            lines = text.splitlines()
+
+            indexes = []
+            headers = []
+            text = {}
+
+            for idx, line in enumerate(lines):
+                if line.startswith("#"):
+                    indexes.append(idx)
+                    headers.append(line)
+
+            index_pairs = zip(indexes[:-1], indexes[1:])
+            for i, (start, end) in enumerate(index_pairs):
+                header = headers[i]
+                new_header = clean_header(header)
+                section = lines[start:end]
+                new_section = [i for i in section if i not in [header, "\n"]]
+                text[new_header] = new_section
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -159,6 +131,32 @@ def _convert(source: Path, progress):
             progress.update(task2, advance=1)
             timeout_files.append(i.stem)
             continue
+
+        else:  # because of the ValueError above, this else doesn't get hit even on AI OCR success
+            output_files.append(output_file)
+            try:
+                matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
+                base_text_list = [text]
+                representation = ParsedDocumentSchema(
+                    source=org,
+                    title=matching_metadata["title"],
+                    text=base_text_list,
+                    abstract=matching_metadata.get("description", ""),
+                    authors=matching_metadata["authors"],
+                    publisher=matching_metadata.get("journal_name", ""),
+                    date=matching_metadata["publication_date"],
+                    unique_id=matching_metadata["osti_id"],
+                    doi=matching_metadata.get("doi", ""),
+                )
+                with open(output_file.with_suffix(".json"), "w") as f:
+                    json.dump(representation.model_dump(mode="json"), f)
+                progress.update(task2, advance=1)
+                success_count += 1
+            except Exception as e:
+                progress.log("Failure while postprocessing " + str(output_file) + ": " + str(e))
+                fail_count += 1
+                progress.update(task2, advance=1)
+                continue
 
     signal.alarm(0)
     with open(timeout_json, "w") as f:
@@ -174,48 +172,6 @@ def _convert(source: Path, progress):
         + ". These will be skipped on future conversions."
         + "\nDelete the file if you want to retry them."
     )
-    # progress.log("\n* Entering json postprocessing and metadata-matching step")
-
-    # output_files_to_json = [i for i in output_dir.iterdir() if str(i.stem) != "timeout"]
-
-    # success_count = 0
-    # fail_count = 0
-
-    # task3 = progress.add_task("[bright_green]Postprocessing json", total=len(output_files_to_json))
-
-    # metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
-    # metadata = json.load(metadata_file.open("r"))
-
-    # for i in output_files_to_json:
-    #     try:
-    #         with open(i, "r") as f:
-    #             json_data = json.load(f)
-    #         matching_metadata = [entry for entry in metadata if i.stem == entry["osti_id"]][0]
-    #         base_text_list = [instance["text"] for instance in json_data["instances"]]
-    #         representation = ParsedDocumentSchema(
-    #             source=org,
-    #             title=matching_metadata["title"],
-    #             text=base_text_list,
-    #             abstract=matching_metadata.get("description", ""),
-    #             authors=matching_metadata["authors"],
-    #             publisher=matching_metadata.get("journal_name", ""),
-    #             date=matching_metadata["publication_date"],
-    #             unique_id=matching_metadata["osti_id"],
-    #             doi=matching_metadata.get("doi", ""),
-    #         )
-    #         with open(i, "w") as f:
-    #             json.dump(representation.model_dump(mode="json"), f)
-    #         success_count += 1
-    #         progress.update(task3, advance=1)
-    #     except Exception as e:
-    #         progress.log("Failure while postprocessing " + str(i) + ": " + str(e))
-    #         fail_count += 1
-    #         progress.update(task3, advance=1)
-    #         continue
-
-    # progress.log("\n* Postprocessing of json:")
-    # progress.log("* Successes: " + str(success_count))
-    # progress.log("* Failures: " + str(fail_count))
 
 
 @click.command()

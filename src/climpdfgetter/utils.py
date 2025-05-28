@@ -10,6 +10,12 @@ import requests
 URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"  # noqa
 
 
+def clean_header(header):
+    for char in ["#", "##", "\n", "*", "**"]:
+        header = header.replace(char, "")
+    return header.lstrip()
+
+
 def _count_local(source: str):
     ids = []
     data_root = Path(_find_project_root()) / Path("data/")
