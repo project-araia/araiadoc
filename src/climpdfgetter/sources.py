@@ -9,6 +9,14 @@ class Source:
 class OSTI(Source):
     search_base = "https://www.osti.gov/search/availability:fulltext/term:{}/publish-date-end:01/01/{}/publish-date-start:01/01/{}/product-type:Journal%20Article/page:{}"  # noqa
     api_base = "https://www.osti.gov/api/v1/records"
+    api_payload = {
+        "q": "",
+        "rows": 100,
+        "has_fulltext": True,
+        "publication_start_date": "01/01/{}",
+        "publication_end_date": "12/31/{}",
+        "product_type": "Journal Article",
+    }
 
 
 class NOAA(Source):
@@ -20,3 +28,12 @@ class EPA(Source):
 
 
 source_mapping = {"EPA": EPA, "NOAA": NOAA, "OSTI": OSTI}
+
+# curl --get \
+# --data-urlencode "fulltext=\"sea level rise\"" \
+# --data-urlencode "rows=1000" \
+# --data-urlencode "has_fulltext=true" \
+# --data-urlencode "publication_start_date=01/01/2010" \
+# --data-urlencode "publication_end_date=12/31/2025" \
+# --data-urlencode "product_type=Journal Article" \
+# https://www.osti.gov/api/v1/records

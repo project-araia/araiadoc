@@ -196,7 +196,13 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             progress.log("* Calculating starting URL")
 
-            search_base = source_mapping["OSTI"].search_base
+            # search_base = source_mapping["OSTI"].search_base
+            search_base = source_mapping["OSTI"].api_base
+            api_payload = source_mapping["OSTI"].api_payload
+            api_payload["q"] = search_term
+            api_payload["publication_start_date"] = "01/01/" + str(start_year)
+            api_payload["publication_end_date"] = "12/31/" + str(stop_year)
+
             formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
             url_base = "https://www.osti.gov/servlets/purl/"
 
