@@ -66,6 +66,10 @@ def _get_result_links(result_page: dict, url_base: str):
     return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
 
 
+def _get_api_result_links(results: dict):
+    pass
+
+
 def _get_max_results(soup, counting: bool) -> tuple[int, int]:
     max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
     # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
@@ -104,41 +108,41 @@ def _get_configs(path: Path):
     )
 
     run_config = CrawlerRunConfig(
-        exclude_external_links=True,
+        # exclude_external_links=True,
         simulate_user=True,
         magic=True,
-        wait_for_images=True,
+        # wait_for_images=True,
     )
 
     metadata_config = CrawlerRunConfig(
-        exclude_external_links=True,
+        # exclude_external_links=True,
         simulate_user=True,
         magic=True,
-        wait_for_images=True,
-        js_code="""
-            document.querySelector('a.export-link[data-format="json"]').click()
-        """,
-        wait_for="""
-            document.readyState === "complete"
-        """,
+        # wait_for_images=True,
+        # js_code="""
+        #     document.querySelector('a.export-link[data-format="json"]').click()
+        # """,
+        # wait_for="""
+        #     document.readyState === "complete"
+        # """,
     )
 
     return browser_config, run_config, metadata_config
 
 
 def _get_dispatcher(max_results: int):
-    from crawl4ai import CrawlerMonitor, RateLimiter
+    from crawl4ai import RateLimiter
     from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
 
     dispatcher = MemoryAdaptiveDispatcher(
         memory_threshold_percent=90.0,  # Pause if memory exceeds this
         check_interval=1.0,  # How often to check memory
-        max_session_permit=1,  # Maximum concurrent tasks
+        max_session_permit=10,  # Maximum concurrent tasks
         rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
-        monitor=CrawlerMonitor(  # Optional monitoring
-            enable_ui=True,
-            urls_total=max_results,
-        ),
+        # monitor=CrawlerMonitor(  # Optional monitoring
+        #     enable_ui=True,
+        #     urls_total=max_results,
+        # ),
     )
     return dispatcher
 

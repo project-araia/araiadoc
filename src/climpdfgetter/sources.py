@@ -11,7 +11,7 @@ class OSTI(Source):
     api_base = "https://www.osti.gov/api/v1/records"
     api_payload = {
         "q": "",
-        "rows": 100,
+        "rows": 2000,
         "has_fulltext": True,
         "publication_start_date": "01/01/{}",
         "publication_end_date": "12/31/{}",
