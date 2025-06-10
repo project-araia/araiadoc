@@ -243,6 +243,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     path_to_doc = path / f"{token}.pdf"
                     with path_to_doc.open("wb") as f:
                         f.write(r.content)
+                    n_successful_crawls += 1
                 except Exception as e:
                     n_failed_crawls += 1
                     collected_exceptions.append([fulltext_link, str(e)])
