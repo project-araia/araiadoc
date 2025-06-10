@@ -123,8 +123,4 @@ Enter the development environment with:
 library. Downloads are at "human speeds" to try avoiding being blocked
 or rate-limited.
 
-- [pymupdf](https://pymupdf.readthedocs.io/en/latest/index.html) as its initial tool for extracting
-text from PDFs.
-
-- [pdf2json](https://github.com/nesar/pdf2json/), via [nougat](https://github.com/facebookresearch/nougat),
-as its fallback OCR method if `pymupdf` doesn't work.
+- [marker](https://github.com/datalab-to/marker) as its tool for extracting text from PDFs and formatting as markdown.
