@@ -111,7 +111,8 @@ def _get_configs(path: Path):
         # exclude_external_links=True,
         simulate_user=True,
         magic=True,
-        # wait_for_images=True,
+        pdf=True,
+        wait_for_images=True,
     )
 
     metadata_config = CrawlerRunConfig(
@@ -137,8 +138,8 @@ def _get_dispatcher(max_results: int):
     dispatcher = MemoryAdaptiveDispatcher(
         memory_threshold_percent=90.0,  # Pause if memory exceeds this
         check_interval=1.0,  # How often to check memory
-        max_session_permit=10,  # Maximum concurrent tasks
-        rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
+        max_session_permit=1,  # Maximum concurrent tasks
+        rate_limiter=RateLimiter(base_delay=(3.0, 8.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
         # monitor=CrawlerMonitor(  # Optional monitoring
         #     enable_ui=True,
         #     urls_total=max_results,

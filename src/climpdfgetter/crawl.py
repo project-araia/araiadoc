@@ -2,6 +2,7 @@ import json
 import random
 import re
 import signal
+import sys
 from pathlib import Path
 
 import click
@@ -200,6 +201,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             api_payload["q"] = search_term
             api_payload["publication_start_date"] = "01/01/" + str(start_year)
             api_payload["publication_end_date"] = "12/31/" + str(stop_year)
+            api_payload["fulltext"] = search_term
 
             # formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
             # url_base = "https://www.osti.gov/servlets/purl/"
@@ -251,25 +253,48 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                     n_known_crawls += 1
             search_results = [i for i in search_results if i["osti_id"] not in known_documents]
 
+            for result in search_results:
+                signal.alarm(60)
+                
+                fulltext_link = [i["href"] for i in result["links"] if i["rel"] == "fulltext"][0]
+                
+                try:
+                    r = requests.get(fulltext_link, stream=True, timeout=10)
+                    r.raise_for_status()
+                    token = result.url.split("/")[-1]
+                    path_to_doc = path / f"{token}.pdf"
+                    with path_to_doc.open("wb") as f:
+                        f.write(r.content)
+                    progress.update(task, advance=1)
+                except:
+                    n_failed_crawls += 1
+                progress.update(task, advance=1)
+
+
+
+
             # grouped_search_results = [search_results[i : i + 10] for i in range(0, len(search_results), 10)]
 
-            for result in search_results:
-                signal.alarm(60)  # 11 minutes for each 10 documents, way more time than needed presumably
+            # for group in grouped_search_results:
+            #     signal.alarm(660)  # 11 minutes for each 10 documents, way more time than needed presumably
 
-                # group_links = [i["links"] for i in group]
-                fulltext_links = [j["href"] for i in result["links"] for j in i if j["rel"] == "fulltext"]
+            #     group_links = [i["links"] for i in group]
+            #     fulltext_links = [j["href"] for i in group_links for j in i if j["rel"] == "fulltext"]
 
-                results = await crawler.arun_many(urls=fulltext_links, dispatcher=dispatcher, config=run_config)
+            #     results = await crawler.arun_many(urls=fulltext_links, dispatcher=dispatcher, config=run_config)
 
-                for result in results:
-                    if result.success and result.downloaded_files:
-                        n_successful_crawls += 1
-                    elif result.success and not result.downloaded_files:
-                        n_known_crawls += 1
-                    else:
-                        n_failed_crawls += 1
+            #     for result in results:
+            #         if result.success and result.pdf:
+            #             n_successful_crawls += 1
+            #             with open(path / "{}.pdf".format(result.url.split("/")[-1]), "wb") as f:
+            #                 f.write(result.pdf)
+            #         elif result.success and not result.pdf:
+            #             n_known_crawls += 1
+            #         else:
+            #             n_failed_crawls += 1
 
-                progress.update(task, advance=len(results))
+            #     progress.update(task, advance=len(results))
+            #     sys.exit(0)
 
             # for doc_page in first_result_page_links:
             #     signal.alarm(60)
