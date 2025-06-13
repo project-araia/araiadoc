@@ -1,6 +1,6 @@
 # climpdfgetter
 
-Download and convert climate pdfs from EPA and OSTI.
+Download and convert pdfs from EPA and OSTI.
 
 ## Installation
 
