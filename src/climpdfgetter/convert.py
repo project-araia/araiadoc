@@ -10,6 +10,8 @@ from marker.config.parser import ConfigParser
 from marker.converters.pdf import PdfConverter
 from marker.models import create_model_dict
 from marker.output import text_from_rendered
+import openparse
+from openparse import processing, Pdf
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
@@ -24,7 +26,72 @@ def timeout_handler(signum, frame):
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
-def _convert(source: Path, progress):
+def _convert_images_to_pdf(files: list, progress):
+    progress.log("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
+
+    success_count = 0
+    fail_count = 0
+
+    task1 = progress.add_task("[green]Converting to PDF", total=len(files_to_convert_to_pdf))
+
+    for i in files_to_convert_to_pdf:
+        try:
+            Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
+            collected_input_files.append(i.with_suffix(".pdf"))
+            success_count += 1
+        except ValueError:
+            fail_count += 1
+        progress.update(task1, advance=1)
+
+    progress.log("\n* Conversion of files to PDF:")
+    progress.log("* Successes: " + str(success_count))
+    progress.log("* Failures: " + str(fail_count))
+
+
+def _get_text_from_marker(input_file: Path, output_file: Path):
+    config = {
+        "output_dir": output_file.parent / output_file.stem,
+        "disable_links": True,
+        "force_ocr": False,
+    }
+
+    config_parser = ConfigParser(config)
+
+    converter = PdfConverter(
+        config=config_parser.generate_config_dict(),
+        artifact_dict=create_model_dict(),
+    )
+
+    rendered = converter(str(input_file))
+    text, _, images = text_from_rendered(rendered)
+    return text, images
+
+
+def _get_text_from_openparse(input_file: Path, output_file: Path):
+    parser = openparse.DocumentParser(
+        table_args = {
+            "parsing_algorithm": 'pymupdf',
+            "table_output_format": 'markdown',
+        }
+    )
+    doc = Pdf(file=input_file)
+    parsed_doc = parser.parse(input_file)
+    import wat; import ipdb; ipdb.set_trace()
+    text = []
+    table_nodes = []
+    img_nodes = []
+    for node in parsed_doc.nodes:
+        if node.variant == {'text'}:
+            text.append(node._repr_markdown_())
+        elif node.variant == {'table'}:
+            table_nodes.append(node)
+        elif node.variant == {'image'}:
+            img_nodes.append(node)
+    text = "\n".join(nodes)
+    return text, {}
+
+
+def _convert(source: Path, method: str, progress):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
     org = "OSTI"  # TODO: make this configurable
@@ -38,26 +105,7 @@ def _convert(source: Path, progress):
     ]  # skip pdfs, checkpoints, metadata
 
     if len(files_to_convert_to_pdf):
-
-        progress.log("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
-
-        success_count = 0
-        fail_count = 0
-
-        task1 = progress.add_task("[green]Converting to PDF", total=len(files_to_convert_to_pdf))
-
-        for i in files_to_convert_to_pdf:
-            try:
-                Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
-                collected_input_files.append(i.with_suffix(".pdf"))
-                success_count += 1
-            except ValueError:
-                fail_count += 1
-            progress.update(task1, advance=1)
-
-        progress.log("\n* Conversion of files to PDF:")
-        progress.log("* Successes: " + str(success_count))
-        progress.log("* Failures: " + str(fail_count))
+        _convert_images_to_pdf(files_to_convert_to_pdf, progress)  # done in-place
 
     success_count = 0
     fail_count = 0
@@ -92,21 +140,10 @@ def _convert(source: Path, progress):
             continue
 
         try:
-            config = {
-                "output_dir": output_file.parent / output_file.stem,
-                "disable_links": True,
-                "force_ocr": False,
-            }
-
-            config_parser = ConfigParser(config)
-
-            converter = PdfConverter(
-                config=config_parser.generate_config_dict(),
-                artifact_dict=create_model_dict(),
-            )
-
-            rendered = converter(str(i))
-            text, _, images = text_from_rendered(rendered)
+            if method == "marker":
+                text, images = _get_text_from_marker(i, output_file)
+            elif method == "openparse":
+                text, images = _get_text_from_openparse(i, output_file)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -181,13 +218,14 @@ def _convert(source: Path, progress):
 
 @click.command()
 @click.argument("source", nargs=1)
-def convert(source: Path):
+@click.option("--method", "-m",  help="Choose conversion library.", type=click.Choice(["marker", "openparse"]), default="marker")
+def convert(source: Path, method: str):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress)
+        _convert(source, method, progress)
 
 
 @click.command()
