@@ -76,18 +76,22 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
     )
     doc = Pdf(file=input_file)
     parsed_doc = parser.parse(input_file)
-    import wat; import ipdb; ipdb.set_trace()
     text = []
     table_nodes = []
     img_nodes = []
     for node in parsed_doc.nodes:
         if node.variant == {'text'}:
             text.append(node._repr_markdown_())
+            print(node._repr_markdown_(), "\n\n")
         elif node.variant == {'table'}:
             table_nodes.append(node)
         elif node.variant == {'image'}:
             img_nodes.append(node)
-    text = "\n".join(nodes)
+    text = "\n".join(text)
+    imgs_and_tables_l = table_nodes + img_nodes
+    # import wat; import ipdb; ipdb.set_trace()
+    images = doc.to_imgs([i.end_page for i in imgs_and_tables_l])
+    # imgs_and_tables = {i: j for i,j in zip(range(len(table_nodes) + len(img_nodes)), table_nodes + img_nodes)}
     return text, {}
 
 
@@ -160,7 +164,7 @@ def _convert(source: Path, method: str, progress):
             text = {}
 
             for idx, line in enumerate(lines):
-                if line.startswith("#"):
+                if line.startswith("#") or line.startswith("**"):
                     indexes.append(idx)
                     headers.append(line)
 
@@ -169,8 +173,10 @@ def _convert(source: Path, method: str, progress):
                 header = headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [i for i in section if i not in [header, "\n"]]
-                text[new_header] = new_section
+                new_section = [i for i in section if i not in [header, "\n", "", []]]
+                text[new_header] = "".join(new_section)
+
+            import wat; import ipdb; ipdb.set_trace()
 
             output_files.append(output_file)
             try:
