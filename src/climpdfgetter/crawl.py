@@ -415,6 +415,142 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
         asyncio.run(main_multiple_osti(RESILIENCE_SEARCHES, path, start_year, stop_year))
 
 
+@click.command()
+@click.argument("start_year", nargs=1, type=click.INT)
+@click.argument("stop_year", nargs=1, type=click.INT)
+@click.option("--search-term", "-t", multiple=True)
+def crawl_semantic_scholar(search_term: list[str]):
+    """Asynchronously crawl Semantic Scholar result pages:
+
+    `climpdf crawl-semantic-scholar -t "Heat Waves" -t Flooding`
+
+    """
+    import asyncio
+    from semanticscholar import AsyncSemanticScholar
+
+    async def main_semantic_scholar(search_term: strprogress):
+
+        path = _prep_output_dir("SEMANTIC_SCHOLAR_" + "_" + search_term)
+
+        # browser_config, run_config, metadata_config = _get_configs(path)
+
+        progress.log("\n* Crawling Semantic Scholar.")
+        progress.log("* Searching for: " + search_term)
+
+        n_successful_crawls = 0
+        n_known_crawls = 0
+        n_failed_crawls = 0
+
+        scholar = AsyncSemanticScholar()
+
+        results = await scholar.search_paper(query=search_term, bulk=True, open_access_pdf=True, publication_types=["JournalArticle"])
+
+        first_result_page_links = _get_result_links(first_result_page, url_base)
+        max_pages, max_results = _get_max_results(first_soup, counting=False)
+        dispatcher = _get_dispatcher(max_results)
+
+        color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
+        task = progress.add_task(f"[{color}]" + search_term, total=max_results)
+
+        collected_exceptions = []
+        progress.log("* Expecting " + str(max_results) + " documents. Beginning document crawl.")
+
+        # TODO: This should be generated automatically. Currently from `count-local`.
+        try:
+            known_documents = json.load(open(path.parent / "OSTI_doc_ids.json", "r"))
+        except FileNotFoundError:
+            known_documents = []
+
+        for doc_page in first_result_page_links:
+            if doc_page["href"].split(url_base)[-1] in known_documents:
+                n_known_crawls += 1
+        first_result_page_links = [
+            i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
+        ]
+
+        results = await crawler.arun_many(urls=first_result_page_links, dispatcher=dispatcher, config=run_config)
+
+        for result in results:
+            if result.success and result.downloaded_files:
+                n_successful_crawls += 1
+            elif result.success and not result.downloaded_files:
+                n_known_crawls += 1
+            else:
+                n_failed_crawls += 1
+
+        progress.update(task, advance=len(results))
+
+        _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
+
+        progress.log("* Performing subsequent searches")
+        for result_page in range(1, max_pages):
+            signal.alarm(660)  # 11 minutes - one minute a page, since there's 10 pages max
+            try:
+                formatted_search_base = search_base.format(search_term, stop_year, start_year, result_page)
+                main_result_page = await crawler.arun(url=formatted_search_base, config=run_config)
+
+                search_result_links = _get_result_links(main_result_page, url_base)
+
+                for doc_page in search_result_links:
+                    if doc_page["href"].split(url_base)[-1] in known_documents:
+                        n_known_crawls += 1
+                search_result_links = [
+                    i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
+                ]
+
+                results = await crawler.arun_many(
+                    urls=search_result_links, dispatcher=dispatcher, config=run_config
+                )
+
+                for result in results:
+                    if result.success and result.downloaded_files:
+                        n_successful_crawls += 1
+                    elif result.success and not result.downloaded_files:
+                        n_known_crawls += 1
+                    else:
+                        n_failed_crawls += 1
+
+                progress.update(task, advance=len(results))
+
+            except TimeoutError:
+                progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
+                n_failed_crawls += 10
+                progress.update(task, advance=10)
+                continue
+
+            except Exception as e:
+                collected_exceptions.append([formatted_search_base, str(e)])
+                n_failed_crawls += 10
+                progress.update(task, advance=10)
+                continue
+
+            _checkpoint(
+                path,
+                search_term,
+                start_year,
+                stop_year,
+                result_page,
+                max_pages,
+                max_results,
+            )
+
+        progress.log("\n* Successes: " + str(n_successful_crawls))
+        progress.log("* Known documents skipped: " + str(n_known_crawls))
+        progress.log("* Failures: " + str(n_failed_crawls))
+        progress.log("* Exceptions: ")
+        for i in collected_exceptions:
+            progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
+
+    async def main_multiple_semantic_scholar(search_terms: list[str]):
+
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            await asyncio.gather(
+                *[main_semantic_scholar(search_term, progress) for search_term in search_terms]
+            )
+
+    asyncio.run(main_multiple_semantic_scholar(search_term))
+
+
 @click.group()
 def main():
     pass
@@ -422,6 +558,7 @@ def main():
 
 main.add_command(crawl_epa)
 main.add_command(crawl_osti)
+main.add_command(crawl_semantic_scholar)
 main.add_command(count_local)
 main.add_command(convert)
 main.add_command(epa_ocr_to_json)

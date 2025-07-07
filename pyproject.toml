@@ -50,4 +50,4 @@ mistune = ">=3.1.3,<4"
 
 [dependency-groups]
 dev = ["wat>=0.5.1,<0.6"]
-climpdf = ["marker-pdf>=1.7.0,<2", "markdown-analysis>=0.1.5,<0.2"]
+climpdf = ["marker-pdf>=1.7.0,<2", "markdown-analysis>=0.1.5,<0.2", "semanticscholar>=0.10.0,<0.11"]
