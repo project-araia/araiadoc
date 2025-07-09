@@ -5,7 +5,7 @@ Download and convert pdfs from EPA and OSTI.
 ## Installation
 
 ```bash
-git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
+git clone https://github.com/project-araia/climpdfgetter.git
 cd climpdfgetter
 ```
 
@@ -77,10 +77,12 @@ $ climpdf count-local EPA
 
 Collects downloaded files in a given directory and:
   1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).
-  2. Extract text, using either standard PDF text extraction or OCR as a fallback.
-  3. Clean text of extraneous URLs, phone numbers, whitespace, etc.
-  4. Match text with any collected corresponding metadata.
-  5. Concatenate all information together in the below schema and dump.
+  2. Extract text using [Open Parse](https://github.com/Filimoa/open-parse).
+  3. Extract tables to markdown using [Marker](https://github.com/datalab-to/marker).
+  4. If specified, extract images using Marker.
+  5. Format text with headers as keys, and their subsections as values.
+  6. Concatenate text together with metadata in the below schema and dump.
+  7. Save tables and images to a per-document directory.
 
 For instance:
 
@@ -88,7 +90,7 @@ For instance:
 
 or:
 
-```climpdf convert data```
+```climpdf convert data --images```
 
 Problematic documents are noted as-such for future conversion attempts.
 
@@ -123,4 +125,6 @@ Enter the development environment with:
 library. Downloads are at "human speeds" to try avoiding being blocked
 or rate-limited.
 
-- [marker](https://github.com/datalab-to/marker) as its tool for extracting text from PDFs and formatting as markdown.
+- [marker](https://github.com/datalab-to/marker) as its library for extracting tables and images from PDFs.
+
+- [openparse](https://github.com/Filimoa/open-parse) for text-extraction and formatting.
