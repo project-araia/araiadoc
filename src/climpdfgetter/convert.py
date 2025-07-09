@@ -49,7 +49,7 @@ def _convert_images_to_pdf(files: list, progress):
     progress.log("* Failures: " + str(fail_count))
 
 
-def _get_text_images_from_marker(input_file: Path, output_file: Path):
+def _get_images_from_marker(input_file: Path, output_file: Path):
     config = {
         "output_dir": output_file.parent / output_file.stem,
         "disable_links": True,
@@ -64,15 +64,13 @@ def _get_text_images_from_marker(input_file: Path, output_file: Path):
     )
 
     rendered = converter(str(input_file))
-    text, _, images = text_from_rendered(rendered)
-    return text, images
+    _, _2, images = text_from_rendered(rendered)  # TODO, images only?
+    return images
 
 
 def _get_tables_from_marker(input_file: Path, output_file: Path):
     config = {
         "output_dir": output_file.parent / output_file.stem,
-        # "disable_links": True,
-        # "force_ocr": False,
     }
 
     config_parser = ConfigParser(config)
@@ -83,8 +81,8 @@ def _get_tables_from_marker(input_file: Path, output_file: Path):
     )
 
     rendered = converter(str(input_file))
-    table_text, _, images = text_from_rendered(rendered)
-    return table_text, images
+    table_text, _, _2 = text_from_rendered(rendered)
+    return table_text
 
 
 def _get_text_from_openparse(input_file: Path, output_file: Path):
@@ -98,10 +96,10 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
         if node.variant == {'text'}:
             text.append(node._repr_markdown_())
     text = "\n".join(text)
-    return text, {}
+    return text
 
 
-def _convert(source: Path, progress):
+def _convert(source: Path, progress, images_flag: bool):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
     org = "OSTI"  # TODO: make this configurable
@@ -149,6 +147,8 @@ def _convert(source: Path, progress):
         signal.alarm(900)
 
         output_file = output_dir / i.stem
+        per_file_dir = output_file.parent / output_file.stem
+        per_file_dir.mkdir(parents=True, exist_ok=True)
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
             success_count += 1
             progress.update(task2, advance=1)
@@ -156,9 +156,12 @@ def _convert(source: Path, progress):
 
         try:
             progress.log("Starting conversion for: " + str(i.name))
-            _, amark_images = _get_text_images_from_marker(i, output_file) # DO want amark_images, NOT mark_text
-            table_text, _ = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
-            text, _ = _get_text_from_openparse(i, output_file) # DO want text
+            if images_flag:
+                images = _get_images_from_marker(i, output_file) # DO want amark_images, NOT mark_text
+            else:
+                images = {}
+            table_text = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
+            raw_text = _get_text_from_openparse(i, output_file) # DO want text
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -168,7 +171,7 @@ def _convert(source: Path, progress):
             continue
 
         else:
-            lines = text.splitlines()
+            lines = raw_text.splitlines()
 
             indexes = []
             headers = []
@@ -187,6 +190,9 @@ def _convert(source: Path, progress):
                 new_section = [i for i in section if i not in [header, "\n", "", []]]
                 text[new_header] = "".join(new_section)
 
+            if not len(text) or len(text) <= 2:  # if no headers, or few, use the whole thing
+                text = {"text": " ".join(lines)}
+
             output_files.append(output_file)
 
             if not no_metadata:
@@ -204,26 +210,23 @@ def _convert(source: Path, progress):
                         unique_id=matching_metadata["osti_id"],
                         doi=matching_metadata.get("doi", ""),
                     )
-                    with open(output_file.with_suffix(".json"), "w") as f:
-                        json.dump(representation.model_dump(mode="json"), f)
-                    Path(output_file.parent / output_file.stem).mkdir(parents=True, exist_ok=True)
-                    for name, image in images.items():
-                        image.save(output_file.parent / output_file.stem / name)
-                    progress.update(task2, advance=1)
-                    success_count += 1
+                    output_rep = representation.model_dump(mode="json")
                 except Exception as e:
                     progress.log("Failure while postprocessing " + str(output_file) + ": " + str(e))
                     fail_count += 1
-                    progress.update(task2, advance=1)
                     continue
             else:
-                with open(output_file.with_suffix(".json"), "w") as f:
-                    json.dump(text, f)
-                Path(output_file.parent / output_file.stem).mkdir(parents=True, exist_ok=True)
-                for name, image in images.items():
-                    image.save(output_file.parent / output_file.stem / name)
-                progress.update(task2, advance=1)
-                success_count += 1
+                output_rep = text
+            for name, image in images.items():
+                image.save(per_file_dir / name)
+            with open(output_file.with_suffix(".json"), "w") as f:
+                json.dump(text, f)
+            if len(table_text):
+                with open(per_file_dir / Path("tables.md"), "w") as f:
+                    f.write(table_text)
+            progress.update(task2, advance=1)
+            success_count += 1
+
 
     signal.alarm(0)
     with open(timeout_json, "w") as f:
@@ -243,13 +246,14 @@ def _convert(source: Path, progress):
 
 @click.command()
 @click.argument("source", nargs=1)
-def convert(source: Path):
+@click.option("--images", "-i", is_flag=True)
+def convert(source: Path, images: bool):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress)
+        _convert(source, progress, images)
 
 
 @click.command()

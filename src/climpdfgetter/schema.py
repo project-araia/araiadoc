@@ -5,6 +5,7 @@ class ParsedDocumentSchema(BaseModel):
     source: str = ""
     title: str = ""
     text: list[dict] = []  # keys are section headings, values are text
+    raw_text: str = ""
     abstract: str = ""
     authors: list[str] = []
     publisher: str = ""
