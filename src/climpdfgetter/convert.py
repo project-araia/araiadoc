@@ -99,6 +99,29 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
     return text
 
 
+# def _get_text_tables_from_openparse(input_file: Path, output_file: Path):
+#     parser = openparse.DocumentParser(
+#         use_markitdown=True,
+#         table_args={
+#             "parsing_algorithm": "table-transformers",
+#             "min_table_confidence": 0.8,
+#             "table_output_format": "markdown",
+#         }
+#     )
+#     doc = Pdf(file=input_file)
+#     parsed_doc = parser.parse(input_file, ocr=True)#, parse_elements={"images": True, "tables": True, "forms": True, "text": True})
+#     text = []
+#     for node in parsed_doc.nodes:
+#         if node.variant == {'text'}:
+#             text.append(node._repr_markdown_())
+#         elif node.variant == {'table'}:
+#             text.append(node._repr_markdown_())
+#     doc.display_with_bboxes(parsed_doc.nodes)
+#     import wat; import ipdb; ipdb.set_trace()
+#     text = "\n".join(text)
+#     return text
+
+
 def _convert(source: Path, progress, images_flag: bool):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
@@ -161,7 +184,8 @@ def _convert(source: Path, progress, images_flag: bool):
             else:
                 images = {}
             table_text = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
-            raw_text = _get_text_from_openparse(i, output_file) # DO want text
+            raw_text = _get_text_from_openparse(i, output_file)
+            # raw_text = _get_text_tables_from_openparse(i, output_file) # DO want text
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -178,8 +202,8 @@ def _convert(source: Path, progress, images_flag: bool):
             text = {}
 
             for idx, line in enumerate(lines):
-                if line.startswith("#") or line.startswith("**"):
-                    indexes.append(idx)
+                if line.startswith("#") or line.startswith("**"):  # Note we may run into issues if tokens in text start with #, e.g. #TAGs.
+                    indexes.append(idx)                            #   ... is there a way of determining if a # is a title or not? maybe need LLM
                     headers.append(line)
 
             index_pairs = zip(indexes[:-1], indexes[1:])
@@ -190,7 +214,8 @@ def _convert(source: Path, progress, images_flag: bool):
                 new_section = [i for i in section if i not in [header, "\n", "", []]]
                 text[new_header] = "".join(new_section)
 
-            if not len(text) or len(text) <= 2:  # if no headers, or few, use the whole thing
+            len_subsections = len("".join(text.values()))
+            if not len(text) or len_subsections / len(raw_text) < 0.90:  # if no headers, or not enough text has been saved into subsections (for some reason)
                 text = {"text": " ".join(lines)}
 
             output_files.append(output_file)
