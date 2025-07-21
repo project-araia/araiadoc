@@ -129,7 +129,6 @@ def _convert(source: Path, progress, images_flag: bool):
     collected_input_files = _collect_from_path(Path(source))
 
     progress.log("\n* Document Source: " + org)
-    progress.log("* Found " + str(len(collected_input_files)) + " input files. Discarding ineligible ones.")
 
     files_to_convert_to_pdf = [
         i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
