@@ -52,7 +52,7 @@ def _convert_images_to_pdf(files: list, progress):
 def _get_images_from_marker(input_file: Path, output_file: Path):
     config = {
         "output_dir": output_file.parent / output_file.stem,
-        "disable_links": True,
+        "disable_links": False,
         "force_ocr": False,
     }
 
@@ -71,6 +71,10 @@ def _get_images_from_marker(input_file: Path, output_file: Path):
 def _get_tables_from_marker(input_file: Path, output_file: Path):
     config = {
         "output_dir": output_file.parent / output_file.stem,
+        "disable_image_extraction": True,
+        "extract_images": False,
+        "recognition_batch_size": 4,
+        "detection_batch_size": 4,
     }
 
     config_parser = ConfigParser(config)
