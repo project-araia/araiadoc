@@ -75,6 +75,7 @@ def _get_tables_from_marker(input_file: Path, output_file: Path):
         "extract_images": False,
         "recognition_batch_size": 4,
         "detection_batch_size": 4,
+        "disable_multiprocessing": True,
     }
 
     config_parser = ConfigParser(config)
@@ -126,13 +127,11 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
 #     return text
 
 
-def _convert(source: Path, progress, images_flag: bool):
+def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
-
-    progress.log("\n* Document Source: " + org)
 
     files_to_convert_to_pdf = [
         i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
@@ -174,7 +173,6 @@ def _convert(source: Path, progress, images_flag: bool):
 
         output_file = output_dir / i.stem
         per_file_dir = output_file.parent / output_file.stem
-        per_file_dir.mkdir(parents=True, exist_ok=True)
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
             success_count += 1
             progress.update(task2, advance=1)
@@ -186,15 +184,26 @@ def _convert(source: Path, progress, images_flag: bool):
                 images = _get_images_from_marker(i, output_file) # DO want amark_images, NOT mark_text
             else:
                 images = {}
-            table_text = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
+            if tables_flag:
+                table_text = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
+            else:
+                table_text = ""
             raw_text = _get_text_from_openparse(i, output_file)
             # raw_text = _get_text_tables_from_openparse(i, output_file) # DO want text
+            if len(images) or len(table_text):
+                per_file_dir.mkdir(parents=True, exist_ok=True)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
             fail_count += 1
             progress.update(task2, advance=1)
             timeout_files.append(i.stem)
+            continue
+
+        except Exception as e:
+            progress.log("Error while converting: " + str(i.name) + ". Skipping.")
+            fail_count += 1
+            progress.update(task2, advance=1)
             continue
 
         else:
@@ -275,13 +284,14 @@ def _convert(source: Path, progress, images_flag: bool):
 @click.command()
 @click.argument("source", nargs=1)
 @click.option("--images", "-i", is_flag=True)
-def convert(source: Path, images: bool):
+@click.option("--tables", "-t", is_flag=True)
+def convert(source: Path, images: bool, tables: bool):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress, images)
+        _convert(source, progress, images, tables)
 
 
 @click.command()
