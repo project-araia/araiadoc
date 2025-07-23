@@ -168,6 +168,15 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
         progress.log("No metadata found for " + source + ". Skipping metadata association.")
         no_metadata = True
 
+    if images_flag:
+        progress.log("Images: enabled.")
+    else:
+        progress.log("Images: disabled.")
+
+    if tables_flag:
+        progress.log("Tables: enabled.")
+    else:
+        progress.log("Tables: disabled.")
     for i in collected_input_files:
         signal.alarm(900)
 
