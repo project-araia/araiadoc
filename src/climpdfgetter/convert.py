@@ -105,26 +105,40 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
 
 
 # def _get_text_tables_from_openparse(input_file: Path, output_file: Path):
-#     parser = openparse.DocumentParser(
-#         use_markitdown=True,
-#         table_args={
-#             "parsing_algorithm": "table-transformers",
-#             "min_table_confidence": 0.8,
-#             "table_output_format": "markdown",
-#         }
+
+#     pipeline = processing.SemanticIngestionPipeline(
+#         min_tokens=50,
+#         max_tokens=1000,
+#         model="gemma3:1b",
+#         api_url="http://localhost:11434",
+#         embeddings_provider="ollama",
 #     )
+
+#     parser = openparse.DocumentParser(
+#         table_args={
+#             "parsing_algorithm": "pymupdf",
+#             "table_output_format": "markdown",
+#         },
+#         use_markitdown=True,
+#         processing_pipeline=pipeline
+#     )
+
 #     doc = Pdf(file=input_file)
-#     parsed_doc = parser.parse(input_file, ocr=True)#, parse_elements={"images": True, "tables": True, "forms": True, "text": True})
+#     parsed_doc = parser.parse(input_file, ocr=False, parse_elements={"images": False, "tables": True, "forms": True, "text": True})
+
 #     text = []
+#     tables = []
+#     images = []
+
 #     for node in parsed_doc.nodes:
 #         if node.variant == {'text'}:
 #             text.append(node._repr_markdown_())
 #         elif node.variant == {'table'}:
-#             text.append(node._repr_markdown_())
-#     doc.display_with_bboxes(parsed_doc.nodes)
-#     import wat; import ipdb; ipdb.set_trace()
+#             tables.append(node._repr_markdown_())
+#         elif node.variant == {'image'}:
+#             images.append(node._repr_markdown_())
 #     text = "\n".join(text)
-#     return text
+#     return text, tables, images
 
 
 def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
@@ -198,7 +212,7 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
             else:
                 table_text = ""
             raw_text = _get_text_from_openparse(i, output_file)
-            # raw_text = _get_text_tables_from_openparse(i, output_file) # DO want text
+            # raw_text, op_table_text, images = _get_text_tables_from_openparse(i, output_file) # DO want text
             if len(images) or len(table_text):
                 per_file_dir.mkdir(parents=True, exist_ok=True)
 
@@ -211,6 +225,7 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
 
         except Exception as e:
             progress.log("Error while converting: " + str(i.name) + ". Skipping.")
+            print(e)
             fail_count += 1
             progress.update(task2, advance=1)
             continue
