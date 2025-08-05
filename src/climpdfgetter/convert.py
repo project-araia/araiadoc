@@ -287,7 +287,7 @@ def _convert(source: Path, progress, images_flag: bool = False):
             else:
                 output_rep = text
             with open(output_file.with_suffix(".json"), "w") as f:
-                json.dump(text, f)
+                json.dump(output_rep, f)
             progress.update(task2, advance=1)
             success_count += 1
 
