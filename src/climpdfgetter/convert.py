@@ -6,11 +6,14 @@ from pathlib import Path
 import chardet
 import click
 from bs4 import BeautifulSoup
-from marker.config.parser import ConfigParser
-from marker.converters.pdf import PdfConverter
-from marker.converters.table import TableConverter
-from marker.models import create_model_dict
-from marker.output import text_from_rendered
+import pdfplumber
+import pymupdf
+import layoutparser as lp
+# from marker.config.parser import ConfigParser
+# from marker.converters.pdf import PdfConverter
+# from marker.converters.table import TableConverter
+# from marker.models import create_model_dict
+# from marker.output import text_from_rendered
 import openparse
 from openparse import processing, Pdf
 from PIL import Image
@@ -49,45 +52,63 @@ def _convert_images_to_pdf(files: list, progress):
     progress.log("* Failures: " + str(fail_count))
 
 
-def _get_images_from_marker(input_file: Path, output_file: Path):
-    config = {
-        "output_dir": output_file.parent / output_file.stem,
-        "disable_links": False,
-        "force_ocr": False,
-    }
+# def _get_images_from_marker(input_file: Path, output_file: Path):
+#     config = {
+#         "output_dir": output_file.parent / output_file.stem,
+#         "disable_links": False,
+#         "force_ocr": False,
+#     }
 
-    config_parser = ConfigParser(config)
+#     config_parser = ConfigParser(config)
 
-    converter = PdfConverter(
-        config=config_parser.generate_config_dict(),
-        artifact_dict=create_model_dict(),
-    )
+#     converter = PdfConverter(
+#         config=config_parser.generate_config_dict(),
+#         artifact_dict=create_model_dict(),
+#     )
 
-    rendered = converter(str(input_file))
-    _, _2, images = text_from_rendered(rendered)  # TODO, images only?
-    return images
+#     rendered = converter(str(input_file))
+#     _, _2, images = text_from_rendered(rendered)  # TODO, images only?
+#     return images
 
 
-def _get_tables_from_marker(input_file: Path, output_file: Path):
-    config = {
-        "output_dir": output_file.parent / output_file.stem,
-        "disable_image_extraction": True,
-        "extract_images": False,
-        "recognition_batch_size": 4,
-        "detection_batch_size": 4,
-        "disable_multiprocessing": True,
-    }
+def _get_images_tables_from_pdfplumber(input_file: Path, output_file: Path):
+    counter = 0
+    with pdfplumber.open(input_file) as pdf:
+        for page in pdf.pages:
+            if len(page.images) or len(page.extract_tables()):
+                output_file.mkdir(parents=True, exist_ok=True)
+                page.to_image(resolution=300).save(
+                    output_file.parent / output_file.stem / Path(f"{counter}.png")
+                )
+                counter += 1
 
-    config_parser = ConfigParser(config)
+def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
+    from .scrape_images_pdf import scrape_images
+    with pdfplumber.open(input_file) as pdf:
+        num_pages = len(pdf.pages)
+    output_file.mkdir(parents=True, exist_ok=True)
+    scrape_images(input_file, last_pg=num_pages, output_dir=output_file)
 
-    converter = TableConverter(
-        config=config_parser.generate_config_dict(),
-        artifact_dict=create_model_dict(),
-    )
+# def _get_tables_from_marker(input_file: Path, output_file: Path):
+#     config = {
+#         "output_dir": output_file.parent / output_file.stem,
+#         "disable_image_extraction": True,
+#         "extract_images": False,
+#         "recognition_batch_size": 4,
+#         "detection_batch_size": 4,
+#         "disable_multiprocessing": True,
+#     }
 
-    rendered = converter(str(input_file))
-    table_text, _, _2 = text_from_rendered(rendered)
-    return table_text
+#     config_parser = ConfigParser(config)
+
+#     converter = TableConverter(
+#         config=config_parser.generate_config_dict(),
+#         artifact_dict=create_model_dict(),
+#     )
+
+#     rendered = converter(str(input_file))
+#     table_text, _, _2 = text_from_rendered(rendered)
+#     return table_text
 
 
 def _get_text_from_openparse(input_file: Path, output_file: Path):
@@ -141,7 +162,7 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
 #     return text, tables, images
 
 
-def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
+def _convert(source: Path, progress, images_flag: bool = False):
     # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
     org = "OSTI"  # TODO: make this configurable
@@ -183,19 +204,14 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
         no_metadata = True
 
     if images_flag:
-        progress.log("Images: enabled.")
+        progress.log("Images and tables: enabled.")
     else:
-        progress.log("Images: disabled.")
+        progress.log("Images and tables: disabled.")
 
-    if tables_flag:
-        progress.log("Tables: enabled.")
-    else:
-        progress.log("Tables: disabled.")
     for i in collected_input_files:
         signal.alarm(900)
 
         output_file = output_dir / i.stem
-        per_file_dir = output_file.parent / output_file.stem
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
             success_count += 1
             progress.update(task2, advance=1)
@@ -204,17 +220,9 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
         try:
             progress.log("Starting conversion for: " + str(i.name))
             if images_flag:
-                images = _get_images_from_marker(i, output_file) # DO want amark_images, NOT mark_text
-            else:
-                images = {}
-            if tables_flag:
-                table_text = _get_tables_from_marker(i, output_file) # DO want table_text, NOT bmark_images
-            else:
-                table_text = ""
+                # _get_images_tables_from_pdfplumber(i, output_file)
+                _get_images_tables_from_layoutparser(i, output_file)
             raw_text = _get_text_from_openparse(i, output_file)
-            # raw_text, op_table_text, images = _get_text_tables_from_openparse(i, output_file) # DO want text
-            if len(images) or len(table_text):
-                per_file_dir.mkdir(parents=True, exist_ok=True)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -278,13 +286,8 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
                     continue
             else:
                 output_rep = text
-            for name, image in images.items():
-                image.save(per_file_dir / name)
             with open(output_file.with_suffix(".json"), "w") as f:
                 json.dump(text, f)
-            if len(table_text):
-                with open(per_file_dir / Path("tables.md"), "w") as f:
-                    f.write(table_text)
             progress.update(task2, advance=1)
             success_count += 1
 
@@ -307,15 +310,14 @@ def _convert(source: Path, progress, images_flag: bool, tables_flag: bool):
 
 @click.command()
 @click.argument("source", nargs=1)
-@click.option("--images", "-i", is_flag=True)
-@click.option("--tables", "-t", is_flag=True)
-def convert(source: Path, images: bool, tables: bool):
+@click.option("--images-tables", "-i", is_flag=True)
+def convert(source: Path, images_tables: bool):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress, images, tables)
+        _convert(source, progress, images_tables)
 
 
 @click.command()
