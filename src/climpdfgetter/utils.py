@@ -67,7 +67,10 @@ def _get_result_links(result_page: dict, url_base: str):
 
 
 def _get_max_results(soup, counting: bool) -> tuple[int, int]:
-    max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+    find = soup.find(class_="breadcrumb-item text-muted active")
+    if find is None:
+        return 1, 1
+    max_pages_soup = find.getText().split()[-1]
     # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
     max_pages = int("".join(max_pages_soup.split(",")))
 

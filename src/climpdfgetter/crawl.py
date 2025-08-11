@@ -388,8 +388,9 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
 
             search_base = source_mapping["OSTI"].search_base
             formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
-
+            await asyncio.sleep(1)
             first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
+            await asyncio.sleep(1)
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
@@ -402,6 +403,17 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
         output = {}
         for i, term in enumerate(search_terms):
             output[term] = results[i]
+        while any([output[i] == 1 for i in output]):
+            # retry if any of the counts are 1
+            retrying_search_terms = [i for i in output if output[i] == 1]
+            click.echo("* Retrying: " + str(retrying_search_terms))
+            results = await asyncio.gather(
+                *[main_osti(search_term, start_year, stop_year) for search_term in retrying_search_terms]
+            )
+            for i, term in enumerate(retrying_search_terms):
+                output[term] = results[i]
+        click.echo("Total: " + str(sum(output.values())))
+        output["Total"] = sum(output.values())
         with open(path / "osti_counts.json", "w") as f:
             json.dump(output, f)
 

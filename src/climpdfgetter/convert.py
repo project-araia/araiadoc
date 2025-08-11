@@ -55,14 +55,14 @@ def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
 
 def _get_text_from_openparse(input_file: Path, output_file: Path):
     parser = openparse.DocumentParser(
-        use_markitdown=True,
+        # use_markitdown=True,
     )
-    doc = Pdf(file=input_file)
-    parsed_doc = parser.parse(input_file, ocr=False, parse_elements={"images": False, "tables": False, "forms": True, "text": True})
+    openparse.config.set_device("cpu")
+    parsed_doc = parser.parse(input_file)#, parse_elements={"images": False, "tables": False, "forms": True, "text": True})
     text = []
     for node in parsed_doc.nodes:
-        if node.variant == {'text'}:
-            text.append(node._repr_markdown_())
+        if "text" in node.variant:
+            text.append(node.text)
     text = "\n".join(text)
     return text
 
@@ -113,7 +113,7 @@ def _convert(source: Path, progress, images_flag: bool = False):
         progress.log("Images and tables: disabled.")
 
     for i in collected_input_files:
-        signal.alarm(900)
+        signal.alarm(600)
 
         output_file = output_dir / i.stem
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
@@ -149,11 +149,12 @@ def _convert(source: Path, progress, images_flag: bool = False):
             text = {}
 
             for idx, line in enumerate(lines):
-                if line.startswith("#") or line.startswith("**"):  # Note we may run into issues if tokens in text start with #, e.g. #TAGs.
+                if line.startswith("#") or line.startswith("**") or line.startswith("<br><br>"):  # Note we may run into issues if tokens in text start with #, e.g. #TAGs.
                     indexes.append(idx)                            #   ... is there a way of determining if a # is a title or not? maybe need LLM
                     headers.append(line)
 
             index_pairs = zip(indexes[:-1], indexes[1:])
+            progress.log("Found " + str(len(headers)) + " possible headers.")
             for i, (start, end) in enumerate(index_pairs):
                 header = headers[i]
                 new_header = clean_header(header)
@@ -219,7 +220,7 @@ def convert(source: Path, images_tables: bool):
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
         _convert(source, progress, images_tables)
 
 

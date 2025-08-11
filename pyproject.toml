@@ -5,7 +5,8 @@ name = "climpdfgetter"
 requires-python = ">=3.10"
 version = "0.1.0"
 dependencies = [
-"openparse @ git+https://github.com/Divinci-AI/open-parse.git@main", 
+# "openparse @ git+https://github.com/Divinci-AI/open-parse.git@main", 
+"openparse",
 "beautifulsoup4>=4.13.4,<5", "requests>=2.32.4,<3", "pydantic>=2.11.7,<3", 
 "chardet>=5.2.0,<6", "click>=8.2.1,<9",
 "crawl4ai>=0.7.1,<0.8", "markitdown>=0.1.2,<0.2",
