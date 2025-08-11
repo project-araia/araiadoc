@@ -6,14 +6,8 @@ from pathlib import Path
 import chardet
 import click
 from bs4 import BeautifulSoup
-import pdfplumber
 import pymupdf
 import layoutparser as lp
-# from marker.config.parser import ConfigParser
-# from marker.converters.pdf import PdfConverter
-# from marker.converters.table import TableConverter
-# from marker.models import create_model_dict
-# from marker.output import text_from_rendered
 import openparse
 from openparse import processing, Pdf
 from PIL import Image
@@ -52,63 +46,11 @@ def _convert_images_to_pdf(files: list, progress):
     progress.log("* Failures: " + str(fail_count))
 
 
-# def _get_images_from_marker(input_file: Path, output_file: Path):
-#     config = {
-#         "output_dir": output_file.parent / output_file.stem,
-#         "disable_links": False,
-#         "force_ocr": False,
-#     }
-
-#     config_parser = ConfigParser(config)
-
-#     converter = PdfConverter(
-#         config=config_parser.generate_config_dict(),
-#         artifact_dict=create_model_dict(),
-#     )
-
-#     rendered = converter(str(input_file))
-#     _, _2, images = text_from_rendered(rendered)  # TODO, images only?
-#     return images
-
-
-def _get_images_tables_from_pdfplumber(input_file: Path, output_file: Path):
-    counter = 0
-    with pdfplumber.open(input_file) as pdf:
-        for page in pdf.pages:
-            if len(page.images) or len(page.extract_tables()):
-                output_file.mkdir(parents=True, exist_ok=True)
-                page.to_image(resolution=300).save(
-                    output_file.parent / output_file.stem / Path(f"{counter}.png")
-                )
-                counter += 1
-
 def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
     from .scrape_images_pdf import scrape_images
-    with pdfplumber.open(input_file) as pdf:
-        num_pages = len(pdf.pages)
+    length = len(pymupdf.open(input_file))
     output_file.mkdir(parents=True, exist_ok=True)
-    scrape_images(input_file, last_pg=num_pages, output_dir=output_file)
-
-# def _get_tables_from_marker(input_file: Path, output_file: Path):
-#     config = {
-#         "output_dir": output_file.parent / output_file.stem,
-#         "disable_image_extraction": True,
-#         "extract_images": False,
-#         "recognition_batch_size": 4,
-#         "detection_batch_size": 4,
-#         "disable_multiprocessing": True,
-#     }
-
-#     config_parser = ConfigParser(config)
-
-#     converter = TableConverter(
-#         config=config_parser.generate_config_dict(),
-#         artifact_dict=create_model_dict(),
-#     )
-
-#     rendered = converter(str(input_file))
-#     table_text, _, _2 = text_from_rendered(rendered)
-#     return table_text
+    scrape_images(input_file, last_pg=length, output_dir=output_file)
 
 
 def _get_text_from_openparse(input_file: Path, output_file: Path):
@@ -125,45 +67,7 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
     return text
 
 
-# def _get_text_tables_from_openparse(input_file: Path, output_file: Path):
-
-#     pipeline = processing.SemanticIngestionPipeline(
-#         min_tokens=50,
-#         max_tokens=1000,
-#         model="gemma3:1b",
-#         api_url="http://localhost:11434",
-#         embeddings_provider="ollama",
-#     )
-
-#     parser = openparse.DocumentParser(
-#         table_args={
-#             "parsing_algorithm": "pymupdf",
-#             "table_output_format": "markdown",
-#         },
-#         use_markitdown=True,
-#         processing_pipeline=pipeline
-#     )
-
-#     doc = Pdf(file=input_file)
-#     parsed_doc = parser.parse(input_file, ocr=False, parse_elements={"images": False, "tables": True, "forms": True, "text": True})
-
-#     text = []
-#     tables = []
-#     images = []
-
-#     for node in parsed_doc.nodes:
-#         if node.variant == {'text'}:
-#             text.append(node._repr_markdown_())
-#         elif node.variant == {'table'}:
-#             tables.append(node._repr_markdown_())
-#         elif node.variant == {'image'}:
-#             images.append(node._repr_markdown_())
-#     text = "\n".join(text)
-#     return text, tables, images
-
-
 def _convert(source: Path, progress, images_flag: bool = False):
-    # import this here since it's a heavy dependency - we don't want to import it if we don't need to
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
@@ -220,7 +124,6 @@ def _convert(source: Path, progress, images_flag: bool = False):
         try:
             progress.log("Starting conversion for: " + str(i.name))
             if images_flag:
-                # _get_images_tables_from_pdfplumber(i, output_file)
                 _get_images_tables_from_layoutparser(i, output_file)
             raw_text = _get_text_from_openparse(i, output_file)
 
