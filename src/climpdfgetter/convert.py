@@ -1,6 +1,7 @@
 import json
 import re
 import signal
+import sys
 from pathlib import Path
 
 import chardet
@@ -133,6 +134,12 @@ def _convert(source: Path, progress, images_flag: bool = False):
             progress.update(task2, advance=1)
             timeout_files.append(i.stem)
             continue
+
+        except KeyboardInterrupt:
+            progress.log("KeyboardInterrupt while converting: " + str(i.name) + ". Dumping current fails and exiting.")
+            with open(timeout_json, "w") as f:
+                json.dump(timeout_files, f)
+            sys.exit()
 
         except Exception as e:
             progress.log("Error while converting: " + str(i.name) + ". Skipping.")
