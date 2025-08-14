@@ -92,7 +92,7 @@ def _convert(source: Path, progress, images_flag: bool = False):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_files = [i.stem for i in output_dir.iterdir()]
 
-    timeout_json = output_dir / "timeout.json"
+    timeout_json = output_dir / "failures.json"
     if timeout_json.exists():
         with open(timeout_json, "r") as f:
             timeout_files = json.load(f)
@@ -139,6 +139,7 @@ def _convert(source: Path, progress, images_flag: bool = False):
             print(e)
             fail_count += 1
             progress.update(task2, advance=1)
+            timeout_files.append(i.stem)
             continue
 
         else:
@@ -220,7 +221,7 @@ def convert(source: Path, images_tables: bool):
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _convert(source, progress, images_tables)
 
 
