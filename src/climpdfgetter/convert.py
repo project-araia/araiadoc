@@ -15,7 +15,10 @@ from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .utils import _clean_subsections, _collect_from_path, clean_header
+from .utils import _clean_subsections, _collect_from_path
+
+
+BOLD_RE = re.compile(r'\*{2,3}([^*]+?)\*{2,3}')  # inside **...** or ***...***
 
 
 def timeout_handler(signum, frame):
@@ -66,6 +69,38 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
             text.append(node.text)
     text = "\n".join(text)
     return text
+
+
+def clean_header(h):
+    # Remove HTML tags
+    h = re.sub(r'<br\s*/?>', ' ', h, flags=re.IGNORECASE)
+    # Remove Markdown bold/italic markers
+    h = re.sub(r'\*+', '', h)
+    # Collapse whitespace
+    h = re.sub(r'\s+', ' ', h)
+    return h.strip()
+
+def looks_like_heading(text):
+    # Basic cleanup
+    t = clean_header(text)
+
+    # Basic rejects
+    if not t:
+        return False
+    if re.match(r'^(table|figure)\b', t, re.IGNORECASE):
+        return False
+    if len(t.split()) > 12 or len(t) > 100:
+        return False
+    if len(t) < 3:
+        return False
+    if re.match(r'^[^\w]', t):  # starts with non-alphanumeric
+        return False
+    if t.endswith('.'):
+        return False
+    if re.fullmatch(r'[\d\s]+', t):
+        return False
+
+    return True
 
 
 def _convert(source: Path, progress, images_flag: bool = False):
@@ -152,26 +187,58 @@ def _convert(source: Path, progress, images_flag: bool = False):
         else:
             lines = raw_text.splitlines()
 
-            indexes = []
-            headers = []
+            indexes = []  # store indexes for content underneath headings
             text = {}
+            cleaned_headers = []
+            raw_headers = []
+            buffer_parts = []     # stores bold text chunks for current heading
+            buffer_indexes = []   # stores line indexes for current heading
+
+            current_content_indexes = []  # collects plain-text line indexes for current section
 
             for idx, line in enumerate(lines):
-                if line.startswith("#") or line.startswith("**") or line.startswith("<br><br>"):  # Note we may run into issues if tokens in text start with #, e.g. #TAGs.
-                    indexes.append(idx)                            #   ... is there a way of determining if a # is a title or not? maybe need LLM
-                    headers.append(line)
+                # Extract all bold chunks from the line
+                chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
+                if chunks:
+                    buffer_parts.extend(chunks)
+                    buffer_indexes.append(idx)
+                    continue
 
-            index_pairs = zip(indexes[:-1], indexes[1:])
-            progress.log("Found " + str(len(headers)) + " possible headers.")
+                # Allow blank lines inside a split heading without flushing
+                if line.strip() == '':
+                    continue
+
+                # Non-blank, non-bold => flush heading
+                if buffer_parts:
+                    merged_heading = clean_header(' '.join(buffer_parts))
+                    if looks_like_heading(merged_heading):
+                        raw_headers.append(''.join(buffer_parts))
+                        cleaned_headers.append(merged_heading)
+                        indexes.append(buffer_indexes.copy())
+                    buffer_parts.clear()
+                    buffer_indexes.clear()
+
+            # Flush any remaining heading at EOF
+            if buffer_parts:
+                merged_heading = clean_header(' '.join(buffer_parts))
+                if looks_like_heading(merged_heading):
+                    raw_headers.append(''.join(buffer_parts))
+                    cleaned_headers.append(merged_heading)
+                    indexes.append(buffer_indexes.copy())
+
+            indexes.append([len(lines)])
+            index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+            progress.log("Found " + str(len(cleaned_headers)) + " possible headers.")
             for i, (start, end) in enumerate(index_pairs):
-                header = headers[i]
+                header = cleaned_headers[i]
+                raw_header = raw_headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [i for i in section if i not in [header, "\n", "", []]]
+                new_section = [j for j in section if j not in [header, raw_header, "\n", "", []]]
                 text[new_header] = "".join(new_section)
 
             len_subsections = len("".join(text.values()))
-            if not len(text) or len_subsections / len(raw_text) < 0.90:  # if no headers, or not enough text has been saved into subsections (for some reason)
+            if not len(text) or len_subsections / len(raw_text) < 0.90:
                 text = {"text": " ".join(lines)}
 
             output_files.append(output_file)
