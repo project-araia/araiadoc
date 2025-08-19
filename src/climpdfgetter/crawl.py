@@ -399,36 +399,52 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
             config=browser_config,
         ) as crawler:
 
+            progress.log("* Calculating starting URL")
+
             search_base = source_mapping["OSTI"].search_base
-            url_base = "https://www.osti.gov/api/v1/records"
-            params = {"q": search_term, "rows": 100, "has_fulltext": True, }
-            
-            results = requests.get(url_base,)
+            formatted_search_base_init = search_base.format(search_term, 2025, start_year, 0)
 
-            first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
+            progress.log("* Performing first search")
 
-            if first_result_page.downloaded_files:
-                progress.log("* Metadata collected.")
-            else:
-                progress.log("* Unable to collect metadata.")
+            first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
+
+            import wat; import ipdb; ipdb.set_trace()
+
+            # first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
-            first_result_page_links = _get_result_links(first_result_page, url_base)
-            max_pages, max_results = _get_max_results(first_soup, counting=False)
+            max_pages, max_results = _get_max_results(first_soup, counting=True)
             dispatcher = _get_dispatcher(max_results)
+
+            progress.log("* Expecting " + str(max_results) + " documents. Connecting to API.")
+
+            search_base = source_mapping["OSTI"].search_base
+            api_base = "https://www.osti.gov/api/v1/records"
+            params = {"q": search_term, "rows": 100, "has_fulltext": True, "publication_date_start": "01/01/" + str(start_year)}
+            
+            url_base = "https://www.osti.gov/servlets/purl/"
+            
+            results = requests.get(api_base, params=params).json()
+            all_results += results
 
             color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
 
             collected_exceptions = []
-            progress.log("* Expecting " + str(max_results) + " documents. Beginning document crawl.")
 
             # TODO: This should be generated automatically. Currently from `count-local`.
             try:
                 known_documents = json.load(open(path.parent / "OSTI_doc_ids.json", "r"))
             except FileNotFoundError:
                 known_documents = []
+
+            first_result_page_links = []
+            for i in results:
+                for j in i["links"]:
+                    if j["rel"] == "fulltext":
+                        first_result_page_links.append(j["href"])
+            first_result_page_links = list(set(first_result_page_links))
 
             for doc_page in first_result_page_links:
                 if doc_page["href"].split(url_base)[-1] in known_documents:
@@ -635,6 +651,7 @@ def main():
 
 main.add_command(crawl_epa)
 main.add_command(crawl_osti)
+main.add_command(crawl_osti_api)
 main.add_command(count_local)
 main.add_command(convert)
 main.add_command(epa_ocr_to_json)
