@@ -97,13 +97,13 @@ def looks_like_heading(text):
         return False
     if t.endswith('.'):
         return False
-    if re.fullmatch(r'[\d\s]+', t):
+    if re.fullmatch(r'[\d\s]+', t): 
         return False
 
     return True
 
 
-def _convert(source: Path, progress, images_flag: bool = False):
+def _convert(source: Path, progress, images_flag: bool = False, output_dir: str = None):
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
@@ -123,8 +123,10 @@ def _convert(source: Path, progress, images_flag: bool = False):
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
-    # already-completed output files
-    output_dir = Path(str(collected_input_files[0].parent) + "_json")
+    if not output_dir:
+        output_dir = Path(str(collected_input_files[0].parent) + "_json")
+    else:
+        output_dir = Path(output_dir + "_json")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_files = [i.stem for i in output_dir.iterdir()]
 
@@ -137,8 +139,15 @@ def _convert(source: Path, progress, images_flag: bool = False):
 
     no_metadata = False
     try:
-        metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
-        metadata = json.load(metadata_file.open("r"))
+        metadata = []
+        for directory in Path(source).iterdir():
+            if directory.is_dir():
+                for item in directory.glob("*metadata.json"):
+                    with open(item, "r") as f:
+                        metadata.extend(json.load(f))
+            elif directory.suffix == ".json": # load single metadata file from the provided directory
+                with open(directory, "r") as f:
+                    metadata.extend(json.load(f))
     except IndexError:
         progress.log("No metadata found for " + source + ". Skipping metadata association.")
         no_metadata = True
@@ -234,8 +243,9 @@ def _convert(source: Path, progress, images_flag: bool = False):
                 raw_header = raw_headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [j for j in section if j not in [header, raw_header, "\n", "", []]]
-                text[new_header] = "".join(new_section)
+                new_section = [j for j in section if j not in [header, raw_header, "\n", "", [], "  ", "<br>", "<br><br>"]]
+                combined_new_section = "".join(new_section).replace("  ", " ").replace("<br>", "").replace("<br><br>", "")
+                text[new_header] = combined_new_section
 
             len_subsections = len("".join(text.values()))
             if not len(text) or len_subsections / len(raw_text) < 0.90:
@@ -290,13 +300,14 @@ def _convert(source: Path, progress, images_flag: bool = False):
 @click.command()
 @click.argument("source", nargs=1)
 @click.option("--images-tables", "-i", is_flag=True)
-def convert(source: Path, images_tables: bool):
+@click.option("--output-dir", "-o", nargs=1)
+def convert(source: Path, images_tables: bool, output_dir: str = None):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress, images_tables)
+        _convert(source, progress, images_tables, output_dir)
 
 
 @click.command()
