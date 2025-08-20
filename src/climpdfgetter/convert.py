@@ -6,19 +6,18 @@ from pathlib import Path
 
 import chardet
 import click
-from bs4 import BeautifulSoup
-import pymupdf
-import layoutparser as lp
+
+# import layoutparser as lp
 import openparse
-from openparse import processing, Pdf
+import pymupdf
+from bs4 import BeautifulSoup
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
 from .utils import _clean_subsections, _collect_from_path
 
-
-BOLD_RE = re.compile(r'\*{2,3}([^*]+?)\*{2,3}')  # inside **...** or ***...***
+BOLD_RE = re.compile(r"\*{2,3}([^*]+?)\*{2,3}")  # inside **...** or ***...***
 
 
 def timeout_handler(signum, frame):
@@ -28,18 +27,18 @@ def timeout_handler(signum, frame):
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
-def _convert_images_to_pdf(files: list, progress):
-    progress.log("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
+def _convert_images_to_pdf(files: list, collected_files, progress):
+    progress.log("* Found " + str(len(files)) + " files that must first be converted to PDF.")
 
     success_count = 0
     fail_count = 0
 
-    task1 = progress.add_task("[green]Converting to PDF", total=len(files_to_convert_to_pdf))
+    task1 = progress.add_task("[green]Converting to PDF", total=len(files))
 
-    for i in files_to_convert_to_pdf:
+    for i in files:
         try:
             Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
-            collected_input_files.append(i.with_suffix(".pdf"))
+            collected_files.append(i.with_suffix(".pdf"))
             success_count += 1
         except ValueError:
             fail_count += 1
@@ -52,17 +51,16 @@ def _convert_images_to_pdf(files: list, progress):
 
 def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
     from .scrape_images_pdf import scrape_images
+
     length = len(pymupdf.open(input_file))
     output_file.mkdir(parents=True, exist_ok=True)
     scrape_images(input_file, last_pg=length, output_dir=output_file)
 
 
 def _get_text_from_openparse(input_file: Path, output_file: Path):
-    parser = openparse.DocumentParser(
-        # use_markitdown=True,
-    )
+    parser = openparse.DocumentParser()
     openparse.config.set_device("cpu")
-    parsed_doc = parser.parse(input_file)#, parse_elements={"images": False, "tables": False, "forms": True, "text": True})
+    parsed_doc = parser.parse(input_file)
     text = []
     for node in parsed_doc.nodes:
         if "text" in node.variant:
@@ -73,12 +71,13 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
 
 def clean_header(h):
     # Remove HTML tags
-    h = re.sub(r'<br\s*/?>', ' ', h, flags=re.IGNORECASE)
+    h = re.sub(r"<br\s*/?>", " ", h, flags=re.IGNORECASE)
     # Remove Markdown bold/italic markers
-    h = re.sub(r'\*+', '', h)
+    h = re.sub(r"\*+", "", h)
     # Collapse whitespace
-    h = re.sub(r'\s+', ' ', h)
+    h = re.sub(r"\s+", " ", h)
     return h.strip()
+
 
 def looks_like_heading(text):
     # Basic cleanup
@@ -87,17 +86,17 @@ def looks_like_heading(text):
     # Basic rejects
     if not t:
         return False
-    if re.match(r'^(table|figure)\b', t, re.IGNORECASE):
+    if re.match(r"^(table|figure)\b", t, re.IGNORECASE):
         return False
     if len(t.split()) > 12 or len(t) > 100:
         return False
     if len(t) < 3:
         return False
-    if re.match(r'^[^\w]', t):  # starts with non-alphanumeric
+    if re.match(r"^[^\w]", t):  # starts with non-alphanumeric
         return False
-    if t.endswith('.'):
+    if t.endswith("."):
         return False
-    if re.fullmatch(r'[\d\s]+', t): 
+    if re.fullmatch(r"[\d\s]+", t):
         return False
 
     return True
@@ -113,7 +112,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
     ]  # skip pdfs, checkpoints, metadata
 
     if len(files_to_convert_to_pdf):
-        _convert_images_to_pdf(files_to_convert_to_pdf, progress)  # done in-place
+        _convert_images_to_pdf(files_to_convert_to_pdf, collected_input_files, progress)  # done in-place
 
     success_count = 0
     fail_count = 0
@@ -145,7 +144,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 for item in directory.glob("*metadata.json"):
                     with open(item, "r") as f:
                         metadata.extend(json.load(f))
-            elif directory.suffix == ".json": # load single metadata file from the provided directory
+            elif directory.suffix == ".json":  # load single metadata file from the provided directory
                 with open(directory, "r") as f:
                     metadata.extend(json.load(f))
     except IndexError:
@@ -200,10 +199,8 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             text = {}
             cleaned_headers = []
             raw_headers = []
-            buffer_parts = []     # stores bold text chunks for current heading
-            buffer_indexes = []   # stores line indexes for current heading
-
-            current_content_indexes = []  # collects plain-text line indexes for current section
+            buffer_parts = []  # stores bold text chunks for current heading
+            buffer_indexes = []  # stores line indexes for current heading
 
             for idx, line in enumerate(lines):
                 # Extract all bold chunks from the line
@@ -214,14 +211,14 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                     continue
 
                 # Allow blank lines inside a split heading without flushing
-                if line.strip() == '':
+                if line.strip() == "":
                     continue
 
                 # Non-blank, non-bold => flush heading
                 if buffer_parts:
-                    merged_heading = clean_header(' '.join(buffer_parts))
+                    merged_heading = clean_header(" ".join(buffer_parts))
                     if looks_like_heading(merged_heading):
-                        raw_headers.append(''.join(buffer_parts))
+                        raw_headers.append("".join(buffer_parts))
                         cleaned_headers.append(merged_heading)
                         indexes.append(buffer_indexes.copy())
                     buffer_parts.clear()
@@ -229,9 +226,9 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
 
             # Flush any remaining heading at EOF
             if buffer_parts:
-                merged_heading = clean_header(' '.join(buffer_parts))
+                merged_heading = clean_header(" ".join(buffer_parts))
                 if looks_like_heading(merged_heading):
-                    raw_headers.append(''.join(buffer_parts))
+                    raw_headers.append("".join(buffer_parts))
                     cleaned_headers.append(merged_heading)
                     indexes.append(buffer_indexes.copy())
 
@@ -243,8 +240,12 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 raw_header = raw_headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [j for j in section if j not in [header, raw_header, "\n", "", [], "  ", "<br>", "<br><br>"]]
-                combined_new_section = "".join(new_section).replace("  ", " ").replace("<br>", "").replace("<br><br>", "")
+                new_section = [
+                    j for j in section if j not in [header, raw_header, "\n", "", [], "  ", "<br>", "<br><br>"]
+                ]
+                combined_new_section = (
+                    "".join(new_section).replace("  ", " ").replace("<br>", "").replace("<br><br>", "")
+                )
                 text[new_header] = combined_new_section
 
             len_subsections = len("".join(text.values()))
@@ -279,7 +280,6 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 json.dump(output_rep, f)
             progress.update(task2, advance=1)
             success_count += 1
-
 
     signal.alarm(0)
     with open(timeout_json, "w") as f:
