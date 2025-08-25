@@ -153,7 +153,9 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 for item in directory.glob("*metadata.json"):
                     with open(item, "r") as f:
                         metadata.extend(json.load(f))
-            elif directory.suffix == ".json":  # load single metadata file from the provided directory
+            elif directory.suffix == ".json" and directory.stem.endswith(
+                "metadata"
+            ):  # load single metadata file from the provided directory
                 with open(directory, "r") as f:
                     metadata.extend(json.load(f))
     except IndexError:
