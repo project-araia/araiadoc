@@ -13,11 +13,11 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from climpdfgetter.convert import convert, epa_ocr_to_json
 from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.sources import source_mapping
-from climpdfgetter.utils import (  # _download_document,
+from climpdfgetter.utils import (  # _get_dispatcher,
     _checkpoint,
+    _download_document,
     _find_project_root,
     _get_configs,
-    _get_dispatcher,
     _get_max_results,
     _get_result_links,
     _prep_output_dir,
@@ -213,7 +213,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
             first_result_page_links = _get_result_links(first_result_page, url_base)
             max_pages, max_results = _get_max_results(first_soup, counting=False)
-            dispatcher = _get_dispatcher(max_results)
+            # dispatcher = _get_dispatcher(max_results)
 
             color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
@@ -227,49 +227,49 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             except FileNotFoundError:
                 known_documents = []
 
-            for doc_page in first_result_page_links:
-                if doc_page["href"].split(url_base)[-1] in known_documents:
-                    n_known_crawls += 1
-            first_result_page_links = [
-                i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
-            ]
-
-            results = await crawler.arun_many(urls=first_result_page_links, dispatcher=dispatcher, config=run_config)
-
-            for result in results:
-                if result.success and result.downloaded_files:
-                    n_successful_crawls += 1
-                elif result.success and not result.downloaded_files:
-                    n_known_crawls += 1
-                else:
-                    n_failed_crawls += 1
-
-            progress.update(task, advance=len(results))
-
             # for doc_page in first_result_page_links:
-            #     signal.alarm(60)
-
-            #     # TODO: Does a known-document constitute a failed crawl?
             #     if doc_page["href"].split(url_base)[-1] in known_documents:
             #         n_known_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
+            # first_result_page_links = [
+            #     i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
+            # ]
 
-            #     try:
-            #         _download_document(doc_page, url_base, path, progress, task)
+            # results = await crawler.arun_many(urls=first_result_page_links, dispatcher=dispatcher, config=run_config)
+
+            # for result in results:
+            #     if result.success and result.downloaded_files:
             #         n_successful_crawls += 1
-
-            #     except TimeoutError:
-            #         progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+            #     elif result.success and not result.downloaded_files:
+            #         n_known_crawls += 1
+            #     else:
             #         n_failed_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
 
-            #     except Exception as e:
-            #         collected_exceptions.append([doc_page["href"], str(e)])
-            #         n_failed_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
+            # progress.update(task, advance=len(results))
+
+            for doc_page in first_result_page_links:
+                signal.alarm(60)
+
+                # TODO: Does a known-document constitute a failed crawl?
+                if doc_page["href"].split(url_base)[-1] in known_documents:
+                    n_known_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
+
+                try:
+                    _download_document(doc_page, url_base, path, progress, task)
+                    n_successful_crawls += 1
+
+                except TimeoutError:
+                    progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                    n_failed_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
+
+                except Exception as e:
+                    collected_exceptions.append([doc_page["href"], str(e)])
+                    n_failed_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
 
             _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
 
@@ -282,49 +282,49 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 
                     search_result_links = _get_result_links(main_result_page, url_base)
 
-                    for doc_page in search_result_links:
-                        if doc_page["href"].split(url_base)[-1] in known_documents:
-                            n_known_crawls += 1
-                    search_result_links = [
-                        i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
-                    ]
-
-                    results = await crawler.arun_many(
-                        urls=search_result_links, dispatcher=dispatcher, config=run_config
-                    )
-
-                    for result in results:
-                        if result.success and result.downloaded_files:
-                            n_successful_crawls += 1
-                        elif result.success and not result.downloaded_files:
-                            n_known_crawls += 1
-                        else:
-                            n_failed_crawls += 1
-
-                    progress.update(task, advance=len(results))
-
                     # for doc_page in search_result_links:
-                    #     signal.alarm(60)
-
                     #     if doc_page["href"].split(url_base)[-1] in known_documents:
                     #         n_known_crawls += 1
-                    #         progress.update(task, advance=1)
-                    #         continue
+                    # search_result_links = [
+                    #     i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
+                    # ]
 
-                    #     try:
-                    #         _download_document(doc_page, url_base, path, progress, task)
+                    # results = await crawler.arun_many(
+                    #     urls=search_result_links, dispatcher=dispatcher, config=run_config
+                    # )
+
+                    # for result in results:
+                    #     if result.success and result.downloaded_files:
                     #         n_successful_crawls += 1
-
-                    #     except TimeoutError:
-                    #         progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                    #     elif result.success and not result.downloaded_files:
+                    #         n_known_crawls += 1
+                    #     else:
                     #         n_failed_crawls += 1
-                    #         progress.update(task, advance=1)
-                    #         continue
 
-                    #     except Exception as e:
-                    #         collected_exceptions.append([doc_page["href"], str(e)])
-                    #         n_failed_crawls += 1
-                    #         progress.update(task, advance=1)
+                    # progress.update(task, advance=len(results))
+
+                    for doc_page in search_result_links:
+                        signal.alarm(60)
+
+                        if doc_page["href"].split(url_base)[-1] in known_documents:
+                            n_known_crawls += 1
+                            progress.update(task, advance=1)
+                            continue
+
+                        try:
+                            _download_document(doc_page, url_base, path, progress, task)
+                            n_successful_crawls += 1
+
+                        except TimeoutError:
+                            progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                            n_failed_crawls += 1
+                            progress.update(task, advance=1)
+                            continue
+
+                        except Exception as e:
+                            collected_exceptions.append([doc_page["href"], str(e)])
+                            n_failed_crawls += 1
+                            progress.update(task, advance=1)
 
                 except TimeoutError:
                     progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
@@ -372,7 +372,7 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
 @click.option("--search-term", "-t", multiple=True)
 def crawl_osti_api(start_year: int, search_term: list[str]):
     """Asynchronously crawl OSTI results via their API:
-    
+
     It shouldn't be necessary to narrow down results to <1000 via this command.
 
     `climpdf crawl-osti-api 2000 2005 -t "Heat Waves" -t Flooding --convert`
@@ -381,6 +381,8 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
     import asyncio
 
     async def main_osti(search_term: str, start_year: int, progress):
+
+        stop_year = 2025
 
         path = _prep_output_dir("OSTI_api_" + search_term)
 
@@ -392,10 +394,10 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
         n_successful_crawls = 0
         n_known_crawls = 0
         n_failed_crawls = 0
-        
+
         all_results = []
 
-        async with AsyncWebCrawler( 
+        async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
 
@@ -408,23 +410,26 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
 
             first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
 
-            import wat; import ipdb; ipdb.set_trace()
-
             # first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
 
             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
 
             max_pages, max_results = _get_max_results(first_soup, counting=True)
-            dispatcher = _get_dispatcher(max_results)
+            # dispatcher = _get_dispatcher(max_results)
 
             progress.log("* Expecting " + str(max_results) + " documents. Connecting to API.")
 
             search_base = source_mapping["OSTI"].search_base
             api_base = "https://www.osti.gov/api/v1/records"
-            params = {"q": search_term, "rows": 100, "has_fulltext": True, "publication_date_start": "01/01/" + str(start_year)}
-            
+            params = {
+                "q": search_term,
+                "rows": 100,
+                "has_fulltext": True,
+                "publication_date_start": "01/01/" + str(start_year),
+            }
+
             url_base = "https://www.osti.gov/servlets/purl/"
-            
+
             results = requests.get(api_base, params=params).json()
             all_results += results
 
@@ -453,42 +458,42 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
                 i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
             ]
 
-            results = await crawler.arun_many(urls=first_result_page_links, dispatcher=dispatcher, config=run_config)
+            # results = await crawler.arun_many(urls=first_result_page_links, dispatcher=dispatcher, config=run_config)
 
-            for result in results:
-                if result.success and result.downloaded_files:
-                    n_successful_crawls += 1
-                elif result.success and not result.downloaded_files:
-                    n_known_crawls += 1
-                else:
-                    n_failed_crawls += 1
+            # for result in results:
+            #     if result.success and result.downloaded_files:
+            #         n_successful_crawls += 1
+            #     elif result.success and not result.downloaded_files:
+            #         n_known_crawls += 1
+            #     else:
+            #         n_failed_crawls += 1
 
             progress.update(task, advance=len(results))
 
-            # for doc_page in first_result_page_links:
-            #     signal.alarm(60)
+            for doc_page in first_result_page_links:
+                signal.alarm(60)
 
-            #     # TODO: Does a known-document constitute a failed crawl?
-            #     if doc_page["href"].split(url_base)[-1] in known_documents:
-            #         n_known_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
+                # TODO: Does a known-document constitute a failed crawl?
+                if doc_page["href"].split(url_base)[-1] in known_documents:
+                    n_known_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
 
-            #     try:
-            #         _download_document(doc_page, url_base, path, progress, task)
-            #         n_successful_crawls += 1
+                try:
+                    _download_document(doc_page, url_base, path, progress, task)
+                    n_successful_crawls += 1
 
-            #     except TimeoutError:
-            #         progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
-            #         n_failed_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
+                except TimeoutError:
+                    progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                    n_failed_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
 
-            #     except Exception as e:
-            #         collected_exceptions.append([doc_page["href"], str(e)])
-            #         n_failed_crawls += 1
-            #         progress.update(task, advance=1)
-            #         continue
+                except Exception as e:
+                    collected_exceptions.append([doc_page["href"], str(e)])
+                    n_failed_crawls += 1
+                    progress.update(task, advance=1)
+                    continue
 
             _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
 
@@ -508,42 +513,42 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
                         i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
                     ]
 
-                    results = await crawler.arun_many(
-                        urls=search_result_links, dispatcher=dispatcher, config=run_config
-                    )
+                    # results = await crawler.arun_many(
+                    #     urls=search_result_links, dispatcher=dispatcher, config=run_config
+                    # )
 
-                    for result in results:
-                        if result.success and result.downloaded_files:
-                            n_successful_crawls += 1
-                        elif result.success and not result.downloaded_files:
-                            n_known_crawls += 1
-                        else:
-                            n_failed_crawls += 1
-
-                    progress.update(task, advance=len(results))
-
-                    # for doc_page in search_result_links:
-                    #     signal.alarm(60)
-
-                    #     if doc_page["href"].split(url_base)[-1] in known_documents:
-                    #         n_known_crawls += 1
-                    #         progress.update(task, advance=1)
-                    #         continue
-
-                    #     try:
-                    #         _download_document(doc_page, url_base, path, progress, task)
+                    # for result in results:
+                    #     if result.success and result.downloaded_files:
                     #         n_successful_crawls += 1
-
-                    #     except TimeoutError:
-                    #         progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                    #     elif result.success and not result.downloaded_files:
+                    #         n_known_crawls += 1
+                    #     else:
                     #         n_failed_crawls += 1
-                    #         progress.update(task, advance=1)
-                    #         continue
 
-                    #     except Exception as e:
-                    #         collected_exceptions.append([doc_page["href"], str(e)])
-                    #         n_failed_crawls += 1
-                    #         progress.update(task, advance=1)
+                    # progress.update(task, advance=len(results))
+
+                    for doc_page in search_result_links:
+                        signal.alarm(60)
+
+                        if doc_page["href"].split(url_base)[-1] in known_documents:
+                            n_known_crawls += 1
+                            progress.update(task, advance=1)
+                            continue
+
+                        try:
+                            _download_document(doc_page, url_base, path, progress, task)
+                            n_successful_crawls += 1
+
+                        except TimeoutError:
+                            progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
+                            n_failed_crawls += 1
+                            progress.update(task, advance=1)
+                            continue
+
+                        except Exception as e:
+                            collected_exceptions.append([doc_page["href"], str(e)])
+                            n_failed_crawls += 1
+                            progress.update(task, advance=1)
 
                 except TimeoutError:
                     progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
@@ -577,9 +582,7 @@ def crawl_osti_api(start_year: int, search_term: list[str]):
     async def main_multiple_osti(search_terms: list[str], start_year: int):
 
         with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
-            await asyncio.gather(
-                *[main_osti(search_term, start_year, progress) for search_term in search_terms]
-            )
+            await asyncio.gather(*[main_osti(search_term, start_year, progress) for search_term in search_terms])
 
     asyncio.run(main_multiple_osti(search_term, start_year))
 

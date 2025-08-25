@@ -105,6 +105,10 @@ def _get_configs(path: Path):
         simulate_user=True,
         magic=True,
         wait_for_images=True,
+        stream=True,
+        wait_for="""
+            document.readyState === "complete"
+        """,
     )
 
     metadata_config = CrawlerRunConfig(
@@ -124,7 +128,7 @@ def _get_configs(path: Path):
 
 
 def _get_dispatcher(max_results: int):
-    from crawl4ai import CrawlerMonitor, RateLimiter
+    from crawl4ai import RateLimiter
     from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
 
     dispatcher = MemoryAdaptiveDispatcher(
@@ -132,10 +136,10 @@ def _get_dispatcher(max_results: int):
         check_interval=1.0,  # How often to check memory
         max_session_permit=1,  # Maximum concurrent tasks
         rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
-        monitor=CrawlerMonitor(  # Optional monitoring
-            enable_ui=True,
-            urls_total=max_results,
-        ),
+        # monitor=CrawlerMonitor(  # Optional monitoring
+        #     enable_ui=True,
+        #     urls_total=max_results,
+        # ),
     )
     return dispatcher
 

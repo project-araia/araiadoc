@@ -98,6 +98,15 @@ def looks_like_heading(text):
         return False
     if re.fullmatch(r"[\d\s]+", t):
         return False
+    # Reject things that look like "119:", "28:", "11:" etc.
+    if re.match(r"^\d+[:.\-]?$", t):
+        return False
+    # Reject short alphanumeric codes like "A12", "X-23"
+    if re.fullmatch(r"[A-Za-z]?\d+[A-Za-z]?", t):
+        return False
+    # Reject headings that are mostly digits/symbols (e.g., "12.3.4", "3-2", etc.)
+    if re.match(r"^[\d\W]+$", t):
+        return False
 
     return True
 
@@ -193,6 +202,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             continue
 
         else:
+            raw_text = raw_text.replace("<br>", "")
             lines = raw_text.splitlines()
 
             indexes = []  # store indexes for content underneath headings
@@ -203,12 +213,13 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             buffer_indexes = []  # stores line indexes for current heading
 
             for idx, line in enumerate(lines):
-                # Extract all bold chunks from the line
-                chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
-                if chunks:
-                    buffer_parts.extend(chunks)
-                    buffer_indexes.append(idx)
-                    continue
+                if line.startswith("**"):  # consecutive bold
+                    # Extract all bold chunks from the line
+                    chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
+                    if chunks:
+                        buffer_parts.extend(chunks)
+                        buffer_indexes.append(idx)
+                        continue
 
                 # Allow blank lines inside a split heading without flushing
                 if line.strip() == "":
