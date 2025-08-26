@@ -10,12 +10,6 @@ import requests
 URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"  # noqa
 
 
-def clean_header(header):
-    for char in ["#", "##", "\n", "*", "**"]:
-        header = header.replace(char, "")
-    return header.lstrip()
-
-
 def _count_local(source: str):
     ids = []
     data_root = Path(_find_project_root()) / Path("data/")
@@ -71,7 +65,10 @@ def _get_api_result_links(results: dict):
 
 
 def _get_max_results(soup, counting: bool) -> tuple[int, int]:
-    max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+    find = soup.find(class_="breadcrumb-item text-muted active")
+    if find is None:
+        return 1, 1
+    max_pages_soup = find.getText().split()[-1]
     # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
     max_pages = int("".join(max_pages_soup.split(",")))
 
@@ -113,6 +110,10 @@ def _get_configs(path: Path):
         magic=True,
         pdf=True,
         wait_for_images=True,
+        stream=True,
+        wait_for="""
+            document.readyState === "complete"
+        """,
     )
 
     metadata_config = CrawlerRunConfig(

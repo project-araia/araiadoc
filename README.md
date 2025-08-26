@@ -1,11 +1,11 @@
 # climpdfgetter
 
-Download and convert climate pdfs from EPA and OSTI.
+Download and convert pdfs from EPA and OSTI.
 
 ## Installation
 
 ```bash
-git clone https://git-out.gss.anl.gov/araia/climpdfgetter.git
+git clone https://github.com/project-araia/climpdfgetter.git
 cd climpdfgetter
 ```
 
@@ -77,10 +77,11 @@ $ climpdf count-local EPA
 
 Collects downloaded files in a given directory and:
   1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).
-  2. Extract text, using either standard PDF text extraction or OCR as a fallback.
-  3. Clean text of extraneous URLs, phone numbers, whitespace, etc.
-  4. Match text with any collected corresponding metadata.
-  5. Concatenate all information together in the below schema and dump.
+  2. Extract text using [Open Parse](https://github.com/Filimoa/open-parse).
+  3. [In active development] Extract images and tables from text using [Layout Parser](https://github.com/Layout-Parser/layout-parser)
+  4. Format text with headers as keys, and their subsections as values.
+  5. Concatenate text together with metadata in the below schema and dump.
+  6. Save tables and images to a per-document directory.
 
 For instance:
 
@@ -88,7 +89,9 @@ For instance:
 
 or:
 
-```climpdf convert data```
+```climpdf convert data --images```
+
+Eligible documents and metadata are concatenated from subdirectories.
 
 Problematic documents are noted as-such for future conversion attempts.
 
@@ -123,8 +126,4 @@ Enter the development environment with:
 library. Downloads are at "human speeds" to try avoiding being blocked
 or rate-limited.
 
-- [pymupdf](https://pymupdf.readthedocs.io/en/latest/index.html) as its initial tool for extracting
-text from PDFs.
-
-- [pdf2json](https://github.com/nesar/pdf2json/), via [nougat](https://github.com/facebookresearch/nougat),
-as its fallback OCR method if `pymupdf` doesn't work.
+- [openparse](https://github.com/Filimoa/open-parse) for text-extraction and formatting.

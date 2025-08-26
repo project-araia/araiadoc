@@ -1,20 +1,23 @@
 import json
 import re
 import signal
+import sys
 from pathlib import Path
 
 import chardet
 import click
+
+# import layoutparser as lp
+import openparse
+import pymupdf
 from bs4 import BeautifulSoup
-from marker.config.parser import ConfigParser
-from marker.converters.pdf import PdfConverter
-from marker.models import create_model_dict
-from marker.output import text_from_rendered
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .utils import _clean_subsections, _collect_from_path, clean_header
+from .utils import _clean_subsections, _collect_from_path
+
+BOLD_RE = re.compile(r"\*{2,3}([^*]+?)\*{2,3}")  # inside **...** or ***...***
 
 
 def timeout_handler(signum, frame):
@@ -24,40 +27,101 @@ def timeout_handler(signum, frame):
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
-def _convert(source: Path, progress):
-    # import this here since it's a heavy dependency - we don't want to import it if we don't need to
+def _convert_images_to_pdf(files: list, collected_files, progress):
+    progress.log("* Found " + str(len(files)) + " files that must first be converted to PDF.")
+
+    success_count = 0
+    fail_count = 0
+
+    task1 = progress.add_task("[green]Converting to PDF", total=len(files))
+
+    for i in files:
+        try:
+            Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
+            collected_files.append(i.with_suffix(".pdf"))
+            success_count += 1
+        except ValueError:
+            fail_count += 1
+        progress.update(task1, advance=1)
+
+    progress.log("\n* Conversion of files to PDF:")
+    progress.log("* Successes: " + str(success_count))
+    progress.log("* Failures: " + str(fail_count))
+
+
+def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
+    from .scrape_images_pdf import scrape_images
+
+    length = len(pymupdf.open(input_file))
+    output_file.mkdir(parents=True, exist_ok=True)
+    scrape_images(input_file, last_pg=length, output_dir=output_file)
+
+
+def _get_text_from_openparse(input_file: Path, output_file: Path):
+    parser = openparse.DocumentParser()
+    openparse.config.set_device("cpu")
+    parsed_doc = parser.parse(input_file)
+    text = []
+    for node in parsed_doc.nodes:
+        if "text" in node.variant:
+            text.append(node.text)
+    text = "\n".join(text)
+    return text
+
+
+def clean_header(h):
+    # Remove HTML tags
+    h = re.sub(r"<br\s*/?>", " ", h, flags=re.IGNORECASE)
+    # Remove Markdown bold/italic markers
+    h = re.sub(r"\*+", "", h)
+    # Collapse whitespace
+    h = re.sub(r"\s+", " ", h)
+    return h.strip()
+
+
+def looks_like_heading(text):
+    # Basic cleanup
+    t = clean_header(text)
+
+    # Basic rejects
+    if not t:
+        return False
+    if re.match(r"^(table|figure)\b", t, re.IGNORECASE):
+        return False
+    if len(t.split()) > 12 or len(t) > 100:
+        return False
+    if len(t) < 3:
+        return False
+    if re.match(r"^[^\w]", t):  # starts with non-alphanumeric
+        return False
+    if t.endswith("."):
+        return False
+    if re.fullmatch(r"[\d\s]+", t):
+        return False
+    # Reject things that look like "119:", "28:", "11:" etc.
+    if re.match(r"^\d+[:.\-]?$", t):
+        return False
+    # Reject short alphanumeric codes like "A12", "X-23"
+    if re.fullmatch(r"[A-Za-z]?\d+[A-Za-z]?", t):
+        return False
+    # Reject headings that are mostly digits/symbols (e.g., "12.3.4", "3-2", etc.)
+    if re.match(r"^[\d\W]+$", t):
+        return False
+
+    return True
+
+
+def _convert(source: Path, progress, images_flag: bool = False, output_dir: str = None):
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
-
-    progress.log("\n* Document Source: " + org)
-    progress.log("* Found " + str(len(collected_input_files)) + " input files. Discarding ineligible ones.")
 
     files_to_convert_to_pdf = [
         i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
     ]  # skip pdfs, checkpoints, metadata
 
     if len(files_to_convert_to_pdf):
-
-        progress.log("* Found " + str(len(files_to_convert_to_pdf)) + " files that must first be converted to PDF.")
-
-        success_count = 0
-        fail_count = 0
-
-        task1 = progress.add_task("[green]Converting to PDF", total=len(files_to_convert_to_pdf))
-
-        for i in files_to_convert_to_pdf:
-            try:
-                Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
-                collected_input_files.append(i.with_suffix(".pdf"))
-                success_count += 1
-            except ValueError:
-                fail_count += 1
-            progress.update(task1, advance=1)
-
-        progress.log("\n* Conversion of files to PDF:")
-        progress.log("* Successes: " + str(success_count))
-        progress.log("* Failures: " + str(fail_count))
+        _convert_images_to_pdf(files_to_convert_to_pdf, collected_input_files, progress)  # done in-place
 
     success_count = 0
     fail_count = 0
@@ -67,23 +131,44 @@ def _convert(source: Path, progress):
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
-    # already-completed output files
-    output_dir = Path(str(collected_input_files[0].parent) + "_json")
+    if not output_dir:
+        output_dir = Path(str(collected_input_files[0].parent) + "_json")
+    else:
+        output_dir = Path(output_dir + "_json")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_files = [i.stem for i in output_dir.iterdir()]
 
-    timeout_json = output_dir / "timeout.json"
+    timeout_json = output_dir / "failures.json"
     if timeout_json.exists():
         with open(timeout_json, "r") as f:
             timeout_files = json.load(f)
     else:
         timeout_files = []
 
-    metadata_file = [i for i in Path(source).glob("*metadata.json")][0]
-    metadata = json.load(metadata_file.open("r"))
+    no_metadata = False
+    try:
+        metadata = []
+        for directory in Path(source).iterdir():
+            if directory.is_dir():
+                for item in directory.glob("*metadata.json"):
+                    with open(item, "r") as f:
+                        metadata.extend(json.load(f))
+            elif directory.suffix == ".json" and directory.stem.endswith(
+                "metadata"
+            ):  # load single metadata file from the provided directory
+                with open(directory, "r") as f:
+                    metadata.extend(json.load(f))
+    except IndexError:
+        progress.log("No metadata found for " + source + ". Skipping metadata association.")
+        no_metadata = True
+
+    if images_flag:
+        progress.log("Images and tables: enabled.")
+    else:
+        progress.log("Images and tables: disabled.")
 
     for i in collected_input_files:
-        signal.alarm(300)
+        signal.alarm(600)
 
         output_file = output_dir / i.stem
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
@@ -92,21 +177,10 @@ def _convert(source: Path, progress):
             continue
 
         try:
-            config = {
-                "output_dir": output_file.parent / output_file.stem,
-                "disable_links": True,
-                "force_ocr": False,
-            }
-
-            config_parser = ConfigParser(config)
-
-            converter = PdfConverter(
-                config=config_parser.generate_config_dict(),
-                artifact_dict=create_model_dict(),
-            )
-
-            rendered = converter(str(i))
-            text, _, images = text_from_rendered(rendered)
+            progress.log("Starting conversion for: " + str(i.name))
+            if images_flag:
+                _get_images_tables_from_layoutparser(i, output_file)
+            raw_text = _get_text_from_openparse(i, output_file)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -115,53 +189,110 @@ def _convert(source: Path, progress):
             timeout_files.append(i.stem)
             continue
 
-        else:
-            lines = text.splitlines()
+        except KeyboardInterrupt:
+            progress.log("KeyboardInterrupt while converting: " + str(i.name) + ". Dumping current fails and exiting.")
+            with open(timeout_json, "w") as f:
+                json.dump(timeout_files, f)
+            sys.exit()
 
-            indexes = []
-            headers = []
+        except Exception as e:
+            progress.log("Error while converting: " + str(i.name) + ". Skipping.")
+            print(e)
+            fail_count += 1
+            progress.update(task2, advance=1)
+            timeout_files.append(i.stem)
+            continue
+
+        else:
+            raw_text = raw_text.replace("<br>", "")
+            lines = raw_text.splitlines()
+
+            indexes = []  # store indexes for content underneath headings
             text = {}
+            cleaned_headers = []
+            raw_headers = []
+            buffer_parts = []  # stores bold text chunks for current heading
+            buffer_indexes = []  # stores line indexes for current heading
 
             for idx, line in enumerate(lines):
-                if line.startswith("#"):
-                    indexes.append(idx)
-                    headers.append(line)
+                if line.startswith("**"):  # consecutive bold
+                    # Extract all bold chunks from the line
+                    chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
+                    if chunks:
+                        buffer_parts.extend(chunks)
+                        buffer_indexes.append(idx)
+                        continue
 
-            index_pairs = zip(indexes[:-1], indexes[1:])
+                # Allow blank lines inside a split heading without flushing
+                if line.strip() == "":
+                    continue
+
+                # Non-blank, non-bold => flush heading
+                if buffer_parts:
+                    merged_heading = clean_header(" ".join(buffer_parts))
+                    if looks_like_heading(merged_heading):
+                        raw_headers.append("".join(buffer_parts))
+                        cleaned_headers.append(merged_heading)
+                        indexes.append(buffer_indexes.copy())
+                    buffer_parts.clear()
+                    buffer_indexes.clear()
+
+            # Flush any remaining heading at EOF
+            if buffer_parts:
+                merged_heading = clean_header(" ".join(buffer_parts))
+                if looks_like_heading(merged_heading):
+                    raw_headers.append("".join(buffer_parts))
+                    cleaned_headers.append(merged_heading)
+                    indexes.append(buffer_indexes.copy())
+
+            indexes.append([len(lines)])
+            index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+            progress.log("Found " + str(len(cleaned_headers)) + " possible headers.")
             for i, (start, end) in enumerate(index_pairs):
-                header = headers[i]
+                header = cleaned_headers[i]
+                raw_header = raw_headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [i for i in section if i not in [header, "\n"]]
-                text[new_header] = new_section
+                new_section = [
+                    j for j in section if j not in [header, raw_header, "\n", "", [], "  ", "<br>", "<br><br>"]
+                ]
+                combined_new_section = (
+                    "".join(new_section).replace("  ", " ").replace("<br>", "").replace("<br><br>", "")
+                )
+                text[new_header] = combined_new_section
+
+            len_subsections = len("".join(text.values()))
+            if not len(text) or len_subsections / len(raw_text) < 0.90:
+                text = {"text": " ".join(lines)}
 
             output_files.append(output_file)
-            try:
-                matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
-                base_text_list = [text]
-                representation = ParsedDocumentSchema(
-                    source=org,
-                    title=matching_metadata["title"],
-                    text=base_text_list,
-                    abstract=matching_metadata.get("description", ""),
-                    authors=matching_metadata["authors"],
-                    publisher=matching_metadata.get("journal_name", ""),
-                    date=matching_metadata["publication_date"],
-                    unique_id=matching_metadata["osti_id"],
-                    doi=matching_metadata.get("doi", ""),
-                )
-                with open(output_file.with_suffix(".json"), "w") as f:
-                    json.dump(representation.model_dump(mode="json"), f)
-                Path(output_file.parent / output_file.stem).mkdir(parents=True, exist_ok=True)
-                for name, image in images.items():
-                    image.save(output_file.parent / output_file.stem / name)
-                progress.update(task2, advance=1)
-                success_count += 1
-            except Exception as e:
-                progress.log("Failure while postprocessing " + str(output_file) + ": " + str(e))
-                fail_count += 1
-                progress.update(task2, advance=1)
-                continue
+
+            if not no_metadata:
+                try:
+                    matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
+                    base_text_list = [text]
+                    representation = ParsedDocumentSchema(
+                        source=org,
+                        title=matching_metadata["title"],
+                        text=base_text_list,
+                        abstract=matching_metadata.get("description", ""),
+                        authors=matching_metadata["authors"],
+                        publisher=matching_metadata.get("journal_name", ""),
+                        date=matching_metadata["publication_date"],
+                        unique_id=matching_metadata["osti_id"],
+                        doi=matching_metadata.get("doi", ""),
+                    )
+                    output_rep = representation.model_dump(mode="json")
+                except Exception as e:
+                    progress.log("Failure while postprocessing " + str(output_file) + ": " + str(e))
+                    fail_count += 1
+                    continue
+            else:
+                output_rep = text
+            with open(output_file.with_suffix(".json"), "w") as f:
+                json.dump(output_rep, f)
+            progress.update(task2, advance=1)
+            success_count += 1
 
     signal.alarm(0)
     with open(timeout_json, "w") as f:
@@ -181,13 +312,15 @@ def _convert(source: Path, progress):
 
 @click.command()
 @click.argument("source", nargs=1)
-def convert(source: Path):
+@click.option("--images-tables", "-i", is_flag=True)
+@click.option("--output-dir", "-o", nargs=1)
+def convert(source: Path, images_tables: bool, output_dir: str = None):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _convert(source, progress)
+        _convert(source, progress, images_tables, output_dir)
 
 
 @click.command()
