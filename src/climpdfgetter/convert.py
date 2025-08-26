@@ -245,6 +245,13 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                     cleaned_headers.append(merged_heading)
                     indexes.append(buffer_indexes.copy())
 
+            # remove any headers and corresponding indexes before the first header called "ABSTRACT"
+            headers_to_upper = [header.upper() for header in cleaned_headers]
+            if "ABSTRACT" in headers_to_upper:
+                abstract_index = headers_to_upper.index("ABSTRACT")
+                cleaned_headers = cleaned_headers[abstract_index:]
+                indexes = indexes[abstract_index:]
+
             indexes.append([len(lines)])
             index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
             progress.log("Found " + str(len(cleaned_headers)) + " possible headers.")
