@@ -13,7 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from climpdfgetter.convert import convert, epa_ocr_to_json
 from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.sources import source_mapping
-from climpdfgetter.utils import (  # _checkpoint,; _download_document,; _get_result_links,
+from climpdfgetter.utils import (  # _checkpoint,; _download_document,; _get_result_links,; _get_dispatcher,
     _find_project_root,
     _get_configs,
     _get_max_results,
@@ -153,10 +153,9 @@ def _conversion(path):
 
 @click.command()
 @click.argument("start_year", nargs=1, type=click.INT)
-@click.argument("stop_year", nargs=1, type=click.INT)
 @click.option("--search-term", "-t", multiple=True)
 @click.option("--convert", "-c", is_flag=True, default=False, help="Convert PDFs to text.", type=click.BOOL)
-def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert: bool):
+def crawl_osti(start_year: int, search_term: list[str], convert: bool):
     """Asynchronously crawl OSTI result pages:
 
     `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding --convert`
@@ -164,11 +163,9 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
     """
     import asyncio
 
-    async def main_osti(search_term: str, start_year: int, stop_year: int, convert: bool, progress):
+    async def main_osti(search_term: str, start_year: int, convert: bool, progress):
 
-        assert start_year <= stop_year
-        assert stop_year <= 2025
-        assert start_year >= 2000
+        stop_year = 2025
 
         path = _prep_output_dir("OSTI_" + str(start_year) + "_" + str(stop_year) + "_" + search_term)
 
@@ -186,8 +183,6 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
         #     config=browser_config,
         # ) as crawler:
 
-        progress.log("* Calculating starting URL")
-
         # search_base = source_mapping["OSTI"].search_base
         api_base = source_mapping["OSTI"].api_base
         api_payload = source_mapping["OSTI"].api_payload
@@ -204,7 +199,6 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
             json.dump(search_results, f, indent=4)
 
         max_results = len(search_results)
-        # dispatcher = _get_dispatcher(max_results)
 
         color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
         task = progress.add_task(f"[{color}]" + search_term, total=max_results)
@@ -241,27 +235,35 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
                 collected_exceptions.append([fulltext_link, str(e)])
             progress.update(task, advance=1)
 
-        # grouped_search_results = [search_results[i : i + 10] for i in range(0, len(search_results), 10)]
+        #########
 
-        # for group in grouped_search_results:
-        #     signal.alarm(660)  # 11 minutes for each 10 documents, way more time than needed presumably
+        # dispatcher = _get_dispatcher(max_results)
 
-        #     group_links = [i["links"] for i in group]
-        #     fulltext_links = [j["href"] for i in group_links for j in i if j["rel"] == "fulltext"]
+        # async with AsyncWebCrawler(
+        #     config=browser_config,
+        # ) as crawler:
+        #     grouped_search_results = [search_results[i : i + 10] for i in range(0, len(search_results), 10)]
 
-        #     results = await crawler.arun_many(urls=fulltext_links, dispatcher=dispatcher, config=run_config)
+        #     for group in grouped_search_results:
+        #         signal.alarm(660)  # 11 minutes for each 10 documents, way more time than needed presumably
 
-        #     for result in results:
-        #         if result.success and result.pdf:
-        #             n_successful_crawls += 1
-        #             with open(path / "{}.pdf".format(result.url.split("/")[-1]), "wb") as f:
-        #                 f.write(result.pdf)
-        #         elif result.success and not result.pdf:
-        #             n_known_crawls += 1
-        #         else:
-        #             n_failed_crawls += 1
+        #         group_links = [i["links"] for i in group]
+        #         fulltext_links = [j["href"] for i in group_links for j in i if j["rel"] == "fulltext"]
 
-        #     progress.update(task, advance=len(results))
+        #         import wat; import ipdb; ipdb.set_trace()
+        #         results = await crawler.arun_many(urls=fulltext_links, dispatcher=dispatcher, config=run_config)
+
+        #         async for result in results:
+        #             if result.success and result.pdf:
+        #                 n_successful_crawls += 1
+        #                 with open(path / "{}.pdf".format(result.url.split("/")[-1]), "wb") as f:
+        #                     f.write(result.pdf)
+        #             elif result.success and not result.pdf:
+        #                 n_known_crawls += 1
+        #             else:
+        #                 n_failed_crawls += 1
+
+        #         progress.update(task, advance=len(results))
 
         progress.log("\n* Successes: " + str(n_successful_crawls))
         progress.log("* Known documents skipped: " + str(n_known_crawls))
@@ -270,16 +272,16 @@ def crawl_osti(start_year: int, stop_year: int, search_term: list[str], convert:
         for i in collected_exceptions:
             progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
-    async def main_multiple_osti(search_terms: list[str], start_year: int, stop_year: int, convert: bool):
+    async def main_multiple_osti(search_terms: list[str], start_year: int, convert: bool):
         if convert:
             click.echo("* Converting PDFs to text.")
 
-        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
             await asyncio.gather(
-                *[main_osti(search_term, start_year, stop_year, convert, progress) for search_term in search_terms]
+                *[main_osti(search_term, start_year, convert, progress) for search_term in search_terms]
             )
 
-    asyncio.run(main_multiple_osti(search_term, start_year, stop_year, convert))
+    asyncio.run(main_multiple_osti(search_term, start_year, convert))
 
 
 # @click.command()
