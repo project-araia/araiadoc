@@ -1,7 +1,9 @@
+import html
 import json
 import re
 import signal
 import sys
+import unicodedata
 from pathlib import Path
 
 import chardet
@@ -204,7 +206,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             continue
 
         else:
-            raw_text = raw_text.replace("<br>", "")
+            raw_text = raw_text.replace("<br>", "\n")
             lines = raw_text.splitlines()
 
             indexes = []  # store indexes for content underneath headings
@@ -260,15 +262,32 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 raw_header = raw_headers[i]
                 new_header = clean_header(header)
                 section = lines[start:end]
-                new_section = [
-                    j for j in section if j not in [header, raw_header, "\n", "", [], "  ", "<br>", "<br><br>"]
-                ]
+                new_section = [j for j in section if j not in [header, raw_header, "\n", "", [], "  "]]
                 combined_new_section = (
-                    "".join(new_section).replace("  ", " ").replace("<br>", "").replace("<br><br>", "")
+                    "".join(new_section).replace("  ", " ").replace("<br>", "\n").replace("<br><br>", "\n")
                 )
-                text[new_header] = combined_new_section
+                new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
+                new_section = [html.unescape(i) for i in new_section]
+                text[new_header] = "".join(new_section)
 
-            len_subsections = len("".join(text.values()))
+            # remove DISCLAIMER and ACKNOWLEDGMENTS
+            if "DISCLAIMER" in headers_to_upper:
+                del text["DISCLAIMER"]
+            if "ACKNOWLEDGMENTS" in headers_to_upper:
+                del text["ACKNOWLEDGMENTS"]
+
+            # remove sections that contain information already in the metadata
+            # TODO: we need better logic on if a metadata entry is in a block of text.
+            if not no_metadata:
+                matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
+                for key in text.keys():
+                    for entry in ["title", "description", "authors", "journal_name", "publication_date", "doi"]:
+                        if matching_metadata.get(entry, "") in text[key]:
+                            del text[key]
+                            print("WE HIT THIS CONDITION")
+                            break
+
+            len_subsections = len("".join(list(text.values())))
             if not len(text) or len_subsections / len(raw_text) < 0.90:
                 text = {"text": " ".join(lines)}
 
@@ -326,7 +345,7 @@ def convert(source: Path, images_tables: bool, output_dir: str = None):
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
         _convert(source, progress, images_tables, output_dir)
 
 
