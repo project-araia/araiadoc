@@ -1,3 +1,4 @@
+import copy
 import html
 import json
 import re
@@ -275,6 +276,16 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 del text["DISCLAIMER"]
             if "ACKNOWLEDGMENTS" in headers_to_upper:
                 del text["ACKNOWLEDGMENTS"]
+            if "FUNDING" in headers_to_upper:
+                del text["FUNDING"]
+
+            # remove REFERENCES or WORKS CITED, but save for later
+            if "REFERENCES" in headers_to_upper:
+                references = copy.deepcopy(text["REFERENCES"])  # copy of value before deleting the source
+                del text["REFERENCES"]
+            elif "WORKS CITED" in headers_to_upper:
+                references = copy.deepcopy(text["WORKS CITED"])
+                del text["WORKS CITED"]
 
             # remove sections that contain information already in the metadata
             # TODO: we need better logic on if a metadata entry is in a block of text.
@@ -307,6 +318,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                         date=matching_metadata["publication_date"],
                         unique_id=matching_metadata["osti_id"],
                         doi=matching_metadata.get("doi", ""),
+                        references=references,
                     )
                     output_rep = representation.model_dump(mode="json")
                 except Exception as e:
