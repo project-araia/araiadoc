@@ -5,13 +5,13 @@ name = "climpdfgetter"
 requires-python = ">=3.10"
 version = "0.1.0"
 dependencies = [
-# "openparse @ git+https://github.com/Divinci-AI/open-parse.git@main", 
+# "openparse @ git+https://github.com/Divinci-AI/open-parse.git@main",
 "openparse",
-"beautifulsoup4>=4.13.4,<5", "requests>=2.32.4,<3", "pydantic>=2.11.7,<3", 
+"beautifulsoup4>=4.13.4,<5", "requests>=2.32.4,<3", "pydantic>=2.11.7,<3",
 "chardet>=5.2.0,<6", "click>=8.2.1,<9",
-"crawl4ai>=0.7.1,<0.8", "markitdown>=0.1.2,<0.2",
+"crawl4ai>=0.7.1,<0.8",
 "tqdm>=4.67.1,<5", "layoutparser>=0.3.4,<0.4",
-"torchvision>=0.22.1,<0.23"]
+"torchvision>=0.22.1,<0.23", "grobid-client-python>=0.0.17,<0.0.18"]
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
@@ -41,7 +41,6 @@ pre-commit = ">=4.0.1,<5"
 pip = ">=24.3.1,<25"
 black = ">=25.1.0,<26"
 pytest = ">=8.3.5,<9"
-pixi-pack = ">=0.6.4,<0.7"
 
 [tool.pixi.feature.climpdf.dependencies]
 libgfortran = ">=5.0.0,<15"

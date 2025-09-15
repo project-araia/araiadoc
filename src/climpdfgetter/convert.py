@@ -13,6 +13,7 @@ import click
 # import layoutparser as lp
 import openparse
 import pymupdf
+import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
@@ -33,11 +34,10 @@ signal.signal(signal.SIGALRM, timeout_handler)
 def _convert_images_to_pdf(files: list, collected_files, progress):
     progress.log("* Found " + str(len(files)) + " files that must first be converted to PDF.")
 
-    success_count = 0
-    fail_count = 0
-
     task1 = progress.add_task("[green]Converting to PDF", total=len(files))
 
+    success_count = 0
+    fail_count = 0
     for i in files:
         try:
             Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
@@ -70,6 +70,24 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
             text.append(node.text)
     text = "\n".join(text)
     return text
+
+
+def _get_text_from_grobid(input_file: Path, output_file: Path):
+    if input_file.suffix == ".xml":
+        soup = BeautifulSoup(input_file.read_text(), "xml")
+
+        paragraph_dict = {}
+
+        abstract = soup.find("abstract").find("p").text.strip()
+        paragraph_dict["abstract"] = abstract
+        body_paragraphs = soup.find("body").find_all("div")
+        for b in body_paragraphs:
+            key = b.find("head").text.strip()
+            values = b.find_all("p")
+            value = "\n".join([i.text.strip() for i in values])
+            paragraph_dict[key] = value
+
+        return paragraph_dict
 
 
 def clean_header(h):
@@ -114,23 +132,32 @@ def looks_like_heading(text):
     return True
 
 
-def _convert(source: Path, progress, images_flag: bool = False, output_dir: str = None):
+def _convert(source: Path, progress, images_flag: bool = False, output_dir: str = None, grobid: bool = False):
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
 
-    files_to_convert_to_pdf = [
-        i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
-    ]  # skip pdfs, checkpoints, metadata
+    # files_to_convert_to_pdf = [
+    #     i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
+    # ]  # skip pdfs, checkpoints, metadata
 
-    if len(files_to_convert_to_pdf):
-        _convert_images_to_pdf(files_to_convert_to_pdf, collected_input_files, progress)  # done in-place
+    # if len(files_to_convert_to_pdf):
+    #     _convert_images_to_pdf(files_to_convert_to_pdf, collected_input_files, progress)  # done in-place
 
     success_count = 0
     fail_count = 0
 
-    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
+    # collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
     progress.log("\n* Found " + str(len(collected_input_files)) + " input PDFs.")
+
+    if grobid:
+        progress.log("* Using Grobid. Checking local host for Grobid service.")
+        try:
+            r = requests.get("http://localhost:8070/api/isalive")
+            r.raise_for_status()
+        except (requests.exceptions.RequestException, ConnectionRefusedError):
+            progress.log("[red]Grobid service not found. Skipping Grobid conversion.")
+            # grobid = False
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
@@ -171,7 +198,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
         progress.log("Images and tables: disabled.")
 
     for i in collected_input_files:
-        signal.alarm(600)
+        # signal.alarm(600)
 
         output_file = output_dir / i.stem
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
@@ -183,7 +210,10 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             progress.log("Starting conversion for: " + str(i.name))
             if images_flag:
                 _get_images_tables_from_layoutparser(i, output_file)
-            raw_text = _get_text_from_openparse(i, output_file)
+            if grobid:
+                raw_text = _get_text_from_grobid(i, output_file)
+            else:
+                raw_text = _get_text_from_openparse(i, output_file)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")
@@ -207,46 +237,52 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             continue
 
         else:
-            raw_text = raw_text.replace("<br>", "\n")
-            lines = raw_text.splitlines()
 
-            indexes = []  # store indexes for content underneath headings
             text = {}
             cleaned_headers = []
-            raw_headers = []
-            buffer_parts = []  # stores bold text chunks for current heading
-            buffer_indexes = []  # stores line indexes for current heading
+            if not grobid:
+                raw_text = raw_text.replace("<br>", "\n")
+                lines = raw_text.splitlines()
 
-            for idx, line in enumerate(lines):
-                if line.startswith("**"):  # consecutive bold
-                    # Extract all bold chunks from the line
-                    chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
-                    if chunks:
-                        buffer_parts.extend(chunks)
-                        buffer_indexes.append(idx)
+                indexes = []  # store indexes for content underneath headings
+                raw_headers = []
+                buffer_parts = []  # stores bold text chunks for current heading
+                buffer_indexes = []  # stores line indexes for current heading
+
+                for idx, line in enumerate(lines):
+                    if line.startswith("**"):  # consecutive bold
+                        # Extract all bold chunks from the line
+                        chunks = [clean_header(m) for m in BOLD_RE.findall(line)]
+                        if chunks:
+                            buffer_parts.extend(chunks)
+                            buffer_indexes.append(idx)
+                            continue
+
+                    # Allow blank lines inside a split heading without flushing
+                    if line.strip() == "":
                         continue
 
-                # Allow blank lines inside a split heading without flushing
-                if line.strip() == "":
-                    continue
+                    # Non-blank, non-bold => flush heading
+                    if buffer_parts:
+                        merged_heading = clean_header(" ".join(buffer_parts))
+                        if looks_like_heading(merged_heading):
+                            raw_headers.append("".join(buffer_parts))
+                            cleaned_headers.append(merged_heading)
+                            indexes.append(buffer_indexes.copy())
+                        buffer_parts.clear()
+                        buffer_indexes.clear()
 
-                # Non-blank, non-bold => flush heading
+                # Flush any remaining heading at EOF
                 if buffer_parts:
                     merged_heading = clean_header(" ".join(buffer_parts))
                     if looks_like_heading(merged_heading):
                         raw_headers.append("".join(buffer_parts))
                         cleaned_headers.append(merged_heading)
                         indexes.append(buffer_indexes.copy())
-                    buffer_parts.clear()
-                    buffer_indexes.clear()
 
-            # Flush any remaining heading at EOF
-            if buffer_parts:
-                merged_heading = clean_header(" ".join(buffer_parts))
-                if looks_like_heading(merged_heading):
-                    raw_headers.append("".join(buffer_parts))
-                    cleaned_headers.append(merged_heading)
-                    indexes.append(buffer_indexes.copy())
+            else:
+                text = raw_text
+                cleaned_headers = list(text.keys())
 
             # remove any headers and corresponding indexes before the first header called "ABSTRACT"
             headers_to_upper = [header.upper() for header in cleaned_headers]
@@ -352,13 +388,14 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
 @click.argument("source", nargs=1)
 @click.option("--images-tables", "-i", is_flag=True)
 @click.option("--output-dir", "-o", nargs=1)
-def convert(source: Path, images_tables: bool, output_dir: str = None):
+@click.option("--grobid", "-g", is_flag=True)
+def convert(source: Path, images_tables: bool, output_dir: str = None, grobid: bool = False):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
-        _convert(source, progress, images_tables, output_dir)
+        _convert(source, progress, images_tables, output_dir, grobid)
 
 
 @click.command()
