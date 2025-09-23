@@ -72,7 +72,20 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
     return text
 
 
-def _get_text_from_grobid(input_file: Path, output_file: Path):
+def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_json: str = ""):
+    from grobid_client.grobid_client import GrobidClient
+
+    client = GrobidClient(grobid_server=grobid_service)
+    client.process(
+        service="processFulltextDocument",
+        input_path=input_path,
+        output_path=output_dir_json,
+        n=10,
+    )
+
+
+def _convert_grobid_xml_to_json(input_file) -> dict:
+
     if input_file.suffix == ".xml":
         soup = BeautifulSoup(input_file.read_text(), "xml")
 
@@ -132,7 +145,13 @@ def looks_like_heading(text):
     return True
 
 
-def _convert(source: Path, progress, images_flag: bool = False, output_dir: str = None, grobid: bool = False):
+def _convert(
+    source: Path,
+    progress,
+    images_flag: bool = False,
+    output_dir: str = None,
+    grobid_service: str = "http://localhost:8070/api",
+):
 
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
@@ -150,14 +169,14 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
     # collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
     progress.log("\n* Found " + str(len(collected_input_files)) + " input PDFs.")
 
-    if grobid:
-        progress.log("* Using Grobid. Checking local host for Grobid service.")
+    if grobid_service:
+        progress.log("* Using Grobid. Checking specified host for Grobid service.")
         try:
-            r = requests.get("http://localhost:8070/api/isalive")
+            r = requests.get(grobid_service + "/isalive")
             r.raise_for_status()
         except (requests.exceptions.RequestException, ConnectionRefusedError):
             progress.log("[red]Grobid service not found. Skipping Grobid conversion.")
-            # grobid = False
+            # grobid_service = ""
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
@@ -189,13 +208,17 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
                 with open(directory, "r") as f:
                     metadata.extend(json.load(f))
     except IndexError:
-        progress.log("No metadata found for " + source + ". Skipping metadata association.")
+        progress.log("[red]No metadata found for " + source + ". Skipping metadata association.")
         no_metadata = True
 
     if images_flag:
         progress.log("Images and tables: enabled.")
     else:
         progress.log("Images and tables: disabled.")
+
+    if grobid_service:
+        _get_xml_from_grobid(Path(source), grobid_service, output_dir)
+        collected_input_files = _collect_from_path(output_dir)
 
     for i in collected_input_files:
         # signal.alarm(600)
@@ -210,8 +233,8 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
             progress.log("Starting conversion for: " + str(i.name))
             if images_flag:
                 _get_images_tables_from_layoutparser(i, output_file)
-            if grobid:
-                raw_text = _get_text_from_grobid(i, output_file)
+            if grobid_service:
+                raw_text = _convert_grobid_xml_to_json(i, output_file)
             else:
                 raw_text = _get_text_from_openparse(i, output_file)
 
@@ -240,7 +263,7 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
 
             text = {}
             cleaned_headers = []
-            if not grobid:
+            if not grobid_service:
                 raw_text = raw_text.replace("<br>", "\n")
                 lines = raw_text.splitlines()
 
@@ -388,14 +411,14 @@ def _convert(source: Path, progress, images_flag: bool = False, output_dir: str 
 @click.argument("source", nargs=1)
 @click.option("--images-tables", "-i", is_flag=True)
 @click.option("--output-dir", "-o", nargs=1)
-@click.option("--grobid", "-g", is_flag=True)
-def convert(source: Path, images_tables: bool, output_dir: str = None, grobid: bool = False):
+@click.option("--grobid_service", "-g", nargs=1)
+def convert(source: Path, images_tables: bool, output_dir: str = None, grobid_service: str = ""):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
-        _convert(source, progress, images_tables, output_dir, grobid)
+        _convert(source, progress, images_tables, output_dir, grobid_service)
 
 
 @click.command()
