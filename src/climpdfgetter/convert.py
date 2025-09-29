@@ -76,8 +76,12 @@ def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_
     from grobid_client.grobid_client import GrobidClient
 
     # move metadata file out of input_path temporarily
-    metadata_file = [i for i in input_path.iterdir() if i.suffix == ".json"][0]
-    metadata_file.rename(metadata_file.parent.parent / metadata_file.name)
+    try:
+        metadata_file = [i for i in input_path.iterdir() if i.suffix == ".json"][0]
+        metadata_file.rename(metadata_file.parent.parent / metadata_file.name)
+        moved_metadata = True
+    except IndexError:
+        moved_metadata = False
     client = GrobidClient(grobid_server=grobid_service)
     client.process(
         service="processFulltextDocument",
@@ -85,7 +89,8 @@ def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_
         output=output_dir_json,
         n=10,
     )
-    metadata_file.rename(input_path / metadata_file.name)
+    if moved_metadata:
+        metadata_file.rename(input_path / metadata_file.name)
 
 
 def _convert_grobid_xml_to_json(input_file) -> dict:
@@ -95,8 +100,11 @@ def _convert_grobid_xml_to_json(input_file) -> dict:
 
         paragraph_dict = {}
 
-        abstract = soup.find("abstract").find("p").text.strip()
-        paragraph_dict["abstract"] = abstract
+        try:
+            abstract = soup.find("abstract").find("p").text.strip()
+            paragraph_dict["abstract"] = abstract
+        except AttributeError:
+            pass
         body_paragraphs = soup.find("body").find_all("div")
         for b in body_paragraphs:
             key = b.find("head").text.strip()
@@ -243,7 +251,7 @@ def _convert(
             if images_flag:
                 _get_images_tables_from_layoutparser(i, output_file)
             if grobid_service:
-                raw_text = _convert_grobid_xml_to_json(i, output_file)
+                raw_text = _convert_grobid_xml_to_json(i)
             else:
                 raw_text = _get_text_from_openparse(i, output_file)
 
