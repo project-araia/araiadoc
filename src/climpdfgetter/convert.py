@@ -75,13 +75,17 @@ def _get_text_from_openparse(input_file: Path, output_file: Path):
 def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_json: str = ""):
     from grobid_client.grobid_client import GrobidClient
 
+    # move metadata file out of input_path temporarily
+    metadata_file = [i for i in input_path.iterdir() if i.suffix == ".json"][0]
+    metadata_file.rename(metadata_file.parent.parent / metadata_file.name)
     client = GrobidClient(grobid_server=grobid_service)
     client.process(
         service="processFulltextDocument",
         input_path=input_path,
-        output_path=output_dir_json,
+        output=output_dir_json,
         n=10,
     )
+    metadata_file.rename(input_path / metadata_file.name)
 
 
 def _convert_grobid_xml_to_json(input_file) -> dict:
@@ -172,8 +176,9 @@ def _convert(
     if grobid_service:
         progress.log("* Using Grobid. Checking specified host for Grobid service.")
         try:
-            r = requests.get(grobid_service + "/isalive")
+            r = requests.get(grobid_service + "/api/isalive")
             r.raise_for_status()
+            progress.log("[bright_green]Grobid service found.")
         except (requests.exceptions.RequestException, ConnectionRefusedError):
             progress.log("[red]Grobid service not found. Skipping Grobid conversion.")
             # grobid_service = ""
@@ -208,6 +213,10 @@ def _convert(
                 with open(directory, "r") as f:
                     metadata.extend(json.load(f))
     except IndexError:
+        progress.log("[red]No metadata found for " + source + ". Skipping metadata association.")
+        no_metadata = True
+
+    if not len(metadata):
         progress.log("[red]No metadata found for " + source + ". Skipping metadata association.")
         no_metadata = True
 

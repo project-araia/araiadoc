@@ -13,13 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from climpdfgetter.convert import convert, epa_ocr_to_json
 from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.sources import source_mapping
-from climpdfgetter.utils import (  # _checkpoint,; _download_document,; _get_result_links,; _get_dispatcher,
-    _find_project_root,
-    _get_configs,
-    _get_max_results,
-    _prep_output_dir,
-    count_local,
-)
+from climpdfgetter.utils import _find_project_root, _get_configs, _get_max_results, _prep_output_dir, count_local
 
 
 def timeout_handler(signum, frame):
@@ -120,8 +114,6 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
                             with path_to_doc.open("wb") as f:
                                 f.write(r.content)
 
-                            # We try obtaining the document as pdf or tiff, if possible
-
                         n_of_pages_crawled += 1
 
                 except Exception as e:
@@ -154,16 +146,15 @@ def _conversion(path):
 @click.command()
 @click.argument("start_year", nargs=1, type=click.INT)
 @click.option("--search-term", "-t", multiple=True)
-@click.option("--convert", "-c", is_flag=True, default=False, help="Convert PDFs to text.", type=click.BOOL)
-def crawl_osti(start_year: int, search_term: list[str], convert: bool):
+def crawl_osti(start_year: int, search_term: list[str]):
     """Asynchronously crawl OSTI result pages:
 
-    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding --convert`
+    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
 
     """
     import asyncio
 
-    async def main_osti(search_term: str, start_year: int, convert: bool, progress):
+    async def main_osti(search_term: str, start_year: int, progress):
 
         stop_year = 2025
 
@@ -179,11 +170,6 @@ def crawl_osti(start_year: int, search_term: list[str], convert: bool):
         n_known_crawls = 0
         n_failed_crawls = 0
 
-        # async with AsyncWebCrawler(
-        #     config=browser_config,
-        # ) as crawler:
-
-        # search_base = source_mapping["OSTI"].search_base
         api_base = source_mapping["OSTI"].api_base
         api_payload = source_mapping["OSTI"].api_payload
         api_payload["q"] = search_term
@@ -216,6 +202,7 @@ def crawl_osti(start_year: int, search_term: list[str], convert: bool):
             if entry["osti_id"] in known_documents:
                 n_known_crawls += 1
         search_results = [i for i in search_results if i["osti_id"] not in known_documents]
+        progress.log("* Number Known documents skipping: " + str(n_known_crawls))
 
         for result in search_results:
             signal.alarm(60)
@@ -235,273 +222,18 @@ def crawl_osti(start_year: int, search_term: list[str], convert: bool):
                 collected_exceptions.append([fulltext_link, str(e)])
             progress.update(task, advance=1)
 
-        #########
-
-        # dispatcher = _get_dispatcher(max_results)
-
-        # async with AsyncWebCrawler(
-        #     config=browser_config,
-        # ) as crawler:
-        #     grouped_search_results = [search_results[i : i + 10] for i in range(0, len(search_results), 10)]
-
-        #     for group in grouped_search_results:
-        #         signal.alarm(660)  # 11 minutes for each 10 documents, way more time than needed presumably
-
-        #         group_links = [i["links"] for i in group]
-        #         fulltext_links = [j["href"] for i in group_links for j in i if j["rel"] == "fulltext"]
-
-        #         import wat; import ipdb; ipdb.set_trace()
-        #         results = await crawler.arun_many(urls=fulltext_links, dispatcher=dispatcher, config=run_config)
-
-        #         async for result in results:
-        #             if result.success and result.pdf:
-        #                 n_successful_crawls += 1
-        #                 with open(path / "{}.pdf".format(result.url.split("/")[-1]), "wb") as f:
-        #                     f.write(result.pdf)
-        #             elif result.success and not result.pdf:
-        #                 n_known_crawls += 1
-        #             else:
-        #                 n_failed_crawls += 1
-
-        #         progress.update(task, advance=len(results))
-
         progress.log("\n* Successes: " + str(n_successful_crawls))
-        progress.log("* Known documents skipped: " + str(n_known_crawls))
         progress.log("* Failures: " + str(n_failed_crawls))
         progress.log("* Exceptions: ")
         for i in collected_exceptions:
             progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
 
-    async def main_multiple_osti(search_terms: list[str], start_year: int, convert: bool):
-        if convert:
-            click.echo("* Converting PDFs to text.")
+    async def main_multiple_osti(search_terms: list[str], start_year: int):
 
         with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-            await asyncio.gather(
-                *[main_osti(search_term, start_year, convert, progress) for search_term in search_terms]
-            )
+            await asyncio.gather(*[main_osti(search_term, start_year, progress) for search_term in search_terms])
 
-    asyncio.run(main_multiple_osti(search_term, start_year, convert))
-
-
-# @click.command()
-# @click.argument("start_year", nargs=1, type=click.INT)
-# @click.option("--search-term", "-t", multiple=True)
-# def crawl_osti_api(start_year: int, search_term: list[str]):
-#     """Asynchronously crawl OSTI results via their API:
-
-#     It shouldn't be necessary to narrow down results to <1000 via this command.
-
-#     `climpdf crawl-osti-api 2000 2005 -t "Heat Waves" -t Flooding --convert`
-
-#     """
-#     import asyncio
-
-#     async def main_osti(search_term: str, start_year: int, progress):
-
-#         stop_year = 2025
-
-#         path = _prep_output_dir("OSTI_api_" + search_term)
-
-#         browser_config, run_config, metadata_config = _get_configs(path)
-
-#         progress.log("\n* Contacting OSTI API")
-#         progress.log("* Searching for: " + search_term)
-
-#         n_successful_crawls = 0
-#         n_known_crawls = 0
-#         n_failed_crawls = 0
-
-#         all_results = []
-
-#         async with AsyncWebCrawler(
-#             config=browser_config,
-#         ) as crawler:
-
-#             progress.log("* Calculating starting URL")
-
-#             search_base = source_mapping["OSTI"].search_base
-#             formatted_search_base_init = search_base.format(search_term, 2025, start_year, 0)
-
-#             progress.log("* Performing first search")
-
-#             first_result_page = await crawler.arun(url=formatted_search_base_init, config=run_config)
-
-#             # first_result_page = await crawler.arun(url=formatted_search_base_init, config=metadata_config)
-
-#             first_soup = BeautifulSoup(first_result_page.html, "html.parser")
-
-#             max_pages, max_results = _get_max_results(first_soup, counting=True)
-#             # dispatcher = _get_dispatcher(max_results)
-
-#             progress.log("* Expecting " + str(max_results) + " documents. Connecting to API.")
-
-#             search_base = source_mapping["OSTI"].search_base
-#             api_base = "https://www.osti.gov/api/v1/records"
-#             params = {
-#                 "q": search_term,
-#                 "rows": 100,
-#                 "has_fulltext": True,
-#                 "publication_date_start": "01/01/" + str(start_year),
-#             }
-
-#             url_base = "https://www.osti.gov/servlets/purl/"
-
-#             results = requests.get(api_base, params=params).json()
-#             all_results += results
-
-#             color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
-#             task = progress.add_task(f"[{color}]" + search_term, total=max_results)
-
-#             collected_exceptions = []
-
-#             # TODO: This should be generated automatically. Currently from `count-local`.
-#             try:
-#                 known_documents = json.load(open(path.parent / "OSTI_doc_ids.json", "r"))
-#             except FileNotFoundError:
-#                 known_documents = []
-
-#             first_result_page_links = []
-#             for i in results:
-#                 for j in i["links"]:
-#                     if j["rel"] == "fulltext":
-#                         first_result_page_links.append(j["href"])
-#             first_result_page_links = list(set(first_result_page_links))
-
-#             for doc_page in first_result_page_links:
-#                 if doc_page["href"].split(url_base)[-1] in known_documents:
-#                     n_known_crawls += 1
-#             first_result_page_links = [
-#                 i["href"] for i in first_result_page_links if i["href"].split(url_base)[-1] not in known_documents
-#             ]
-
-#             # results = await crawler.arun_many(urls=first_result_page_links,dispatcher=dispatcher,config=run_config)
-
-#             # for result in results:
-#             #     if result.success and result.downloaded_files:
-#             #         n_successful_crawls += 1
-#             #     elif result.success and not result.downloaded_files:
-#             #         n_known_crawls += 1
-#             #     else:
-#             #         n_failed_crawls += 1
-
-#             progress.update(task, advance=len(results))
-
-#             for doc_page in first_result_page_links:
-#                 signal.alarm(60)
-
-#                 # TODO: Does a known-document constitute a failed crawl?
-#                 if doc_page["href"].split(url_base)[-1] in known_documents:
-#                     n_known_crawls += 1
-#                     progress.update(task, advance=1)
-#                     continue
-
-#                 try:
-#                     _download_document(doc_page, url_base, path, progress, task)
-#                     n_successful_crawls += 1
-
-#                 except TimeoutError:
-#                     progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
-#                     n_failed_crawls += 1
-#                     progress.update(task, advance=1)
-#                     continue
-
-#                 except Exception as e:
-#                     collected_exceptions.append([doc_page["href"], str(e)])
-#                     n_failed_crawls += 1
-#                     progress.update(task, advance=1)
-#                     continue
-
-#             _checkpoint(path, search_term, start_year, stop_year, 0, max_pages, max_results)
-
-#             progress.log("* Performing subsequent searches")
-#             for result_page in range(1, max_pages):
-#                 signal.alarm(660)  # 11 minutes - one minute a page, since there's 10 pages max
-#                 try:
-#                     formatted_search_base = search_base.format(search_term, stop_year, start_year, result_page)
-#                     main_result_page = await crawler.arun(url=formatted_search_base, config=run_config)
-
-#                     search_result_links = _get_result_links(main_result_page, url_base)
-
-#                     for doc_page in search_result_links:
-#                         if doc_page["href"].split(url_base)[-1] in known_documents:
-#                             n_known_crawls += 1
-#                     search_result_links = [
-#                         i["href"] for i in search_result_links if i["href"].split(url_base)[-1] not in known_documents
-#                     ]
-
-#                     # results = await crawler.arun_many(
-#                     #     urls=search_result_links, dispatcher=dispatcher, config=run_config
-#                     # )
-
-#                     # for result in results:
-#                     #     if result.success and result.downloaded_files:
-#                     #         n_successful_crawls += 1
-#                     #     elif result.success and not result.downloaded_files:
-#                     #         n_known_crawls += 1
-#                     #     else:
-#                     #         n_failed_crawls += 1
-
-#                     # progress.update(task, advance=len(results))
-
-#                     for doc_page in search_result_links:
-#                         signal.alarm(60)
-
-#                         if doc_page["href"].split(url_base)[-1] in known_documents:
-#                             n_known_crawls += 1
-#                             progress.update(task, advance=1)
-#                             continue
-
-#                         try:
-#                             _download_document(doc_page, url_base, path, progress, task)
-#                             n_successful_crawls += 1
-
-#                         except TimeoutError:
-#                             progress.log("Timeout while collecting: " + str(doc_page) + ". Skipping.")
-#                             n_failed_crawls += 1
-#                             progress.update(task, advance=1)
-#                             continue
-
-#                         except Exception as e:
-#                             collected_exceptions.append([doc_page["href"], str(e)])
-#                             n_failed_crawls += 1
-#                             progress.update(task, advance=1)
-
-#                 except TimeoutError:
-#                     progress.log("Timeout on result page: " + str(result_page) + ". Skipping.")
-#                     n_failed_crawls += 10
-#                     progress.update(task, advance=10)
-#                     continue
-
-#                 except Exception as e:
-#                     collected_exceptions.append([formatted_search_base, str(e)])
-#                     n_failed_crawls += 10
-#                     progress.update(task, advance=10)
-#                     continue
-
-#                 _checkpoint(
-#                     path,
-#                     search_term,
-#                     start_year,
-#                     stop_year,
-#                     result_page,
-#                     max_pages,
-#                     max_results,
-#                 )
-
-#             progress.log("\n* Successes: " + str(n_successful_crawls))
-#             progress.log("* Known documents skipped: " + str(n_known_crawls))
-#             progress.log("* Failures: " + str(n_failed_crawls))
-#             progress.log("* Exceptions: ")
-#             for i in collected_exceptions:
-#                 progress.log("* " + str(i[0]) + ": " + str(i[1]) + "\n")
-
-#     async def main_multiple_osti(search_terms: list[str], start_year: int):
-
-#         with Progress(SpinnerColumn(),*Progress.get_default_columns(),TimeElapsedColumn(),disable=True) as progress:
-#             await asyncio.gather(*[main_osti(search_term, start_year, progress) for search_term in search_terms])
-
-#     asyncio.run(main_multiple_osti(search_term, start_year))
+    asyncio.run(main_multiple_osti(search_term, start_year))
 
 
 @click.command()
@@ -571,7 +303,6 @@ def main():
 
 main.add_command(crawl_epa)
 main.add_command(crawl_osti)
-# main.add_command(crawl_osti_api)
 main.add_command(count_local)
 main.add_command(convert)
 main.add_command(epa_ocr_to_json)

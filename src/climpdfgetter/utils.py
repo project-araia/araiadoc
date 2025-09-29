@@ -224,7 +224,9 @@ def _strip_sequential_nonalphanumeric(text: str):
 
 
 def _prep_path(item: Path):
-    if item.is_file() and not item.name.startswith("."):  # avoid .DS_store and other files
+    if (
+        item.is_file() and not item.name.startswith(".") and not item.suffix == ".txt"
+    ):  # avoid .DS_store and other files
         return Path(item)
 
 
