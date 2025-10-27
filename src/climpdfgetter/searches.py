@@ -5,9 +5,9 @@ RESILIENCE_SEARCHES = [
     "Drought",  # x
     "Flooding",  # x
     "Tropical Cyclone",
-    "Hurricane",
+    "Hurricane",  # x
     "Wildfire",  # x
-    "Convective Storm",
+    "Convective Storm",  # x
     "Sea Level Rise",
     "Permafrost Thaw",  # x
     "Ocean Acidification",

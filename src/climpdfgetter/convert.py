@@ -107,10 +107,13 @@ def _convert_grobid_xml_to_json(input_file) -> dict:
             pass
         body_paragraphs = soup.find("body").find_all("div")
         for b in body_paragraphs:
-            key = b.find("head").text.strip()
-            values = b.find_all("p")
-            value = "\n".join([i.text.strip() for i in values])
-            paragraph_dict[key] = value
+            try:
+                key = b.find("head").text.strip()
+                values = b.find_all("p")
+                value = "\n".join([i.text.strip() for i in values])
+                paragraph_dict[key] = value
+            except AttributeError:
+                continue
 
         return paragraph_dict
 
@@ -192,6 +195,8 @@ def _convert(
             # grobid_service = ""
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
+
+    collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
 
     if not output_dir:
         output_dir = Path(str(collected_input_files[0].parent) + "_json")
@@ -326,26 +331,27 @@ def _convert(
 
             # remove any headers and corresponding indexes before the first header called "ABSTRACT"
             headers_to_upper = [header.upper() for header in cleaned_headers]
-            if "ABSTRACT" in headers_to_upper:
-                abstract_index = headers_to_upper.index("ABSTRACT")
-                cleaned_headers = cleaned_headers[abstract_index:]
-                indexes = indexes[abstract_index:]
+            if not grobid_service:
+                if "ABSTRACT" in headers_to_upper:
+                    abstract_index = headers_to_upper.index("ABSTRACT")
+                    cleaned_headers = cleaned_headers[abstract_index:]
+                    indexes = indexes[abstract_index:]
 
-            indexes.append([len(lines)])
-            index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
-            progress.log("Found " + str(len(cleaned_headers)) + " possible headers.")
-            for i, (start, end) in enumerate(index_pairs):
-                header = cleaned_headers[i]
-                raw_header = raw_headers[i]
-                new_header = clean_header(header)
-                section = lines[start:end]
-                new_section = [j for j in section if j not in [header, raw_header, "\n", "", [], "  "]]
-                combined_new_section = (
-                    "".join(new_section).replace("  ", " ").replace("<br>", "\n").replace("<br><br>", "\n")
-                )
-                new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
-                new_section = [html.unescape(i) for i in new_section]
-                text[new_header] = "".join(new_section)
+                indexes.append([len(lines)])
+                index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+                progress.log("Found " + str(len(cleaned_headers)) + " possible headers.")
+                for i, (start, end) in enumerate(index_pairs):
+                    header = cleaned_headers[i]
+                    raw_header = raw_headers[i]
+                    new_header = clean_header(header)
+                    section = lines[start:end]
+                    new_section = [j for j in section if j not in [header, raw_header, "\n", "", [], "  "]]
+                    combined_new_section = (
+                        "".join(new_section).replace("  ", " ").replace("<br>", "\n").replace("<br><br>", "\n")
+                    )
+                    new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
+                    new_section = [html.unescape(i) for i in new_section]
+                    text[new_header] = "".join(new_section)
 
             # remove DISCLAIMER and ACKNOWLEDGMENTS
             if "DISCLAIMER" in headers_to_upper:
