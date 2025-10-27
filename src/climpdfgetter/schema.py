@@ -11,3 +11,4 @@ class ParsedDocumentSchema(BaseModel):
     date: int | str = 0
     unique_id: str = ""
     doi: str = ""
+    references: str = ""

@@ -10,12 +10,6 @@ import requests
 URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"  # noqa
 
 
-def clean_header(header):
-    for char in ["#", "##", "\n", "*", "**"]:
-        header = header.replace(char, "")
-    return header.lstrip()
-
-
 def _count_local(source: str):
     ids = []
     data_root = Path(_find_project_root()) / Path("data/")
@@ -66,8 +60,15 @@ def _get_result_links(result_page: dict, url_base: str):
     return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
 
 
+def _get_api_result_links(results: dict):
+    pass
+
+
 def _get_max_results(soup, counting: bool) -> tuple[int, int]:
-    max_pages_soup = soup.find(class_="breadcrumb-item text-muted active").getText().split()[-1]
+    find = soup.find(class_="breadcrumb-item text-muted active")
+    if find is None:
+        return 1, 1
+    max_pages_soup = find.getText().split()[-1]
     # <span class="breadcrumb-item text-muted active">Page 1 of 54</span></nav>
     max_pages = int("".join(max_pages_soup.split(",")))
 
@@ -104,41 +105,46 @@ def _get_configs(path: Path):
     )
 
     run_config = CrawlerRunConfig(
-        exclude_external_links=True,
+        # exclude_external_links=True,
         simulate_user=True,
         magic=True,
+        pdf=True,
         wait_for_images=True,
-    )
-
-    metadata_config = CrawlerRunConfig(
-        exclude_external_links=True,
-        simulate_user=True,
-        magic=True,
-        wait_for_images=True,
-        js_code="""
-            document.querySelector('a.export-link[data-format="json"]').click()
-        """,
+        stream=True,
         wait_for="""
             document.readyState === "complete"
         """,
+    )
+
+    metadata_config = CrawlerRunConfig(
+        # exclude_external_links=True,
+        simulate_user=True,
+        magic=True,
+        # wait_for_images=True,
+        # js_code="""
+        #     document.querySelector('a.export-link[data-format="json"]').click()
+        # """,
+        # wait_for="""
+        #     document.readyState === "complete"
+        # """,
     )
 
     return browser_config, run_config, metadata_config
 
 
 def _get_dispatcher(max_results: int):
-    from crawl4ai import CrawlerMonitor, RateLimiter
+    from crawl4ai import RateLimiter
     from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
 
     dispatcher = MemoryAdaptiveDispatcher(
         memory_threshold_percent=90.0,  # Pause if memory exceeds this
         check_interval=1.0,  # How often to check memory
         max_session_permit=1,  # Maximum concurrent tasks
-        rate_limiter=RateLimiter(base_delay=(1.0, 5.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
-        monitor=CrawlerMonitor(  # Optional monitoring
-            enable_ui=True,
-            urls_total=max_results,
-        ),
+        rate_limiter=RateLimiter(base_delay=(3.0, 8.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
+        # monitor=CrawlerMonitor(  # Optional monitoring
+        #     enable_ui=True,
+        #     urls_total=max_results,
+        # ),
     )
     return dispatcher
 
@@ -218,7 +224,9 @@ def _strip_sequential_nonalphanumeric(text: str):
 
 
 def _prep_path(item: Path):
-    if item.is_file() and not item.name.startswith("."):  # avoid .DS_store and other files
+    if (
+        item.is_file() and not item.name.startswith(".") and not item.suffix == ".txt"
+    ):  # avoid .DS_store and other files
         return Path(item)
 
 
