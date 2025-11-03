@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import click
+import requests
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
@@ -15,14 +16,9 @@ from climpdfgetter.utils import _prep_output_dir
 @click.option("-nproc", "-n", nargs=1, type=click.INT)
 @click.option("-nchunks", "-c", nargs=1, type=click.INT)
 def complete_semantic_scholar(input_csv: Path, nproc: int, nchunks: int):
-    async def _get_document(paper_id, semaphore):
-        asch = AsyncSemanticScholar()
+    async def _get_document(paper_id, semaphore, asch):
         async with semaphore:
-            try:
-                gotten_paper = await asch.get_paper("CorpusID:" + paper_id)
-            except Exception as e:
-                raise TimeoutError(e)
-        return gotten_paper
+            return await asch.get_paper("CorpusID:" + paper_id)
 
     async def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
@@ -32,19 +28,38 @@ def complete_semantic_scholar(input_csv: Path, nproc: int, nchunks: int):
         color = ["red", "green", "blue", "yellow", "magenta", "cyan"][chunk_idx % 6]
         task = progress.add_task(f"[{color}]Chunk " + str(chunk_idx) + ": ", total=len(data_chunk))
 
-        work_tasks = [asyncio.create_task(_get_document(doc[6], semaphore)) for doc in data_chunk]
-        completed_tasks = await asyncio.gather(*work_tasks)
+        asch = AsyncSemanticScholar()
 
-        async for paper_task in asyncio.as_completed(completed_tasks):
+        work_tasks = [asyncio.create_task(_get_document(doc[6], semaphore, asch)) for doc in data_chunk]
+
+        for paper_task in asyncio.as_completed(work_tasks):
             try:
                 paper = await paper_task
-                print(paper)
-                # TODO process paper
-                async with lock:
-                    checkpoint_data.append(paper)
+                if paper is None or not paper["isOpenAccess"]:
+                    continue
+
+                if paper["openAccessPdf"]["status"] != "GOLD":  # pdf likely undownloadable
+                    continue
+
+                pdf_url = paper["openAccessPdf"]["url"]
+                pdf_name = paper["corpusId"]
+                pdf_path = subdir / Path(str(pdf_name) + ".pdf")
+                if not pdf_path.exists() and pdf_name not in checkpoint_data:
+                    r = requests.get(pdf_url, stream=True, timeout=10)
+                    r.raise_for_status()
+                    with pdf_path.open("wb") as f:
+                        f.write(r.content)
+
+                    checkpoint_data.append(paper["corpusId"])
+
+            except KeyboardInterrupt:
+                progress.log("KeyboardInterrupt")
+                checkpoint_data.extend([doc[6] for doc in data_chunk])
+                return
             except Exception as e:
                 progress.log("Error: " + str(e))
                 progress.update(task, advance=1)
+                checkpoint_data.append(paper["corpusId"])
                 continue
             progress.update(task, advance=1)
 
@@ -69,7 +84,7 @@ def complete_semantic_scholar(input_csv: Path, nproc: int, nchunks: int):
         with open(input_csv, "r") as f:
             reader = csv.reader(f)
             # data = list(reader)
-            data = list(reader)[1:11]  # first line is header
+            data = list(reader)[1:]  # first line is header
             chunk_size = len(data) // nchunks
             chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
 
@@ -80,5 +95,8 @@ def complete_semantic_scholar(input_csv: Path, nproc: int, nchunks: int):
                     for i, chunk in enumerate(chunks)
                 ]
             )
+
+        with open(checkpoint, "w") as f:
+            f.write(json.dumps(checkpoint_data))
 
     asyncio.run(main_multiple_ss(input_csv, nproc, nchunks))
