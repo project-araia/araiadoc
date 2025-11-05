@@ -38,7 +38,9 @@ SOLR_QUERY = """
 """
 
 REQUESTS_QUERY = ""
-SINGLE_REQUESTS_QUERY = ""
+SINGLE_REQUESTS_QUERY = (
+    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&indent=true&q.op=OR&q={}&useParams="
+)
 
 
 def main():
@@ -75,9 +77,12 @@ def get_from_titanv(source: Path):
                 r = requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
                 r.raise_for_status()
                 progress.update(task, advance=1)
-                with doc_path.open("wb") as f:
-                    f.write(r.content)
                 checkpoint_data.append(corpus_id)
+
+                if r.json()["response"]["numFound"] == 0:
+                    continue
+                with doc_path.open("wb") as f:
+                    json.dump(r.json(), f)
 
             except KeyboardInterrupt:
                 progress.log("\n* User interrupted. Exiting.")
