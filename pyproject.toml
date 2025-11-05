@@ -44,6 +44,7 @@ pytest = ">=8.3.5,<9"
 
 [tool.pixi.feature.climpdf.dependencies]
 libgfortran = ">=5.0.0,<15"
+langdetect = ">=1.0.9,<2"
 
 [dependency-groups]
 dev = ["wat>=0.5.1,<0.6"]

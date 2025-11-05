@@ -15,11 +15,14 @@ import openparse
 import pymupdf
 import requests
 from bs4 import BeautifulSoup
+from langdetect import DetectorFactory, LangDetectException, detect
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
 from .utils import _clean_subsections, _collect_from_path
+
+DetectorFactory.seed = 0
 
 BOLD_RE = re.compile(r"\*{2,3}([^*]+?)\*{2,3}")  # inside **...** or ***...***
 
@@ -29,6 +32,34 @@ def timeout_handler(signum, frame):
 
 
 signal.signal(signal.SIGALRM, timeout_handler)
+
+
+def is_english(text):
+    """
+    Returns True if the text is detected as English, False otherwise.
+    Handles exceptions for numeric/symbol-only strings or empty text: returns False in those cases.
+    """
+    if not text or text.strip() == "":
+        return False
+    try:
+        # detect() can throw an exception for numeric/symbol-only text
+        return detect(text) == "en"
+    except LangDetectException:
+        return False
+
+
+def convert_html(text):
+    """
+    Convert HTML entities back to character.
+    """
+    return html.unescape(text)
+
+
+def _normalize(text):
+    """
+    Normalize Unicode strings. Necessary for text which contains non-ASCII characters.
+    """
+    return unicodedata.normalize("NFD", text)
 
 
 def _convert_images_to_pdf(files: list, collected_files, progress):
@@ -94,9 +125,20 @@ def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_
 
 
 def _convert_grobid_xml_to_json(input_file) -> dict:
+    keywords = [
+        "caption",
+        "figure",
+        "table",
+        "acknowledgments",
+        "acknowledgements",
+        "references",
+        "bibliography",
+        "author contributions",
+    ]
+    pattern = r"\b(?:" + "|".join(keywords) + r")\b"
 
     if input_file.suffix == ".xml":
-        soup = BeautifulSoup(input_file.read_text(), "xml")
+        soup = BeautifulSoup(input_file.read_text(), "lxml-xml")
 
         paragraph_dict = {}
 
@@ -107,13 +149,62 @@ def _convert_grobid_xml_to_json(input_file) -> dict:
             pass
         body_paragraphs = soup.find("body").find_all("div")
         for b in body_paragraphs:
-            try:
-                key = b.find("head").text.strip()
-                values = b.find_all("p")
-                value = "\n".join([i.text.strip() for i in values])
-                paragraph_dict[key] = value
-            except AttributeError:
+            first_para_text_clipped = None
+            head = b.find("head")
+            if head and head.text.strip():
+                key = head.text.strip()
+            else:
+                # fallback: use beginning of first paragraph as key
+                first_p = b.find("p")
+                if first_p and first_p.text.strip():
+                    text = first_p.text.strip()
+                    # take first sentence
+                    m = re.match(r"^(.+?[\.\!\?])\s", text)
+                    if m:
+                        key = m.group(1)
+                        first_para_text_clipped = text[len(key) :].strip()  # noqa
+                        # print(f"{key}:{first_para_text_clipped}")
+                    else:
+                        continue
+                else:
+                    continue  # skip this block if no head and no para
+            key = convert_html(_normalize(key))
+            if bool(re.search(pattern, key, re.IGNORECASE)):
                 continue
+            values = b.find_all("p")
+            paras = []
+            for idx, val in enumerate(values):
+                text = val.text.strip()
+                if first_para_text_clipped and idx == 0:
+                    text = first_para_text_clipped
+                text = convert_html(_normalize(text))
+                tlower = text.lower()
+                if (
+                    tlower.startswith("acknowledgments")
+                    or tlower.startswith("acknowledgements")
+                    or tlower.startswith("references")
+                    or tlower.startswith("bibliography")
+                    or tlower.startswith("author contributions")
+                ):
+                    continue
+                if not is_english(text):
+                    continue
+                if not paras:
+                    paras.append(text)
+                else:
+                    prev = paras[-1].strip()
+                    curr = text
+                    # rules inspired by pes2o preprocessinng:
+                    # Rule 1: if previous paragraph doesn't end with punctuation, merge
+                    if not prev.endswith((".", "!", "?")):
+                        paras[-1] = prev + " " + curr
+                    # Rule 2: if previous ends with '(' and current starts with ')', merge
+                    elif prev.endswith("(") and curr.startswith(")"):
+                        paras[-1] = prev + curr
+                    else:
+                        paras.append(curr)
+            paras = "\n\n".join(paras)
+            paragraph_dict[key] = paras
 
         return paragraph_dict
 
