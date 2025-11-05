@@ -60,7 +60,11 @@ def main():
 def get_from_titanv(source: Path):
     """Provide an input dataset containing corpus IDs. Check TitanV for matching docs."""
 
-    async def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
+    from ratelimit import limits, sleep_and_retry
+
+    @sleep_and_retry
+    @limits(calls=1, period=1)
+    def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
         subdir = output_dir / Path("chunk_" + str(chunk_idx))
         subdir.mkdir(exist_ok=True)
@@ -81,7 +85,7 @@ def get_from_titanv(source: Path):
 
                 if r.json()["response"]["numFound"] == 0:
                     continue
-                with doc_path.open("wb") as f:
+                with doc_path.open("w") as f:
                     json.dump(r.json(), f)
 
             except KeyboardInterrupt:
@@ -92,6 +96,8 @@ def get_from_titanv(source: Path):
                 progress.update(task, advance=1)
                 checkpoint_data.append(corpus_id)
                 continue
+
+        return checkpoint_data
 
     async def finish_main(source):
         path = _prep_output_dir("600k_titanv_results")
@@ -120,9 +126,14 @@ def get_from_titanv(source: Path):
             checkpoint_chunks = await asyncio.gather(
                 *[
                     asyncio.to_thread(
-                        _complete_semantic_scholar(
-                            i, chunk, path, progress, checkpoint_data, checkpoint_lock, semaphore
-                        )
+                        _complete_semantic_scholar,
+                        i,
+                        chunk,
+                        path,
+                        progress,
+                        checkpoint_data,
+                        checkpoint_lock,
+                        semaphore,
                     )
                     for i, chunk in enumerate(chunks)
                 ]
@@ -130,6 +141,7 @@ def get_from_titanv(source: Path):
 
         output_checkpoint_data = []
         output_checkpoint_data += sum(checkpoint_chunks, [])
+        progress.log(f"\n* Found {len(output_checkpoint_data)} documents.")
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
