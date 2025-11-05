@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
+match_titanv = "climpdfgetter.scripts.get_from_titanv:click_main"
 
 [build-system]
 requires = ["setuptools"]

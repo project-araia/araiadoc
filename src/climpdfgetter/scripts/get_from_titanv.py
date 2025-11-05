@@ -1,9 +1,12 @@
+import asyncio
+import csv
 import json
 from pathlib import Path
 
 import click
 import requests
 import tqdm
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from climpdfgetter.utils import _prep_output_dir
 
@@ -35,6 +38,7 @@ SOLR_QUERY = """
 """
 
 REQUESTS_QUERY = ""
+SINGLE_REQUESTS_QUERY = ""
 
 
 def main():
@@ -54,14 +58,85 @@ def main():
 def get_from_titanv(source: Path):
     """Provide an input dataset containing corpus IDs. Check TitanV for matching docs."""
 
-    path = _prep_output_dir("600k_titanv_results")
-    checkpoint = path.parent / Path("titanv_checkpoint.json")
-    if not checkpoint.exists():
-        checkpoint.touch()
-        checkpoint_data = []
-    else:
-        try:
-            checkpoint_data = checkpoint.read_text()
-            checkpoint_data = json.loads(checkpoint_data)
-        except json.decoder.JSONDecodeError:
+    async def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
+
+        subdir = output_dir / Path("chunk_" + str(chunk_idx))
+        subdir.mkdir(exist_ok=True)
+
+        color = ["red", "green", "blue", "yellow", "magenta", "cyan"][chunk_idx % 6]
+        task = progress.add_task(f"[{color}]Chunk " + str(chunk_idx) + ": ", total=len(data_chunk))
+
+        for doc in data_chunk:
+            try:
+                corpus_id = doc[6]
+                if corpus_id in checkpoint_data:
+                    continue
+                doc_path = subdir / Path(str(corpus_id) + ".json")
+                r = requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+                r.raise_for_status()
+                progress.update(task, advance=1)
+                with doc_path.open("wb") as f:
+                    f.write(r.content)
+                checkpoint_data.append(corpus_id)
+
+            except KeyboardInterrupt:
+                progress.log("\n* User interrupted. Exiting.")
+                return checkpoint_data
+            except Exception as e:
+                progress.log(f"\n* Error with {corpus_id}. Error: {e}")
+                progress.update(task, advance=1)
+                checkpoint_data.append(corpus_id)
+                continue
+
+    async def finish_main(source):
+        path = _prep_output_dir("600k_titanv_results")
+        checkpoint = path.parent / Path("titanv_checkpoint.json")
+        if not checkpoint.exists():
+            checkpoint.touch()
             checkpoint_data = []
+        else:
+            try:
+                checkpoint_data = checkpoint.read_text()
+                checkpoint_data = json.loads(checkpoint_data)
+            except json.decoder.JSONDecodeError:
+                checkpoint_data = []
+
+        nchunks = 4
+        checkpoint_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(nchunks)
+
+        with open(source, "r") as f:
+            reader = csv.reader(f)
+            data = list(reader)[1:]  # first line is header
+            chunk_size = len(data) // nchunks
+            chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
+
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            checkpoint_chunks = await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        _complete_semantic_scholar(
+                            i, chunk, path, progress, checkpoint_data, checkpoint_lock, semaphore
+                        )
+                    )
+                    for i, chunk in enumerate(chunks)
+                ]
+            )
+
+        output_checkpoint_data = []
+        output_checkpoint_data += sum(checkpoint_chunks, [])
+        with checkpoint.open("w") as f:
+            f.write(json.dumps(output_checkpoint_data))
+
+    asyncio.run(finish_main(source))
+
+
+@click.group()
+def click_main():
+    pass
+
+
+click_main.add_command(get_from_titanv)
+
+if __name__ == "__main__":
+    click_main()
