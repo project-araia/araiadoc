@@ -126,7 +126,8 @@ def _get_xml_from_grobid(input_path: Path, grobid_service: str = "", output_dir_
 
 def _convert_grobid_xml_to_json(input_file) -> dict:
     keywords = [
-        "abstract" "caption",
+        "abstract",
+        "caption",
         "figure",
         "table",
         "acknowledgments",

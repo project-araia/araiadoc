@@ -63,7 +63,10 @@ def get_from_titanv(source: Path):
     from ratelimit import limits, sleep_and_retry
 
     @sleep_and_retry
-    @limits(calls=1, period=1)
+    @limits(calls=60, period=1)
+    def _do_request(corpus_id):
+        return requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+
     def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
         subdir = output_dir / Path("chunk_" + str(chunk_idx))
@@ -78,7 +81,7 @@ def get_from_titanv(source: Path):
                 if corpus_id in checkpoint_data:
                     continue
                 doc_path = subdir / Path(str(corpus_id) + ".json")
-                r = requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+                r = _do_request(corpus_id)
                 r.raise_for_status()
                 progress.update(task, advance=1)
                 checkpoint_data.append(corpus_id)
@@ -146,6 +149,21 @@ def get_from_titanv(source: Path):
             f.write(json.dumps(output_checkpoint_data))
 
     asyncio.run(finish_main(source))
+
+
+@click.command()
+@click.option("--source", "-s", nargs=1)
+def build_checkpoint(source: Path):
+    """Build a checkpoint file from a results directory - useful for resuming a download."""
+    ids = []
+    for path in source.iterdir():
+        if path.is_dir() and path.name.startswith("chunk_"):
+            for f in path.iterdir():
+                if f.is_file() and f.suffix == ".json":
+                    ids.append(f.stem)
+
+    with open(source.parent / "titanv_checkpoint.json", "w") as f:
+        json.dump(ids, f)
 
 
 @click.group()
