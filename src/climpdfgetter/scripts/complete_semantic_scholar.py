@@ -18,7 +18,7 @@ from climpdfgetter.utils import _collect_from_path, _prep_output_dir
 @click.option("--output_format", "-o", nargs=1, type=click.Choice(["metadata", "pdf"]), default="metadata")
 @click.option("-nproc", "-n", nargs=1, type=click.INT)
 @click.option("-nchunks", "-c", nargs=1, type=click.INT)
-def complete_semantic_scholar(input_csv: Path, input_format: str, output_format: str, nproc: int, nchunks: int):
+def complete_semantic_scholar(input_file: Path, input_format: str, output_format: str, nproc: int, nchunks: int):
     """
     Given an input file or directory, containing either:
         1. A CSV with the following columns: `lineno,abstract,score,year,field,title,paper_id,authors`
@@ -102,10 +102,22 @@ def complete_semantic_scholar(input_csv: Path, input_format: str, output_format:
                                 f.write(json.dumps(schema))
 
                     else:
+                        schema = ParsedDocumentSchema(
+                            source="Semantic Scholar",
+                            title=paper.title,
+                            text=[{}],
+                            abstract=paper.abstract,
+                            authors=paper.authors,
+                            publisher=paper.journal["name"],
+                            date=paper.year,
+                            unique_id=paper.corpusId,
+                            doi=paper["doi"],
+                            references=paper.references,
+                        )
                         metadata_path = subdir / Path(str(paper["corpusId"]) + ".json")
-                        if not metadata_path.exists() and paper["corpusId"] not in checkpoint_data:
+                        if not metadata_path.exists():
                             with metadata_path.open("w") as f:
-                                f.write(json.dumps(paper))
+                                f.write(json.dump(schema.model_dump(mode="json", by_alias=True)))
 
                 checkpoint_data.append(paper["corpusId"])
 
@@ -126,7 +138,7 @@ def complete_semantic_scholar(input_csv: Path, input_format: str, output_format:
                 continue
             progress.update(task, advance=1)
 
-    async def main_multiple_ss(input_csv, input_format, output_format, nproc, nchunks):
+    async def main_multiple_ss(input_file, input_format, output_format, nproc, nchunks):
 
         path = _prep_output_dir("SEMANTIC_SCHOLAR_complete")
         checkpoint = path.parent / Path("SS_checkpoint.json")
@@ -146,12 +158,12 @@ def complete_semantic_scholar(input_csv: Path, input_format: str, output_format:
         # split data into 2 equal chunks
 
         if input_format == "pes2o":
-            data = _collect_from_path(input_csv)
+            data = _collect_from_path(input_file)
             chunk_size = len(data) // nchunks
             chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
 
         if input_format == "csv" or input_format == "checkpoint":
-            with open(input_csv, "r") as f:
+            with open(input_file, "r") as f:
                 if input_format == "csv":
                     reader = csv.reader(f)
                     # data = list(reader)
@@ -182,4 +194,4 @@ def complete_semantic_scholar(input_csv: Path, input_format: str, output_format:
         with open(checkpoint, "w") as f:
             f.write(json.dumps(checkpoint_data))
 
-    asyncio.run(main_multiple_ss(input_csv, input_format, output_format, nproc, nchunks))
+    asyncio.run(main_multiple_ss(input_file, input_format, output_format, nproc, nchunks))
