@@ -93,7 +93,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
             for index, line in enumerate(splitlines):
                 # single line of text between two newlines. likely a header
                 if (
-                    len(line.split()) > 1
+                    len(line.split()) >= 1
                     and len(line.split()) < 10
                     and not len(splitlines[index - 1])
                     and not len(splitlines[index + 1])
@@ -101,6 +101,9 @@ def _sectionize_workflow(source: Path, progress: Progress):
                     indexes.append([index])
                     headers.append(line)
 
+            from pprint import pprint
+
+            pprint(headers)
             headers_to_lower = [header.lower() for header in headers]
             if "abstract" in headers_to_lower:  # remove all content before abstract, if found
                 abstract_index = headers_to_lower.index("abstract")
@@ -114,7 +117,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
             actual_headers = 0
             for i, (start, end) in enumerate(index_pairs):
                 header = headers[i]
-                if not is_english(header) or not is_string_valid(header):
+                if len(header.split()) > 2 and not is_string_valid(header):
                     continue
                 section = splitlines[start:end]
                 new_section = [j for j in section if j not in [header, "\n", "", [], "  "]]
@@ -184,11 +187,11 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
 @click.command()
 @click.argument("source", nargs=1)
-def process_dataset(source: Path):
+def section_dataset(source: Path):
     """Preprocess full-text files in s2orc/pes2o format.
 
     NOTE: Each file is assumed to contain one result.
     """
 
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
         _sectionize_workflow(source, progress)

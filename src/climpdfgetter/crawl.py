@@ -13,7 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from climpdfgetter.convert import convert, epa_ocr_to_json
 from climpdfgetter.scripts.complete_semantic_scholar import complete_semantic_scholar
 from climpdfgetter.searches import RESILIENCE_SEARCHES
-from climpdfgetter.sectionize import process_dataset
+from climpdfgetter.sectionize import section_dataset
 from climpdfgetter.sources import source_mapping
 from climpdfgetter.utils import _find_project_root, _get_configs, _get_max_results, _prep_output_dir, count_local
 
@@ -446,7 +446,7 @@ main.add_command(convert)
 main.add_command(epa_ocr_to_json)
 main.add_command(count_remote_osti)
 main.add_command(complete_semantic_scholar)
-main.add_command(process_dataset)
+main.add_command(section_dataset)
 
 if __name__ == "__main__":
     main()
