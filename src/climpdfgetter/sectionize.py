@@ -101,9 +101,6 @@ def _sectionize_workflow(source: Path, progress: Progress):
                     indexes.append([index])
                     headers.append(line)
 
-            from pprint import pprint
-
-            pprint(headers)
             headers_to_lower = [header.lower() for header in headers]
             if "abstract" in headers_to_lower:  # remove all content before abstract, if found
                 abstract_index = headers_to_lower.index("abstract")
