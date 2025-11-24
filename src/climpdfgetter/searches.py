@@ -1,7 +1,7 @@
 RESILIENCE_SEARCHES = [
     "Extreme Heat Climate",  # x
     "Extreme Cold Climate",  # x
-    "Heat Wave Climate",  # Wave Heating" is a very common Physics research term # x
+    "Heat Wave Climate",  #
     "Drought",  # x
     "Flooding",  # x
     "Tropical Cyclone",
@@ -20,7 +20,7 @@ RESILIENCE_SEARCHES = [
     "Tornado",
     "Extreme Wind",
     "Urban Heat Island",
-    "Coastal Flooding",  # terms from here onward from jlnav
+    "Coastal Flooding",
     "Extreme Rainfall",
     "Blizzard",
 ]

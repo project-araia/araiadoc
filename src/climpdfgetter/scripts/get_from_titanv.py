@@ -14,27 +14,27 @@ SOLR_QUERY = """
 ("extreme heat" AND climate) OR
 ("extreme cold" AND climate) OR
 ("heat wave" AND climate) OR
-(drought AND climate) OR
+(drought) OR
 (flood AND climate) OR
-("tropical cyclone" AND climate) OR
-(hurricane AND climate) OR
-(wildfire AND climate) OR
+("tropical cyclone") OR
+(hurricane) OR
+(wildfire) OR
 ("convective storm" AND climate) OR
-("sea level rise" AND climate) OR
-("permafrost thaw" AND climate) OR
-("ocean acidification" AND climate) OR
-("carbon dioxide fertilizer" AND climate) OR
-("rising ocean temperature" AND climate) OR
-("snowmelt timing" AND climate) OR
-("arctic sea ice" AND climate) OR
+("sea level rise") OR
+("permafrost thaw") OR
+("ocean acidification") OR
+("carbon dioxide fertilizer") OR
+("rising ocean temperature") OR
+("snowmelt timing") OR
+("arctic sea ice") OR
 ("ice storm" AND climate) OR
-(derecho AND climate) OR
-(tornado AND climate) OR
+(derecho) OR
+(tornado) OR
 ("extreme wind" AND climate) OR
-("urban heat island" AND climate) OR
-("coastal flooding" AND climate) OR
-("extreme rainfall" AND climate) OR
-(blizzard AND climate)
+("urban heat island") OR
+("coastal flooding") OR
+("extreme rainfall") OR
+(blizzard)
 """
 
 REQUESTS_QUERY = ""

@@ -12,6 +12,8 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .utils import _collect_from_path
 
+NUMERIC_SPECIAL_THRESHOLD = 30
+
 
 def is_english(text):
     """
@@ -37,8 +39,8 @@ def is_string_valid(string):
         # Calculate the percentage of numeric characters
         numeric_percentage = (digit_count / total_count) * 100
 
-        # Check if the percentage of numeric characters is more than 30%
-        if numeric_percentage > 30:
+        # Check if the percentage of numeric characters is more than NUMERIC_SPECIAL_THRESHOLD%
+        if numeric_percentage > NUMERIC_SPECIAL_THRESHOLD:
             return False
 
         # Count the number of special characters in the string
@@ -46,8 +48,8 @@ def is_string_valid(string):
         # Calculate the percentage of special characters
         special_percentage = (special_count / total_count) * 100
 
-        # Check if the percentage of special characters is more than 30%
-        if special_percentage > 30:
+        # Check if the percentage of special characters is more than NUMERIC_SPECIAL_THRESHOLD%
+        if special_percentage > NUMERIC_SPECIAL_THRESHOLD:
             return False
 
     # If the string doesn't have any digits or special characters, return True
@@ -91,11 +93,12 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
             splitlines = raw_text.splitlines()
             for index, line in enumerate(splitlines):
-                # single line of text between two newlines. likely a header
+                # single line of text between three newlines before and two newlines after. likely a header
                 if (
                     len(line.split()) >= 1
-                    and len(line.split()) < 10
+                    and len(line.split()) < 15
                     and not len(splitlines[index - 1])
+                    and not len(splitlines[index - 2])
                     and not len(splitlines[index + 1])
                 ):
                     indexes.append([index])
@@ -117,15 +120,29 @@ def _sectionize_workflow(source: Path, progress: Progress):
                 if len(header.split()) > 2 and not is_string_valid(header):
                     continue
                 section = splitlines[start:end]
-                new_section = [j for j in section if j not in [header, "\n", "", [], "  "]]
+                new_section = [j for j in section if j not in [header, "", [], "  "]]
+                # also filter out paragraphs
+                after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
+                if len(after_new_section) < len(new_section):
+                    progress.log(
+                        "Filtered out "
+                        + str(len(new_section) - len(after_new_section))
+                        + " non-English or non-valid paragraphs."
+                    )
                 combined_new_section = "".join(new_section).replace("  ", " ")
                 new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
                 new_section = [html.unescape(i) for i in new_section]
                 if is_english("".join(new_section)) and is_string_valid(
                     "".join(new_section)
-                ):  # skip if too much text is numeric
+                ):  # skip if too much text is numeric, even out of candidate combined sections
                     actual_headers += 1
                     sectioned_text[header] = "".join(new_section)
+                else:
+                    progress.log(
+                        "Filtered out "
+                        + str(len(new_section) - len(after_new_section))
+                        + " non-English or non-valid paragraphs."
+                    )
 
             progress.log("Found " + str(actual_headers) + " actual headers.")
 
@@ -141,6 +158,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
                 "author contributions",
                 "author affiliations",
                 "keywords",
+                "data availability",
             ]
 
             for section in unneeded_sections:
@@ -168,7 +186,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
         except Exception as e:
             progress.log("* Error on: " + str(i))
             progress.log("* Error: " + str(e))
-            failures.append(i.stem)
+            failures.append(Path(i).stem)
             fail_count += 1
             progress.update(task, advance=1)
             continue
