@@ -1,63 +1,42 @@
 import asyncio
 import csv
 import json
+import random
 from pathlib import Path
 
 import click
 import requests
-import tqdm
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
+from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.utils import _prep_output_dir
 
-SOLR_QUERY = """
-("extreme heat" AND climate) OR
-("extreme cold" AND climate) OR
-("heat wave" AND climate) OR
-(drought) OR
-(flood AND climate) OR
-("tropical cyclone") OR
-(hurricane) OR
-(wildfire) OR
-("convective storm" AND climate) OR
-("sea level rise") OR
-("permafrost thaw") OR
-("ocean acidification") OR
-("carbon dioxide fertilizer") OR
-("rising ocean temperature") OR
-("snowmelt timing") OR
-("arctic sea ice") OR
-("ice storm" AND climate) OR
-(derecho) OR
-(tornado) OR
-("extreme wind" AND climate) OR
-("urban heat island") OR
-("coastal flooding") OR
-("extreme rainfall") OR
-(blizzard)
-"""
+REQUESTS_QUERY = (
+    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=text&"
+    + "indent=true&q.op=OR&q={}&rows=100&start={}&useParams="
+)
 
-REQUESTS_QUERY = ""
 SINGLE_REQUESTS_QUERY = (
-    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&indent=true&q.op=OR&q={}&useParams="
+    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&" + "indent=true&q.op=OR&q={}&useParams="
 )
 
 
-def main():
-    path = _prep_output_dir("titanv")
-    idx = 0
-    for i in tqdm.tqdm(range(0, 250000, 500)):
-        r = requests.get(REQUESTS_QUERY.format(i), stream=True, timeout=100)
-        r.raise_for_status()
-        path_to_json = path / f"titanv_{idx}.json"
-        idx += 1
-        with path_to_json.open("wb") as f:
-            f.write(r.content)
+# def main():
+#     for search in RESILIENCE_SEARCHES:
+#         path = _prep_output_dir("titanv_" + search + "_results")
+#         r = requests.get(REQUESTS_QUERY.format(search, 0), stream=True, timeout=100)
+#         num_found = r.json()["response"]["numFound"]
+
+#         r.raise_for_status()
+#         path_to_json = path / f"titanv_{search}.json"
+#         with path_to_json.open("wb") as f:
+#             f.write(r.content)
 
 
 @click.command()
 @click.option("--source", "-s", nargs=1)
-def get_from_titanv(source: Path):
+@click.option("--search-terms", "-t", nargs=1, type=click.BOOL, default=False)
+def get_from_titanv(source: Path, search_terms: bool):
     """Provide an input dataset containing corpus IDs. Check TitanV for matching docs."""
 
     from ratelimit import limits, sleep_and_retry
@@ -66,6 +45,53 @@ def get_from_titanv(source: Path):
     @limits(calls=60, period=1)
     def _do_request(corpus_id):
         return requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+
+    @sleep_and_retry
+    @limits(calls=60, period=1)
+    def _do_search_request(search_term, start):
+        return requests.get(REQUESTS_QUERY.format(search_term, start), stream=True, timeout=100)
+
+    def _complete_semantic_scholar_search_terms(search_term, output_dir, progress, checkpoint_data, lock, semaphore):
+
+        subdir = output_dir / Path(search_term)
+        subdir.mkdir(exist_ok=True)
+        first_request = _do_search_request(search_term, 0)
+        num_found = first_request.json()["response"]["numFound"]
+        random_color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
+        task = progress.add_task(f"[{random_color}] {search_term}: ", total=num_found)
+
+        found_ids = [str(doc["corpus_id"]) for doc in first_request.json()["response"]["docs"]]
+        found_ids = [i for i in found_ids if i not in checkpoint_data]
+
+        results = []
+        for doc in first_request.json()["response"]["docs"]:
+            if doc["corpus_id"] not in checkpoint_data:
+                results.append(doc)
+
+        # r.json()["response"]["docs"]
+        with open(subdir / Path("search_term_0.json"), "w") as f:
+            json.dump(results, f)
+        progress.update(task, advance=len(results))
+
+        for i in range(100, num_found, 100):
+            r = _do_search_request(search_term, i)
+            try:
+                r.raise_for_status()
+                found_ids = [str(doc["corpus_id"]) for doc in r.json()["response"]["docs"]]
+                found_ids = [i for i in found_ids if i not in checkpoint_data]
+
+                results = []
+                for doc in r.json()["response"]["docs"]:
+                    if doc["corpus_id"] not in checkpoint_data:
+                        results.append(doc)
+
+                progress.update(task, advance=len(results))
+                with open(subdir / Path("search_term_" + str(i // 100) + ".json"), "w") as f:
+                    json.dump(results, f)
+            except Exception as e:
+                progress.log(f"\n* Error with {search_term} iteration {i // 100}. Error: {e}")
+                progress.update(task, advance=100)
+                continue
 
     def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
@@ -102,9 +128,12 @@ def get_from_titanv(source: Path):
 
         return checkpoint_data
 
-    async def finish_main(source):
-        path = _prep_output_dir("600k_titanv_results")
-        checkpoint = path.parent / Path("titanv_checkpoint.json")
+    async def finish_main(source, search_terms):
+        if not search_terms:
+            path = _prep_output_dir("600k_titanv_results")
+        else:
+            path = _prep_output_dir("titanv_search_results")
+        checkpoint = path.parent / Path("combined_titanv_checkpoint.json")
         if not checkpoint.exists():
             checkpoint.touch()
             checkpoint_data = []
@@ -119,28 +148,45 @@ def get_from_titanv(source: Path):
         checkpoint_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(nchunks)
 
-        with open(source, "r") as f:
-            reader = csv.reader(f)
-            data = list(reader)[1:]  # first line is header
-            chunk_size = len(data) // nchunks
-            chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
+        if source:
+            with open(source, "r") as f:
+                reader = csv.reader(f)
+                data = list(reader)[1:]  # first line is header
+                chunk_size = len(data) // nchunks
+                chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
 
-        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-            checkpoint_chunks = await asyncio.gather(
-                *[
-                    asyncio.to_thread(
-                        _complete_semantic_scholar,
-                        i,
-                        chunk,
-                        path,
-                        progress,
-                        checkpoint_data,
-                        checkpoint_lock,
-                        semaphore,
-                    )
-                    for i, chunk in enumerate(chunks)
-                ]
-            )
+            with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+                checkpoint_chunks = await asyncio.gather(
+                    *[
+                        asyncio.to_thread(
+                            _complete_semantic_scholar,
+                            i,
+                            chunk,
+                            path,
+                            progress,
+                            checkpoint_data,
+                            checkpoint_lock,
+                            semaphore,
+                        )
+                        for i, chunk in enumerate(chunks)
+                    ]
+                )
+        elif search_terms:
+            with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+                checkpoint_chunks = await asyncio.gather(
+                    *[
+                        asyncio.to_thread(
+                            _complete_semantic_scholar_search_terms,
+                            term,
+                            path,
+                            progress,
+                            checkpoint_data,
+                            checkpoint_lock,
+                            semaphore,
+                        )
+                        for term in RESILIENCE_SEARCHES
+                    ]
+                )
 
         output_checkpoint_data = []
         output_checkpoint_data += sum(checkpoint_chunks, [])
@@ -148,7 +194,7 @@ def get_from_titanv(source: Path):
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source))
+    asyncio.run(finish_main(source, search_terms))
 
 
 @click.command()
