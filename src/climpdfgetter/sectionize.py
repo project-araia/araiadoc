@@ -115,6 +115,9 @@ def _sectionize_workflow(source: Path, progress: Progress):
             sectioned_text = {}
 
             actual_headers = 0
+            rejected_paragraphs = 0
+            rejected_subsections = 0
+
             for i, (start, end) in enumerate(index_pairs):
                 header = headers[i]
                 if len(header.split()) > 2 and not is_string_valid(header):
@@ -124,12 +127,8 @@ def _sectionize_workflow(source: Path, progress: Progress):
                 # also filter out paragraphs
                 after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
                 if len(after_new_section) < len(new_section):
-                    progress.log(
-                        "Filtered out "
-                        + str(len(new_section) - len(after_new_section))
-                        + " non-English or non-valid paragraphs."
-                    )
-                combined_new_section = "".join(new_section).replace("  ", " ")
+                    rejected_paragraphs += len(new_section) - len(after_new_section)
+                combined_new_section = "".join(after_new_section).replace("  ", " ")
                 new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
                 new_section = [html.unescape(i) for i in new_section]
                 if is_english("".join(new_section)) and is_string_valid(
@@ -138,13 +137,11 @@ def _sectionize_workflow(source: Path, progress: Progress):
                     actual_headers += 1
                     sectioned_text[header] = "".join(new_section)
                 else:
-                    progress.log(
-                        "Filtered out "
-                        + str(len(new_section) - len(after_new_section))
-                        + " non-English or non-valid paragraphs."
-                    )
+                    rejected_subsections += 1
 
             progress.log("Found " + str(actual_headers) + " actual headers.")
+            progress.log("Rejected " + str(rejected_subsections) + " subsections.")
+            progress.log("Rejected " + str(rejected_paragraphs) + " paragraphs.")
 
             unneeded_sections = [
                 "abstract",
@@ -208,5 +205,5 @@ def section_dataset(source: Path):
     NOTE: Each file is assumed to contain one result.
     """
 
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _sectionize_workflow(source, progress)
