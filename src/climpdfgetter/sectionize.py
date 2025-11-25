@@ -78,6 +78,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
         signal.alarm(60)
         output_file = output_dir / Path(i.stem + "_processed.json")
+        output_rejected_file = output_dir / Path(i.stem + "_rejected.json")
         if i.stem in failures:  # skip if already converted, or timed out
             success_count += 1
             progress.update(task, advance=1)
@@ -112,11 +113,12 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
             indexes.append([len(raw_text)])
             index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+
+            rejected_paragraphs = []
+            rejected_whole_subsections = 0
             sectioned_text = {}
 
             actual_headers = 0
-            rejected_paragraphs = 0
-            rejected_subsections = 0
 
             for i, (start, end) in enumerate(index_pairs):
                 header = headers[i]
@@ -126,8 +128,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
                 new_section = [j for j in section if j not in [header, "", [], "  "]]
                 # also filter out paragraphs
                 after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
-                if len(after_new_section) < len(new_section):
-                    rejected_paragraphs += len(new_section) - len(after_new_section)
+                rejected_paragraphs.extend([j for j in new_section if not is_english(j) or not is_string_valid(j)])
                 combined_new_section = "\n\n".join(after_new_section).replace("  ", " ")
                 new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
                 new_section = [html.unescape(i) for i in new_section]
@@ -137,11 +138,11 @@ def _sectionize_workflow(source: Path, progress: Progress):
                     actual_headers += 1
                     sectioned_text[header] = "".join(new_section)
                 else:
-                    rejected_subsections += 1
+                    rejected_whole_subsections += 1
 
             progress.log("Found " + str(actual_headers) + " actual headers.")
-            progress.log("Rejected " + str(rejected_subsections) + " subsections.")
-            progress.log("Rejected " + str(rejected_paragraphs) + " paragraphs.")
+            progress.log("Rejected " + str(rejected_whole_subsections) + " subsections.")
+            progress.log("Rejected " + str(len(rejected_paragraphs)) + " paragraphs.")
 
             unneeded_sections = [
                 "abstract",
@@ -166,6 +167,9 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
             with open(output_file, "w") as f:
                 json.dump(sectioned_text, f, indent=4)
+
+            with open(output_rejected_file, "w") as f:
+                json.dump(rejected_paragraphs, f, indent=4)
 
         except TimeoutError:
             progress.log("* Timed out on: " + str(i))
