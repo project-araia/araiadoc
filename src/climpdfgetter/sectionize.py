@@ -128,7 +128,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
                 after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
                 if len(after_new_section) < len(new_section):
                     rejected_paragraphs += len(new_section) - len(after_new_section)
-                combined_new_section = "".join(after_new_section).replace("  ", " ")
+                combined_new_section = "\n\n".join(after_new_section).replace("  ", " ")
                 new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
                 new_section = [html.unescape(i) for i in new_section]
                 if is_english("".join(new_section)) and is_string_valid(

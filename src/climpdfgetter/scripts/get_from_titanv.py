@@ -35,9 +35,16 @@ SINGLE_REQUESTS_QUERY = (
 
 @click.command()
 @click.option("--source", "-s", nargs=1)
-@click.option("--search-terms", "-t", nargs=1, type=click.BOOL, default=False)
+@click.option("--search-terms", "-t", is_flag=True)
 def get_from_titanv(source: Path, search_terms: bool):
-    """Provide an input dataset containing corpus IDs. Check TitanV for matching docs."""
+    """Provide an input dataset containing corpus IDs. OR load search terms.
+
+    Use one or the other, not both.
+
+    Args:
+        source (Path): Path to input dataset.
+        search_terms (bool): Whether to search for terms or not.
+    """
 
     from ratelimit import limits, sleep_and_retry
 
@@ -47,7 +54,7 @@ def get_from_titanv(source: Path, search_terms: bool):
         return requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
 
     @sleep_and_retry
-    @limits(calls=60, period=1)
+    @limits(calls=15, period=1)
     def _do_search_request(search_term, start):
         return requests.get(REQUESTS_QUERY.format(search_term, start), stream=True, timeout=100)
 
@@ -60,32 +67,36 @@ def get_from_titanv(source: Path, search_terms: bool):
         random_color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
         task = progress.add_task(f"[{random_color}] {search_term}: ", total=num_found)
 
-        found_ids = [str(doc["corpus_id"]) for doc in first_request.json()["response"]["docs"]]
-        found_ids = [i for i in found_ids if i not in checkpoint_data]
-
+        num_rejected = 0
         results = []
         for doc in first_request.json()["response"]["docs"]:
-            if doc["corpus_id"] not in checkpoint_data:
+            if str(doc["corpus_id"]) not in checkpoint_data:
                 results.append(doc)
+            else:
+                num_rejected += 1
 
-        # r.json()["response"]["docs"]
         with open(subdir / Path("search_term_0.json"), "w") as f:
             json.dump(results, f)
         progress.update(task, advance=len(results))
+        if num_rejected > 0:
+            progress.log(f"{search_term}: Rejected {num_rejected} docs for first search.")
 
         for i in range(100, num_found, 100):
             r = _do_search_request(search_term, i)
             try:
                 r.raise_for_status()
-                found_ids = [str(doc["corpus_id"]) for doc in r.json()["response"]["docs"]]
-                found_ids = [i for i in found_ids if i not in checkpoint_data]
 
                 results = []
+                num_rejected = 0
                 for doc in r.json()["response"]["docs"]:
-                    if doc["corpus_id"] not in checkpoint_data:
+                    if str(doc["corpus_id"]) not in checkpoint_data:
                         results.append(doc)
+                    else:
+                        num_rejected += 1
 
                 progress.update(task, advance=len(results))
+                if num_rejected > 0:
+                    progress.log(f"{search_term}: Rejected {num_rejected} docs for search iteration {i // 100}.")
                 with open(subdir / Path("search_term_" + str(i // 100) + ".json"), "w") as f:
                     json.dump(results, f)
             except Exception as e:
