@@ -1,12 +1,11 @@
 import html
 import json
 import re
-import signal
-import sys
 import unicodedata
 from pathlib import Path
 
 import click
+from joblib import Parallel, delayed
 from langdetect import LangDetectException, detect
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
@@ -23,7 +22,6 @@ def is_english(text):
     if not text or text.strip() == "":
         return False
     try:
-        # detect() can throw an exception for numeric/symbol-only text
         return detect(text) == "en"
     except LangDetectException:
         return False
@@ -56,6 +54,109 @@ def is_string_valid(string):
     return True
 
 
+def _sectionize_one_file(
+    input_path: Path,
+    output_dir: Path,
+    needed_sections_but_skip_remaining: list[str],
+    unneeded_sections_no_skip_remaining: list[str],
+    unneeded_sections_skip_remaining: list[str],
+):
+    output_file = output_dir / Path(input_path.stem + "_processed.json")
+    output_rejected_file = output_dir / Path(input_path.stem + "_rejected.json")
+
+    try:
+        with open(input_path, "r") as f:
+            doc = json.load(f)
+        raw_text = doc["response"]["docs"][0]["text"][0]
+
+        indexes = []
+        headers = []
+
+        splitlines = raw_text.splitlines()
+        for index, line in enumerate(splitlines):
+            # single line of text between three newlines before and two newlines after. likely a header
+            if (
+                len(line.split()) >= 1
+                and len(line.split()) < 15
+                and not len(splitlines[index - 1])
+                and not len(splitlines[index - 2])
+                and not len(splitlines[index + 1])
+            ):
+                indexes.append([index])
+                headers.append(line)
+
+        headers_to_lower = [header.lower() for header in headers]
+        if "abstract" in headers_to_lower:  # remove all content before abstract, if found
+            abstract_index = headers_to_lower.index("abstract")
+            headers = headers[abstract_index:]
+            indexes = indexes[abstract_index:]
+
+        indexes.append([len(raw_text)])
+        index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+
+        rejected_paragraphs = []
+        rejected_whole_subsections = []
+        sectioned_text = {}
+
+        actual_headers = 0
+
+        for i, (start, end) in enumerate(index_pairs):
+            header = headers[i]
+            if len(header.split()) > 2 and not is_string_valid(header):
+                continue
+            section = splitlines[start:end]
+            new_section = [j for j in section if j not in [header, "", [], "  "]]
+            after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
+            rejected_paragraphs.extend([j for j in new_section if not is_english(j) or not is_string_valid(j)])
+            combined_new_section = "\n\n".join(after_new_section).replace("  ", " ")
+            new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
+            new_section = [html.unescape(i) for i in new_section]
+            join_new_section = "".join(new_section)
+
+            if (
+                is_english(join_new_section)
+                and is_string_valid(join_new_section)
+                and not any([j in header.lower() for j in unneeded_sections_no_skip_remaining])
+            ):
+                actual_headers += 1
+                sectioned_text[header] = join_new_section
+
+            elif any([j in header.lower() for j in needed_sections_but_skip_remaining]):
+                actual_headers += 1
+                sectioned_text[header] = join_new_section
+                rejected_whole_subsections.extend(index_pairs[i + 1 :])  # noqa
+                break
+
+            elif any([j in header.lower() for j in unneeded_sections_skip_remaining]):
+                rejected_whole_subsections.extend(index_pairs[i:])
+                break
+
+            else:
+                rejected_whole_subsections.append(index_pairs[i])
+
+        for section in unneeded_sections_no_skip_remaining:
+            if section in headers_to_lower:
+                for head in list(sectioned_text.keys()):  # since a key may be in any case
+                    if section in head.lower():
+                        del sectioned_text[head]
+
+        rejected_paragraphs.extend(rejected_whole_subsections)
+
+        if len(sectioned_text) == 0:
+            return (False, input_path.stem, "No valid sections found")
+
+        with open(output_file, "w") as f:
+            json.dump(sectioned_text, f, indent=4)
+
+        with open(output_rejected_file, "w") as f:
+            json.dump(rejected_paragraphs, f, indent=4)
+
+        return (True, input_path.stem, None)
+
+    except Exception as e:
+        return (False, input_path.stem, str(e))
+
+
 def _sectionize_workflow(source: Path, progress: Progress):
 
     collected_input_files = _collect_from_path(Path(source))
@@ -74,126 +175,62 @@ def _sectionize_workflow(source: Path, progress: Progress):
     else:
         failures = []
 
-    for i in collected_input_files:
+    unneeded_sections_no_skip_remaining = [
+        "abstract",
+        "caption",
+        "figure",
+        "table",
+        "author contribution",
+        "author affiliation",
+        "keywords",
+    ]
 
-        signal.alarm(60)
-        output_file = output_dir / Path(i.stem + "_processed.json")
-        output_rejected_file = output_dir / Path(i.stem + "_rejected.json")
-        if i.stem in failures:  # skip if already converted, or timed out
+    needed_sections_but_skip_remaining = ["conclusion"]
+
+    unneeded_sections_skip_remaining = [
+        "acknowledgment",
+        "acknowledgement",
+        "references",
+        "bibliography",
+        "data availability",
+        "code availability",
+        "funding",
+    ]
+
+    # Filter out already processed or failed files
+    files_to_process = []
+    for i in collected_input_files:
+        if i.stem in failures:
             success_count += 1
             progress.update(task, advance=1)
             continue
-        try:
-            progress.log("* Sectionizing: " + str(i))
-            with open(i, "r") as f:
-                doc = json.load(f)
-            raw_text = doc["response"]["docs"][0]["text"][0]
+        files_to_process.append(i)
 
-            indexes = []
-            headers = []
+    # Run in parallel
+    results = Parallel(n_jobs=-1, return_as="generator")(
+        delayed(_sectionize_one_file)(
+            i,
+            output_dir,
+            needed_sections_but_skip_remaining,
+            unneeded_sections_no_skip_remaining,
+            unneeded_sections_skip_remaining,
+        )
+        for i in files_to_process
+    )
 
-            splitlines = raw_text.splitlines()
-            for index, line in enumerate(splitlines):
-                # single line of text between three newlines before and two newlines after. likely a header
-                if (
-                    len(line.split()) >= 1
-                    and len(line.split()) < 15
-                    and not len(splitlines[index - 1])
-                    and not len(splitlines[index - 2])
-                    and not len(splitlines[index + 1])
-                ):
-                    indexes.append([index])
-                    headers.append(line)
-
-            headers_to_lower = [header.lower() for header in headers]
-            if "abstract" in headers_to_lower:  # remove all content before abstract, if found
-                abstract_index = headers_to_lower.index("abstract")
-                headers = headers[abstract_index:]
-                indexes = indexes[abstract_index:]
-
-            indexes.append([len(raw_text)])
-            index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
-
-            rejected_paragraphs = []
-            rejected_whole_subsections = 0
-            sectioned_text = {}
-
-            actual_headers = 0
-
-            for i, (start, end) in enumerate(index_pairs):
-                header = headers[i]
-                if len(header.split()) > 2 and not is_string_valid(header):
-                    continue
-                section = splitlines[start:end]
-                new_section = [j for j in section if j not in [header, "", [], "  "]]
-                # also filter out paragraphs
-                after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
-                rejected_paragraphs.extend([j for j in new_section if not is_english(j) or not is_string_valid(j)])
-                combined_new_section = "\n\n".join(after_new_section).replace("  ", " ")
-                new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
-                new_section = [html.unescape(i) for i in new_section]
-                if is_english("".join(new_section)) and is_string_valid(
-                    "".join(new_section)
-                ):  # skip if too much text is numeric, even out of candidate combined sections
-                    actual_headers += 1
-                    sectioned_text[header] = "".join(new_section)
-                else:
-                    rejected_whole_subsections += 1
-
-            progress.log("Found " + str(actual_headers) + " actual headers.")
-            progress.log("Rejected " + str(rejected_whole_subsections) + " subsections.")
-            progress.log("Rejected " + str(len(rejected_paragraphs)) + " paragraphs.")
-
-            unneeded_sections = [
-                "abstract",
-                "caption",
-                "figure",
-                "table",
-                "acknowledgments",
-                "acknowledgements",
-                "references",
-                "bibliography",
-                "author contributions",
-                "author affiliations",
-                "keywords",
-                "data availability",
-            ]
-
-            for section in unneeded_sections:
-                if section in headers_to_lower:
-                    for head in list(sectioned_text.keys()):  # since a key may be in any case
-                        if section in head.lower():
-                            del sectioned_text[head]
-
-            with open(output_file, "w") as f:
-                json.dump(sectioned_text, f, indent=4)
-
-            with open(output_rejected_file, "w") as f:
-                json.dump(rejected_paragraphs, f, indent=4)
-
-        except TimeoutError:
-            progress.log("* Timed out on: " + str(i))
-            failures.append(i.stem)
-            fail_count += 1
-            progress.update(task, advance=1)
-            continue
-
-        except KeyboardInterrupt:
-            progress.log("* Stopped on: " + str(i))
-            with open(failures_json, "w") as f:
-                json.dump(failures, f)
-            sys.exit()
-
-        except Exception as e:
-            progress.log("* Error on: " + str(i))
-            progress.log("* Error: " + str(e))
-            failures.append(Path(i).stem)
-            fail_count += 1
-            progress.update(task, advance=1)
-            continue
-
-        success_count += 1
+    for success, stem, error in results:
         progress.update(task, advance=1)
+        if success:
+            success_count += 1
+        else:
+            fail_count += 1
+            failures.append(stem)
+            progress.log(f"* Error on: {stem}, Error: {error}")
+
+    # Save failures
+    if failures:
+        with open(failures_json, "w") as f:
+            json.dump(failures, f)
 
     progress.log("\n* Sectionization:")
     progress.log("* Successes: " + str(success_count))
