@@ -14,6 +14,29 @@ from .utils import _collect_from_path
 NUMERIC_SPECIAL_THRESHOLD = 30
 
 
+unneeded_sections_no_skip_remaining = [
+    "abstract",
+    "caption",
+    "figure",
+    "table",
+    "author contribution",
+    "author affiliation",
+    "keywords",
+]
+
+needed_sections_but_skip_remaining = ["conclusion"]
+
+unneeded_sections_skip_remaining = [
+    "acknowledgment",
+    "acknowledgement",
+    "references",
+    "bibliography",
+    "data availability",
+    "code availability",
+    "funding",
+]
+
+
 def is_english(text):
     """
     Returns True if the text is detected as English, False otherwise.
@@ -54,12 +77,29 @@ def is_string_valid(string):
     return True
 
 
+def _line_spacing_resembles_header(line, splitlines, index):
+    if (
+        len(line.split()) >= 1
+        and len(line.split()) < 15
+        and not len(splitlines[index - 1])
+        and not len(splitlines[index - 2])
+        and not len(splitlines[index + 1])
+    ):
+        return True
+    return False
+
+
+def _get_valid_sections(section):
+    return [j for j in section if is_english(j) and is_string_valid(j)]
+
+
+def _get_invalid_sections(section):
+    return [j for j in section if not is_english(j) or not is_string_valid(j)]
+
+
 def _sectionize_one_file(
     input_path: Path,
     output_dir: Path,
-    needed_sections_but_skip_remaining: list[str],
-    unneeded_sections_no_skip_remaining: list[str],
-    unneeded_sections_skip_remaining: list[str],
 ):
     output_file = output_dir / Path(input_path.stem + "_processed.json")
     output_rejected_file = output_dir / Path(input_path.stem + "_rejected.json")
@@ -75,13 +115,7 @@ def _sectionize_one_file(
         splitlines = raw_text.splitlines()
         for index, line in enumerate(splitlines):
             # single line of text between three newlines before and two newlines after. likely a header
-            if (
-                len(line.split()) >= 1
-                and len(line.split()) < 15
-                and not len(splitlines[index - 1])
-                and not len(splitlines[index - 2])
-                and not len(splitlines[index + 1])
-            ):
+            if _line_spacing_resembles_header(line, splitlines, index):
                 indexes.append([index])
                 headers.append(line)
 
@@ -106,24 +140,24 @@ def _sectionize_one_file(
                 continue
             section = splitlines[start:end]
             new_section = [j for j in section if j not in [header, "", [], "  "]]
-            after_new_section = [j for j in new_section if is_english(j) and is_string_valid(j)]
-            rejected_paragraphs.extend([j for j in new_section if not is_english(j) or not is_string_valid(j)])
-            combined_new_section = "\n\n".join(after_new_section).replace("  ", " ")
-            new_section = [unicodedata.normalize("NFD", i) for i in combined_new_section]
-            new_section = [html.unescape(i) for i in new_section]
-            join_new_section = "".join(new_section)
+            validated_new_section = _get_valid_sections(new_section)
+            rejected_paragraphs.extend(_get_invalid_sections(new_section))
+            combined_validated_new_section = "\n\n".join(validated_new_section).replace("  ", " ")
+            validated_new_section = [unicodedata.normalize("NFD", i) for i in combined_validated_new_section]
+            validated_new_section = [html.unescape(i) for i in validated_new_section]
+            join_validated_new_section = "".join(validated_new_section)
 
             if (
-                is_english(join_new_section)
-                and is_string_valid(join_new_section)
+                is_english(join_validated_new_section)
+                and is_string_valid(join_validated_new_section)
                 and not any([j in header.lower() for j in unneeded_sections_no_skip_remaining])
             ):
                 actual_headers += 1
-                sectioned_text[header] = join_new_section
+                sectioned_text[header] = join_validated_new_section
 
             elif any([j in header.lower() for j in needed_sections_but_skip_remaining]):
                 actual_headers += 1
-                sectioned_text[header] = join_new_section
+                sectioned_text[header] = join_validated_new_section
                 rejected_whole_subsections.extend(index_pairs[i + 1 :])  # noqa
                 break
 
@@ -175,28 +209,6 @@ def _sectionize_workflow(source: Path, progress: Progress):
     else:
         failures = []
 
-    unneeded_sections_no_skip_remaining = [
-        "abstract",
-        "caption",
-        "figure",
-        "table",
-        "author contribution",
-        "author affiliation",
-        "keywords",
-    ]
-
-    needed_sections_but_skip_remaining = ["conclusion"]
-
-    unneeded_sections_skip_remaining = [
-        "acknowledgment",
-        "acknowledgement",
-        "references",
-        "bibliography",
-        "data availability",
-        "code availability",
-        "funding",
-    ]
-
     # Filter out already processed or failed files
     files_to_process = []
     for i in collected_input_files:
@@ -208,14 +220,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
     # Run in parallel
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file)(
-            i,
-            output_dir,
-            needed_sections_but_skip_remaining,
-            unneeded_sections_no_skip_remaining,
-            unneeded_sections_skip_remaining,
-        )
-        for i in files_to_process
+        delayed(_sectionize_one_file)(i, output_dir) for i in files_to_process
     )
 
     for success, stem, error in results:
