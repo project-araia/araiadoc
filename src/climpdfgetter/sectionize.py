@@ -21,7 +21,7 @@ unneeded_sections_no_skip_remaining = [
     "table",
     "author contribution",
     "author affiliation",
-    "keywords",
+    "keyword",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
@@ -29,7 +29,7 @@ needed_sections_but_skip_remaining = ["conclusion"]
 unneeded_sections_skip_remaining = [
     "acknowledgment",
     "acknowledgement",
-    "references",
+    "reference",
     "bibliography",
     "data availability",
     "code availability",
@@ -168,7 +168,7 @@ def _sectionize_one_file(
             else:
                 rejected_whole_subsections.append(index_pairs[i])
 
-        for section in unneeded_sections_no_skip_remaining:
+        for section in unneeded_sections_no_skip_remaining + unneeded_sections_skip_remaining:
             if section in headers_to_lower:
                 for head in list(sectioned_text.keys()):  # since a key may be in any case
                     if section in head.lower():
@@ -230,7 +230,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
         else:
             fail_count += 1
             failures.append(stem)
-            progress.log(f"* Error on: {stem}, Error: {error}")
+            progress.log(f"* Error on: {stem}: {error}")
 
     # Save failures
     if failures:
