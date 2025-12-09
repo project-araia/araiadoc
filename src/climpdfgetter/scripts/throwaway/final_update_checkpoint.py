@@ -17,7 +17,7 @@ def get_corpus_id(item):
 def main():
     data_dir = Path("/Users/jnavarro/callm/climpdfgetter/data")
     checkpoint_file = data_dir / "combined_titanv_checkpoint.json"
-    search_results_dir = data_dir / "titanv_search_results_2025-11-24_16:56:30"
+    search_results_dir = data_dir / "titanv_search_results_2025-12-08_15:27:00"
 
     all_ids = set()
 
