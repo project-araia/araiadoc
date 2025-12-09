@@ -3,7 +3,7 @@ import os
 
 problem_files = []
 
-SEARCH_RESULTS = "/Users/jnavarro/callm/climpdfgetter/data/titanv_search_results_2025-11-24_16:56:30"
+SEARCH_RESULTS = "/Users/jnavarro/callm/climpdfgetter/data/titanv_search_results_2025-12-08_15:27:00"
 
 for directory in os.listdir(SEARCH_RESULTS):
     if not os.path.isdir(os.path.join(SEARCH_RESULTS, directory)):
