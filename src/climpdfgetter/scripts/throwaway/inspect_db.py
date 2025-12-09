@@ -10,7 +10,7 @@ def get_first_row(db_name, user, password, host="localhost", port="5432", table_
         cur = conn.cursor()
 
         # Simple query to get one row
-        query = f"SELECT * FROM {table_name} LIMIT 10;"  # noqa
+        query = f"SELECT * FROM {table_name} LIMIT 30;"  # noqa
         print(f"Executing: {query}")
 
         cur.execute(query)
