@@ -265,17 +265,9 @@ def _convert(
     org = "OSTI"  # TODO: make this configurable
     collected_input_files = _collect_from_path(Path(source))
 
-    # files_to_convert_to_pdf = [
-    #     i for i in collected_input_files if i is not None and i.suffix.lower() not in [".pdf", ".json"]
-    # ]  # skip pdfs, checkpoints, metadata
-
-    # if len(files_to_convert_to_pdf):
-    #     _convert_images_to_pdf(files_to_convert_to_pdf, collected_input_files, progress)  # done in-place
-
     success_count = 0
     fail_count = 0
 
-    # collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
     progress.log("\n* Found " + str(len(collected_input_files)) + " input PDFs.")
 
     if grobid_service:
@@ -286,7 +278,7 @@ def _convert(
             progress.log("[bright_green]Grobid service found.")
         except (requests.exceptions.RequestException, ConnectionRefusedError):
             progress.log("[red]Grobid service not found. Skipping Grobid conversion.")
-            # grobid_service = ""
+            grobid_service = ""
 
     task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
 
@@ -337,7 +329,7 @@ def _convert(
         collected_input_files = _collect_from_path(output_dir)
 
     for i in collected_input_files:
-        # signal.alarm(600)
+        signal.alarm(600)
 
         output_file = output_dir / i.stem
         if i.stem in output_files or i.stem in timeout_files:  # skip if already converted, or timed out
@@ -462,17 +454,6 @@ def _convert(
             elif "WORKS CITED" in headers_to_upper:
                 references = copy.deepcopy(text["WORKS CITED"])
                 del text["WORKS CITED"]
-
-            # remove sections that contain information already in the metadata
-            # TODO: we need better logic on if a metadata entry is in a block of text.
-            if not no_metadata:
-                matching_metadata = [entry for entry in metadata if output_file.stem == entry["osti_id"]][0]
-                for key in text.keys():
-                    for entry in ["title", "description", "authors", "journal_name", "publication_date", "doi"]:
-                        if matching_metadata.get(entry, "") in text[key]:
-                            del text[key]
-                            print("WE HIT THIS CONDITION")
-                            break
 
             len_subsections = len("".join(list(text.values())))
             if not len(text) or len_subsections / len(raw_text) < 0.90:

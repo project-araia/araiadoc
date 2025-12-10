@@ -1,6 +1,28 @@
 # climpdfgetter
 
-Download and convert pdfs from EPA and OSTI.
+A large suite of tools and scripts for downloading and processing documents for the ARAIA project.
+
+The primary utility is the `climpdf` command-line tool, with the following commands:
+
+```bash
+Usage: climpdf [OPTIONS] COMMAND [ARGS]...
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  convert            Convert PDFs in a given directory ``source`` to json.
+  count-local        Count the number of downloaded files from a given...
+  count-remote-osti  Count potentially downloadable files from OSTI, for...
+  crawl-epa          Asynchronously crawl EPA result pages:
+  crawl-osti         Asynchronously crawl OSTI result pages:
+  epa-ocr-to-json    Convert EPA's OCR fulltext to similar json format as...
+  section-dataset    Preprocess full-text files in s2orc/pes2o format.
+```
+
+These will be described in more detail below.
+
+The `scripts` directory contains additional tools for associating metadata with documents, and for updating checkpoint files.
 
 ## Installation
 
@@ -45,7 +67,8 @@ Notes:
 - OSTI limits search results to 1000 for each term.
 Use ```climpdf count-remote-osti [OPTIONS] START_YEAR STOP_YEAR``` to help adjust year ranges.
 - Corresponding metadata is also downloaded.
-- Run ```climpdf count-local OSTI``` between searches to avoid downloading already-collected documents.
+- Run ```climpdf count-local OSTI``` between searches to determine the number of documents downloaded from OSTI, *and* update the local
+checkpoint file. The checkpoint prevents downloading duplicates.
 
 #### EPA
 
@@ -63,6 +86,7 @@ number of `-t <term>`, for instance:
 
 Specify a source to count the number of downloaded files.
 Also creates a ```SOURCE_docs_ids.json``` in the data directory.
+This file is treated as a checkpoint file, and is referenced by ```climpdf crawl-osti``` and ```climpdf crawl-epa```.
 
 For instance:
 
@@ -73,7 +97,17 @@ $ climpdf count-local EPA
 
 ### Document conversion
 
-```Usage: climpdf convert [OPTIONS] SOURCE```
+```bash
+Usage: climpdf convert [OPTIONS] SOURCE
+
+  Convert PDFs in a given directory ``source`` to json. If the input files are
+  of a different format, they'll first be converted to PDF.
+
+Options:
+  -i, --images-tables
+  -o, --output-dir TEXT
+  -g, --grobid_service TEXT
+```
 
 Collects downloaded files in a given directory and:
   1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).

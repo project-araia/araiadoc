@@ -12,7 +12,6 @@ dependencies = [
     "chardet>=5.2.0,<6",
     "click>=8.2.1,<9",
     "crawl4ai>=0.7.1,<0.8",
-    "tqdm>=4.67.1,<5",
     "layoutparser>=0.3.4,<0.4",
     "torchvision>=0.22.1,<0.23",
     "grobid-client-python>=0.0.17,<0.0.18",
@@ -20,7 +19,6 @@ dependencies = [
 
 [project.scripts]
 climpdf = "climpdfgetter.crawl:main"
-match_titanv = "climpdfgetter.scripts.get_from_titanv:click_main"
 
 [build-system]
 requires = ["setuptools"]

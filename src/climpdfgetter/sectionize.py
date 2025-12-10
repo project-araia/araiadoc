@@ -22,6 +22,7 @@ unneeded_sections_no_skip_remaining = [
     "author contribution",
     "author affiliation",
     "keyword",
+    "disclaimer",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]

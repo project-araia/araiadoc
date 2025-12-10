@@ -377,3 +377,7 @@ def complete_semantic_scholar(
             f.write(json.dumps(checkpoint_data))
 
     asyncio.run(main_multiple_ss(input_file, input_format, input_metadata_file, output_format, nproc))
+
+
+if __name__ == "__main__":
+    complete_semantic_scholar()
