@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 import requests
+from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from climpdfgetter.searches import RESILIENCE_SEARCHES
@@ -35,6 +36,15 @@ SINGLE_REQUESTS_QUERY = (
 
 @click.command()
 @click.option("--source", "-s", nargs=1)
+def fetch_metadata(source: Path):
+    """
+    Provide an input dataset containing s2orc-style search results, fetch metadata for each document, dump
+    together in schema.
+    """
+
+
+@click.command()
+@click.option("--source", "-s", nargs=1)
 @click.option("--search-terms", "-t", is_flag=True)
 def get_from_titanv(source: Path, search_terms: bool):
     """Provide an input dataset containing corpus IDs. OR load search terms.
@@ -45,8 +55,6 @@ def get_from_titanv(source: Path, search_terms: bool):
         source (Path): Path to input dataset.
         search_terms (bool): Whether to search for terms or not.
     """
-
-    from ratelimit import limits, sleep_and_retry
 
     @sleep_and_retry
     @limits(calls=60, period=1)
@@ -229,6 +237,7 @@ def click_main():
 
 
 click_main.add_command(get_from_titanv)
+click_main.add_command(fetch_metadata)
 
 if __name__ == "__main__":
     click_main()

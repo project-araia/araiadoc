@@ -16,7 +16,7 @@ def get_corpus_id(item):
 
 
 def main():
-    root_dir = Path("/Users/jnavarro/callm/climpdfgetter/data/titanv_search_results_2025-12-08_15:27:00")
+    root_dir = Path("/Users/jnavarro/callm/climpdfgetter/data/titanv_search_results_2025-11-24_16:56:30")
     seen_ids = set()
 
     # Sort files to ensure deterministic processing order
