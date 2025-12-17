@@ -35,6 +35,7 @@ unneeded_sections_skip_remaining = [
     "data availability",
     "code availability",
     "funding",
+    "pre-publication history",
 ]
 
 
@@ -247,7 +248,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
 @click.command()
 @click.argument("source", nargs=1)
 def section_dataset(source: Path):
-    """Preprocess full-text files in s2orc/pes2o format.
+    """Preprocess full-text files in s2orc/pes2o format into headers and subsections.
 
     NOTE: Each file is assumed to contain one result.
     """

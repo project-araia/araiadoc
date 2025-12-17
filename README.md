@@ -11,18 +11,19 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  convert            Convert PDFs in a given directory ``source`` to json.
-  count-local        Count the number of downloaded files from a given...
-  count-remote-osti  Count potentially downloadable files from OSTI, for...
-  crawl-epa          Asynchronously crawl EPA result pages:
-  crawl-osti         Asynchronously crawl OSTI result pages:
-  epa-ocr-to-json    Convert EPA's OCR fulltext to similar json format as...
-  section-dataset    Preprocess full-text files in s2orc/pes2o format.
+  convert                    Convert PDFs in a given directory ``source`` to json.
+  count-local                Count the number of downloaded files from a given source. Creates a checkpoint file.
+  count-remote-osti          Count potentially downloadable files from OSTI, for any number of search terms. Leave blank for all.
+  crawl-epa                  Asynchronously crawl EPA result pages.
+  crawl-osti                 Asynchronously crawl OSTI result pages.
+  complete-semantic-scholar  Download documents from Semantic Scholar that match a given input file containing document ID.
+  epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
+  section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
 ```
 
 These will be described in more detail below.
 
-The `scripts` directory contains additional tools for associating metadata with documents, and for updating checkpoint files.
+The `scripts` directory contains additional tools for associating metadata with documents and for updating checkpoint files.
 
 ## Installation
 
@@ -59,7 +60,7 @@ Multiple provided search terms are collected in parallel.
 ```Usage: climpdf crawl-osti [OPTIONS] START_YEAR STOP_YEAR```
 
 Specify the *start year* and *stop year* range for document publishing, then
-any number of `-t <term>`, for instance:
+any number of `-t <term>`. For instance:
 
 ```climpdf crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
 
@@ -70,7 +71,7 @@ Use ```climpdf count-remote-osti [OPTIONS] START_YEAR STOP_YEAR``` to help adjus
 - Run ```climpdf count-local OSTI``` between searches to determine the number of documents downloaded from OSTI, *and* update the local
 checkpoint file. The checkpoint prevents downloading duplicates.
 
-#### EPA
+#### EPA [Needs maintenance]
 
 ```Usage: climpdf crawl-epa [OPTIONS] STOP_IDX START_IDX```
 
@@ -84,7 +85,9 @@ number of `-t <term>`, for instance:
 
 ```Usage: climpdf count-local [OPTIONS] SOURCE```
 
-Specify a source to count the number of downloaded files.
+Specify a source to count the number of downloaded files. Directories prefixed with `SOURCE` are
+assumed to contain downloaded files corresponding to that source.
+
 Also creates a ```SOURCE_docs_ids.json``` in the data directory.
 This file is treated as a checkpoint file, and is referenced by ```climpdf crawl-osti``` and ```climpdf crawl-epa```.
 
