@@ -90,7 +90,7 @@ def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
     scrape_images(input_file, last_pg=length, output_dir=output_file)
 
 
-def _get_text_from_openparse(input_file: Path, output_file: Path):
+def _get_text_from_openparse(input_file: Path):
     parser = openparse.DocumentParser()
     openparse.config.set_device("cpu")
     parsed_doc = parser.parse(input_file)
@@ -279,7 +279,7 @@ def _convert(
             if grobid_service:
                 raw_text = _convert_grobid_xml_to_json(i)
             else:
-                raw_text = _get_text_from_openparse(i, output_file)
+                raw_text = _get_text_from_openparse(i)
 
         except TimeoutError:
             progress.log("Timeout while converting: " + str(i.name) + ". Skipping.")

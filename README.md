@@ -114,23 +114,51 @@ Options:
 
 Collects downloaded files in a given directory and:
   1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).
-  2. Extract text using [Open Parse](https://github.com/Filimoa/open-parse).
+  2. Extract text using [Grobid - recommended](https://github.com/kermitt2/grobid) or [Open Parse](https://github.com/Filimoa/open-parse).
   3. [In active development] Extract images and tables from text using [Layout Parser](https://github.com/Layout-Parser/layout-parser)
-  4. Format text with headers as keys, and their subsections as values.
-  5. Concatenate text together with metadata in the below schema and dump.
-  6. Save tables and images to a per-document directory.
+  4. Dump text to `<output_dir>.json`.
+  5. If 3. is enabled, save tables and images to a per-document directory.
 
 For instance:
 
-```climpdf convert data/EPA_2024-12-18_15:09:27```
+```climpdf convert data/EPA_2024-12-18_15:09:27``` or
+```climpdf convert data/EPA_2024-12-18_15:09:27 --grobid_service http://localhost:8080```.
 
-or:
-
-```climpdf convert data --images```
-
-Eligible documents and metadata are concatenated from subdirectories.
+Eligible documents are collected from subdirectories.
 
 Problematic documents are noted as-such for future conversion attempts.
+
+### Sectionizing
+
+```bash
+Usage: climpdf section-dataset [OPTIONS] SOURCE
+
+  Preprocess full-text files in s2orc/grobid format into headers and subsections.
+
+```
+
+This utility scans a directory for files presumably in the [s2orc](https://github.com/allenai/s2orc) format;
+that have been processed by [Grobid](https://github.com/kermitt2/grobid) as the original authors of `s2orc` did, and like
+`climpdf convert --grobid_service`.
+
+For instance:
+
+```climpdf section-dataset data/OSTI_2024-12-18_15:09:27```
+
+The parse documents are scanned for titles, headers, and associated subsections. A heuristic rejects headers and subsections
+that are too short, too long, aren't english, and/or contain too many special characters.
+
+Additional subsections and headers are rejected if they likely don't correspond with natural language text. For instance,
+ASCII-representations of tables and tables are rejected.
+
+Metadata fields without referenceable content like ``"author affiliations"``, ``"disclaimer"``, ``"acknowledgements"``, and
+others are rejected.
+
+The resulting output is a dictionary containing relevant headers as keys and subsections as values.
+
+### Metadata association
+
+Coming soon.
 
 #### JSON Schema
 
