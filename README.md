@@ -145,13 +145,13 @@ For instance:
 
 ```climpdf section-dataset data/OSTI_2024-12-18_15:09:27```
 
-The parse documents are scanned for titles, headers, and associated subsections. A heuristic rejects headers and subsections
+The parsed documents are scanned for titles, headers, and associated subsections. A heuristic rejects headers and subsections
 that are too short, too long, aren't english, and/or contain too many special characters.
 
 Additional subsections and headers are rejected if they likely don't correspond with natural language text. For instance,
-ASCII-representations of tables and tables are rejected.
+ASCII-representations of tables are rejected.
 
-Metadata fields without referenceable content like ``"author affiliations"``, ``"disclaimer"``, ``"acknowledgements"``, and
+Fields without referenceable content like ``"author affiliations"``, ``"disclaimer"``, ``"acknowledgements"``, and
 others are rejected.
 
 The resulting output is a dictionary containing relevant headers as keys and subsections as values.
