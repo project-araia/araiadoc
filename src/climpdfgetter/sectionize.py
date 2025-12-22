@@ -260,5 +260,5 @@ def section_dataset(source: Path):
     NOTE: Each file is assumed to contain one result.
     """
 
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _sectionize_workflow(source, progress)
