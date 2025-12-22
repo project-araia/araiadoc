@@ -19,10 +19,12 @@ unneeded_sections_no_skip_remaining = [
     "caption",
     "figure",
     "table",
-    "author contribution",
-    "author affiliation",
+    "authorcontribution",
+    "authoraffiliation",
     "keyword",
     "disclaimer",
+    "fig",
+    "deleted",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
@@ -32,10 +34,20 @@ unneeded_sections_skip_remaining = [
     "acknowledgement",
     "reference",
     "bibliography",
-    "data availability",
-    "code availability",
+    "dataavailability",
+    "codeavailability",
     "funding",
-    "pre-publication history",
+    "pre-publicationhistory",
+    "ethicstatement",
+    "ethicsstatement",
+    "grantinformation",
+    "competinginterests",
+    "conflictsofinterest",
+    "supplementarymaterial",
+    "disclosurestatement",
+    "abbreviation",
+    "appendix",
+    "howtoreference",
 ]
 
 
@@ -138,7 +150,8 @@ def _sectionize_one_file(
 
         for i, (start, end) in enumerate(index_pairs):
             header = headers[i]
-            if len(header.split()) > 2 and not is_string_valid(header):
+            compare_header = "".join(header.split()).lower()
+            if len(header.split()) > 2 and not is_string_valid(compare_header):
                 continue
             section = splitlines[start:end]
             new_section = [j for j in section if j not in [header, "", [], "  "]]
@@ -149,32 +162,26 @@ def _sectionize_one_file(
             validated_new_section = [html.unescape(i) for i in validated_new_section]
             join_validated_new_section = "".join(validated_new_section)
 
-            if (
-                is_english(join_validated_new_section)
-                and is_string_valid(join_validated_new_section)
-                and not any([j in header.lower() for j in unneeded_sections_no_skip_remaining])
-            ):
-                actual_headers += 1
-                sectioned_text[header] = join_validated_new_section
+            if any([j in compare_header for j in unneeded_sections_skip_remaining]):
+                rejected_whole_subsections.extend(index_pairs[i:])
+                break
 
-            elif any([j in header.lower() for j in needed_sections_but_skip_remaining]):
+            elif any([j in compare_header for j in needed_sections_but_skip_remaining]):
                 actual_headers += 1
                 sectioned_text[header] = join_validated_new_section
                 rejected_whole_subsections.extend(index_pairs[i + 1 :])  # noqa
                 break
 
-            elif any([j in header.lower() for j in unneeded_sections_skip_remaining]):
-                rejected_whole_subsections.extend(index_pairs[i:])
-                break
+            elif (
+                any([j in compare_header for j in unneeded_sections_no_skip_remaining])
+                and is_english(join_validated_new_section)
+                and is_string_valid(join_validated_new_section)
+            ):
+                actual_headers += 1
+                sectioned_text[header] = join_validated_new_section
 
             else:
                 rejected_whole_subsections.append(index_pairs[i])
-
-        for section in unneeded_sections_no_skip_remaining + unneeded_sections_skip_remaining:
-            if section in headers_to_lower:
-                for head in list(sectioned_text.keys()):  # since a key may be in any case
-                    if section in head.lower():
-                        del sectioned_text[head]
 
         rejected_paragraphs.extend(rejected_whole_subsections)
 
@@ -253,5 +260,5 @@ def section_dataset(source: Path):
     NOTE: Each file is assumed to contain one result.
     """
 
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
         _sectionize_workflow(source, progress)
