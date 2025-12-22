@@ -173,7 +173,7 @@ def _sectionize_one_file(
                 break
 
             elif (
-                any([j in compare_header for j in unneeded_sections_no_skip_remaining])
+                not any([j in compare_header for j in unneeded_sections_no_skip_remaining])
                 and is_english(join_validated_new_section)
                 and is_string_valid(join_validated_new_section)
             ):
