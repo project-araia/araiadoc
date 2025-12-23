@@ -5,7 +5,7 @@ from collections import Counter
 
 
 def extract_keys():
-    base_dir = "/Users/jnavarro/callm/climpdfgetter/data/600k_titanv_results_12-1_sectionized"
+    base_dir = "/Users/jnavarro/callm/climpdfgetter/data/old/600k_titanv_results_2025-11-10_08:52:38_json"
     # Artifact path provided by the system
     output_file = "/Users/jnavarro/callm/climpdfgetter/data/post_conclusion_keys.md"
 
