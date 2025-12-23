@@ -1,16 +1,14 @@
 # import sys
+import json
 from pathlib import Path
 
 import click
-
-# import json
 import psycopg2
 from joblib import Parallel, delayed
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
+from .schema import ParsedDocumentSchema
 from .utils import _collect_from_path
-
-# from .schema import ParsedDocumentSchema
 
 
 def _metadata_one_file(input_path, output_dir, cur, table_name):
@@ -20,6 +18,9 @@ def _metadata_one_file(input_path, output_dir, cur, table_name):
     query = f"SELECT * FROM {table_name} WHERE corpus_id = {corpus_id} LIMIT 1;"  # noqa
     cur.execute(query)
     rows = cur.fetchall()
+
+    with open(input_path, "r") as f:
+        sectioned_text = json.load(f)
 
     if rows:
         for row in rows:
@@ -31,6 +32,23 @@ def _metadata_one_file(input_path, output_dir, cur, table_name):
                 print(f"{colnames[i]}: {val} (Type: {type(val)})")
     else:
         print("Table is empty or not found.")
+
+    document = ParsedDocumentSchema(
+        unique_id=corpus_id,
+        source="s2orc",
+        title=rows[0]["title"],
+        text=sectioned_text,
+        abstract="",
+        authors=rows[0]["author"],
+        publisher=rows[0]["publisher"],
+        date=0,
+        doi=rows[0]["doi"],
+        references="",
+    )
+
+    output_path = output_dir / (corpus_id + ".json")
+    with open(output_path, "w") as f:
+        json.dump(document.model_dump(mode="json"), f)
 
 
 def _metadata_workflow(source_dir, dbname, user, password, host, port, table_name, progress):
