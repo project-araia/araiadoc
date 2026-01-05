@@ -6,7 +6,7 @@ class ParsedDocumentSchema(BaseModel):
     title: str = ""
     text: dict[str, str] = {}  # keys are section headings, values are text
     abstract: str = ""
-    authors: list[str] = []
+    authors: list[str] | str = []
     publisher: str = ""
     date: int | str = 0
     unique_id: str = ""

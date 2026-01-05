@@ -115,7 +115,7 @@ def _sectionize_one_file(
     input_path: Path,
     output_dir: Path,
 ):
-    output_file = output_dir / Path(input_path.stem + "_processed.json")
+    output_file = output_dir / Path(input_path.stem + ".json")
     output_rejected_file = output_dir / Path(input_path.stem + "_rejected.json")
 
     try:

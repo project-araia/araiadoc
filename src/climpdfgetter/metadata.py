@@ -11,44 +11,49 @@ from .schema import ParsedDocumentSchema
 from .utils import _collect_from_path
 
 
-def _metadata_one_file(input_path, output_dir, cur, table_name):
+def _metadata_one_file(input_path, output_dir, dbname, user, password, host, port, table_name):
 
-    corpus_id = input_path.stem
+    conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
+    cur = conn.cursor()
+
+    corpus_id = input_path.stem.removesuffix("_processed")
 
     query = f"SELECT * FROM {table_name} WHERE corpus_id = {corpus_id} LIMIT 1;"  # noqa
-    cur.execute(query)
+    try:
+        cur.execute(query)
+    except Exception as e:
+        return False, corpus_id, str(e)
     rows = cur.fetchall()
 
     with open(input_path, "r") as f:
         sectioned_text = json.load(f)
 
     if rows:
-        for row in rows:
-            # getting column names
-            colnames = [desc[0] for desc in cur.description]
-            print("\nFirst row found:")
-            print("-" * 30)
-            for i, val in enumerate(row):
-                print(f"{colnames[i]}: {val} (Type: {type(val)})")
+        data = {desc.name: val for desc, val in zip(cur.description, rows[0])}
     else:
-        print("Table is empty or not found.")
+        return False, corpus_id, "Table is empty or not found."
 
     document = ParsedDocumentSchema(
         unique_id=corpus_id,
         source="s2orc",
-        title=rows[0]["title"],
+        title=data.get("title", "") or "",
         text=sectioned_text,
         abstract="",
-        authors=rows[0]["author"],
-        publisher=rows[0]["publisher"],
-        date=0,
-        doi=rows[0]["doi"],
+        authors=data.get("author", "") or "",
+        publisher=data.get("publisher", "") or "",
+        date=data.get("date", 0) or 0,
+        doi=data.get("doi", "") or "",
         references="",
     )
 
     output_path = output_dir / (corpus_id + ".json")
     with open(output_path, "w") as f:
         json.dump(document.model_dump(mode="json"), f)
+
+    conn.close()
+    cur.close()
+
+    return True, corpus_id, None
 
 
 def _metadata_workflow(source_dir, dbname, user, password, host, port, table_name, progress):
@@ -62,17 +67,12 @@ def _metadata_workflow(source_dir, dbname, user, password, host, port, table_nam
 
     success_count = 0
     fail_count = 0
-    task = progress.add_task("[green]Fetching metadata from" + str(host) + ":", total=len(collected_input_files))
-
-    conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
-    cur = conn.cursor()
+    task = progress.add_task("[green]Fetching metadata from " + str(host) + ":", total=len(collected_input_files))
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_metadata_one_file)(i, output_dir, cur, table_name) for i in collected_input_files
+        delayed(_metadata_one_file)(i, output_dir, dbname, user, password, host, port, table_name)
+        for i in collected_input_files
     )
-
-    conn.close()
-    cur.close()
 
     for success, stem, error in results:
         progress.update(task, advance=1)
@@ -101,7 +101,3 @@ def get_metadata_from_database(source_dir, dbname, user, password, host, port, t
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _metadata_workflow(source_dir, dbname, user, password, host, port, table_name, progress)
-
-
-if __name__ == "__main__":
-    get_metadata_from_database()
