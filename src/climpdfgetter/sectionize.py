@@ -48,6 +48,22 @@ unneeded_sections_skip_remaining = [
     "abbreviation",
     "appendix",
     "howtoreference",
+    "cited",
+    "contributionstatement",
+    "modelavailability",
+    "codeavailability",
+    "supportinginformation",
+    "declarationofinterest",
+    "citationinformation",
+    "orcid",
+    "notesoncontributors",
+    "forpeerreview",
+    "appendices",
+    "nomenclature",
+    "glossary",
+    "notation",
+    "symbols",
+    "openaccess",
 ]
 
 
