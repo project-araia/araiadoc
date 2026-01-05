@@ -19,6 +19,7 @@ Commands:
   complete-semantic-scholar  Download documents from Semantic Scholar that match a given input file containing document ID.
   epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
   section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
+  get-metadata-from-database Grabs metadata from a postgresql database.
 ```
 
 These will be described in more detail below.
@@ -158,7 +159,21 @@ The resulting output is a dictionary containing relevant headers as keys and sub
 
 ### Metadata association
 
-Coming soon.
+
+```bash
+Usage: climpdf get-metadata-from-database [OPTIONS] SOURCE
+
+  Grabs metadata from a postgresql database.
+```
+
+Given a directory of documents, this utility will attempt to associate metadata with each document from a postgresql database.
+
+For instance:
+
+```climpdf get-metadata-from-database data/OSTI_2024-12-18_15:09:27 db_name db_user db_password hostname.addr.io 5432 table_name```
+
+Metadata entries matching the below schema are expected to be found in the database. The document contents are set to the "text" field of
+the below schema.
 
 #### JSON Schema
 
@@ -166,13 +181,14 @@ Coming soon.
 class ParsedDocumentSchema(BaseModel):
     source: str = ""
     title: str = ""
-    text: list[str] = []
+    text: dict[str, str] = {}  # keys are section headings, values are text
     abstract: str = ""
-    authors: list[str] = []
+    authors: list[str] | str = []
     publisher: str = ""
     date: int | str = 0
     unique_id: str = ""
     doi: str = ""
+    references: str = ""
 ```
 
 ## Development
