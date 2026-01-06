@@ -11,7 +11,7 @@ from .schema import ParsedDocumentSchema
 from .utils import _collect_from_path
 
 
-def _metadata_one_file(input_path, output_dir, dbname, user, password, host, port, table_name):
+def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, port, table_name):
 
     conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
     cur = conn.cursor()
@@ -56,7 +56,36 @@ def _metadata_one_file(input_path, output_dir, dbname, user, password, host, por
     return True, corpus_id, None
 
 
-def _metadata_workflow(source_dir, dbname, user, password, host, port, table_name, progress):
+def _metadata_one_file_semanticscholar(input_path, output_dir):
+
+    corpus_id = input_path.stem.removesuffix("_processed")
+
+    with open(input_path, "r") as f:
+        sectioned_text = json.load(f)
+
+    data = {}
+
+    document = ParsedDocumentSchema(
+        unique_id=corpus_id,
+        source="s2orc",
+        title=data.get("title", "") or "",
+        text=sectioned_text,
+        abstract="",
+        authors=data.get("author", "") or "",
+        publisher=data.get("publisher", "") or "",
+        date=data.get("date", 0) or 0,
+        doi=data.get("doi", "") or "",
+        references="",
+    )
+
+    output_path = output_dir / (corpus_id + ".json")
+    with open(output_path, "w") as f:
+        json.dump(document.model_dump(mode="json"), f)
+
+    return True, corpus_id, None
+
+
+def _metadata_workflow(source_dir, progress, metadata_source, *args):
 
     collected_input_files = _collect_from_path(Path(source_dir))
     progress.log("* Found " + str(len(collected_input_files)) + " input files.")
@@ -67,11 +96,19 @@ def _metadata_workflow(source_dir, dbname, user, password, host, port, table_nam
 
     success_count = 0
     fail_count = 0
-    task = progress.add_task("[green]Fetching metadata from " + str(host) + ":", total=len(collected_input_files))
+    task = progress.add_task(
+        "[green]Fetching metadata from " + str(metadata_source) + ":", total=len(collected_input_files)
+    )
+
+    if metadata_source == "db":
+        _metadata_one_file = _metadata_one_file_db
+    elif metadata_source == "semanticscholar":
+        _metadata_one_file = _metadata_one_file_semanticscholar
+    else:
+        raise ValueError("Invalid metadata source.")
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_metadata_one_file)(i, output_dir, dbname, user, password, host, port, table_name)
-        for i in collected_input_files
+        delayed(_metadata_one_file)(i, output_dir, *args) for i in collected_input_files
     )
 
     for success, stem, error in results:
@@ -82,7 +119,7 @@ def _metadata_workflow(source_dir, dbname, user, password, host, port, table_nam
             fail_count += 1
             progress.log(f"* Error on: {stem}: {error}")
 
-    progress.log("\n* Sectionization:")
+    progress.log("\n* Metadata fetching:")
     progress.log("* Successes: " + str(success_count))
     progress.log("* Failures: " + str(fail_count))
 
@@ -100,4 +137,14 @@ def get_metadata_from_database(source_dir, dbname, user, password, host, port, t
     Grabs metadata from a postgresql database and associates it with each of the processed input files.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _metadata_workflow(source_dir, dbname, user, password, host, port, table_name, progress)
+        _metadata_workflow(source_dir, progress, "db", dbname, user, password, host, port, table_name)
+
+
+@click.command()
+@click.argument("source_dir", nargs=1)
+def get_metadata_from_semanticscholar(source_dir):
+    """
+    Grabs metadata from a postgresql database and associates it with each of the processed input files.
+    """
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        _metadata_workflow(source_dir, progress, "semanticscholar")
