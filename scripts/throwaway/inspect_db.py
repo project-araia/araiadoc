@@ -12,7 +12,7 @@ def get_first_row(
         cur = conn.cursor()
 
         # Simple query to get one row
-        query = f"SELECT * FROM {table_name} WHERE corpus_id = {corpus_id} LIMIT 5;"  # noqa
+        query = f"SELECT * FROM {table_name} LIMIT 5;"  # noqa
         print(f"Executing: {query}")
 
         cur.execute(query)

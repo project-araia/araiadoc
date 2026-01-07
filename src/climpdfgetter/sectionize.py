@@ -15,7 +15,7 @@ NUMERIC_SPECIAL_THRESHOLD = 30
 
 
 unneeded_sections_no_skip_remaining = [
-    "abstract",
+    # "abstract",
     "caption",
     "figure",
     "table",
@@ -116,6 +116,13 @@ def _line_spacing_resembles_header(line, splitlines, index):
         and not len(splitlines[index + 1])
     ):
         return True
+    elif (
+        len(line.split()) >= 1
+        and not len(splitlines[index - 1])
+        and not len(splitlines[index - 2])
+        and "abstract" in line.lower()
+    ):
+        return True
     return False
 
 
@@ -130,9 +137,11 @@ def _get_invalid_sections(section):
 def _sectionize_one_file(
     input_path: Path,
     output_dir: Path,
+    rejected: bool = False,
 ):
     output_file = output_dir / Path(input_path.stem + ".json")
-    output_rejected_file = output_dir / Path(input_path.stem + "_rejected.json")
+    if rejected:
+        output_rejected_file = output_dir / Path(input_path.stem + "_rejected.json")
 
     try:
         with open(input_path, "r") as f:
@@ -149,18 +158,24 @@ def _sectionize_one_file(
                 indexes.append([index])
                 headers.append(line)
 
+        sectioned_text = {}
+
         headers_to_lower = [header.lower() for header in headers]
-        if "abstract" in headers_to_lower:  # remove all content before abstract, if found
-            abstract_index = headers_to_lower.index("abstract")
-            headers = headers[abstract_index:]
-            indexes = indexes[abstract_index:]
+        for i, header in enumerate(headers_to_lower):
+
+            if "abstract" in header:  # remove all content before abstract, if found
+                abstract_index = i
+                headers = headers[abstract_index + 1 :]  # noqa
+                indexes = indexes[abstract_index + 1 :]  # noqa
+                if len(header.split()) >= 15:  # abstract may actually be a section that starts with "abstract"
+                    sectioned_text["abstract"] = header
+                break
 
         indexes.append([len(raw_text)])
         index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
 
         rejected_paragraphs = []
         rejected_whole_subsections = []
-        sectioned_text = {}
 
         actual_headers = 0
 
@@ -207,8 +222,9 @@ def _sectionize_one_file(
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
-        with open(output_rejected_file, "w") as f:
-            json.dump(rejected_paragraphs, f, indent=4)
+        if rejected:
+            with open(output_rejected_file, "w") as f:
+                json.dump(rejected_paragraphs, f, indent=4)
 
         return (True, input_path.stem, None)
 
@@ -216,7 +232,7 @@ def _sectionize_one_file(
         return (False, input_path.stem, str(e))
 
 
-def _sectionize_workflow(source: Path, progress: Progress):
+def _sectionize_workflow(source: Path, progress: Progress, rejected: bool = False):
 
     collected_input_files = _collect_from_path(Path(source))
     success_count = 0
@@ -245,7 +261,7 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
     # Run in parallel
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file)(i, output_dir) for i in files_to_process
+        delayed(_sectionize_one_file)(i, output_dir, rejected) for i in files_to_process
     )
 
     for success, stem, error in results:
@@ -270,11 +286,12 @@ def _sectionize_workflow(source: Path, progress: Progress):
 
 @click.command()
 @click.argument("source", nargs=1)
-def section_dataset(source: Path):
+@click.option("--dump_rejected", "rejected", is_flag=True, default=False)
+def section_dataset(source: Path, rejected: bool = False):
     """Preprocess full-text files in s2orc/pes2o format into headers and subsections.
 
     NOTE: Each file is assumed to contain one result.
     """
 
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow(source, progress)
+        _sectionize_workflow(source, progress, rejected)
