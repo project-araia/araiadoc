@@ -146,7 +146,13 @@ def _sectionize_one_file(
     try:
         with open(input_path, "r") as f:
             doc = json.load(f)
-        raw_text = doc["response"]["docs"][0]["text"][0]
+        try:
+            raw_text = doc["response"]["docs"][0]["text"][0]
+            full = False
+        except KeyError:
+            raw_text = doc["text"][0]
+            title = doc.get("title", [""])[0]
+            full = True
 
         indexes = []
         headers = []
@@ -219,6 +225,8 @@ def _sectionize_one_file(
         if len(sectioned_text) == 0:
             return (False, input_path.stem, "No valid sections found")
 
+        if full:
+            sectioned_text["title"] = title
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
@@ -241,7 +249,7 @@ def _sectionize_workflow(source: Path, progress: Progress, rejected: bool = Fals
     task = progress.add_task("[green]Sectionizing", total=len(collected_input_files))
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".json"]
 
-    output_dir = Path(str(source) + "_json")
+    output_dir = Path(str(source) + "_sectionized")
     output_dir.mkdir(exist_ok=True, parents=True)
 
     failures_json = output_dir / Path("failures.json")
