@@ -4,11 +4,17 @@ from pathlib import Path
 
 import click
 import psycopg2
+import requests
 from joblib import Parallel, delayed
+from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
 from .utils import _collect_from_path
+
+SINGLE_REQUESTS_QUERY = (
+    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&" + "indent=true&q.op=OR&q={}&useParams="
+)
 
 
 def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, port, table_name):
@@ -85,6 +91,46 @@ def _metadata_one_file_semanticscholar(input_path, output_dir):
     return True, corpus_id, None
 
 
+def _metadata_one_file_solr(input_path, output_dir):
+    corpus_id = input_path.stem.removesuffix("_processed")
+
+    with open(input_path, "r") as f:
+        schema = json.load(f)
+
+    @sleep_and_retry
+    @limits(calls=60, period=1)
+    def _do_request(corpus_id):
+        return requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+
+    try:
+        response = _do_request(corpus_id)
+        abstract = response.json()["response"]["docs"][0]["abstract"]
+    except Exception:
+        return False, corpus_id, "Unable to obtain abstract from solr."
+
+    try:
+        document = ParsedDocumentSchema(
+            unique_id=corpus_id,
+            source="s2orc",
+            title=schema.get("title", "") or "",
+            text=schema.get("text", "") or "",
+            abstract=abstract,
+            authors=schema.get("author", "") or "",
+            publisher=schema.get("publisher", "") or "",
+            date=schema.get("date", 0) or 0,
+            doi=schema.get("doi", "") or "",
+            references="",
+        )
+    except Exception:
+        return False, corpus_id, "Input data likely not in the expected format."
+
+    output_path = output_dir / (corpus_id + ".json")
+    with open(output_path, "w") as f:
+        json.dump(document.model_dump(mode="json"), f)
+
+    return True, corpus_id, None
+
+
 def _metadata_workflow(source_dir, progress, metadata_source, *args):
 
     collected_input_files = _collect_from_path(Path(source_dir))
@@ -104,6 +150,8 @@ def _metadata_workflow(source_dir, progress, metadata_source, *args):
         _metadata_one_file = _metadata_one_file_db
     elif metadata_source == "semanticscholar":
         _metadata_one_file = _metadata_one_file_semanticscholar
+    elif metadata_source == "solr":
+        _metadata_one_file = _metadata_one_file_solr
     else:
         raise ValueError("Invalid metadata source.")
 
@@ -138,6 +186,17 @@ def get_metadata_from_database(source_dir, dbname, user, password, host, port, t
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _metadata_workflow(source_dir, progress, "db", dbname, user, password, host, port, table_name)
+
+
+@click.command()
+@click.argument("source_dir", nargs=1)
+def get_abstracts_from_solr(source_dir):
+    """
+    Grabs abstracts from solr and associates it with each of the processed input files
+    that is already in the schema pattern.
+    """
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        _metadata_workflow(source_dir, progress, "solr")
 
 
 @click.command()
