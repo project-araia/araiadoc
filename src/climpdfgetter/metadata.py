@@ -137,7 +137,7 @@ def _metadata_workflow(source_dir, progress, metadata_source, *args):
     progress.log("* Found " + str(len(collected_input_files)) + " input files.")
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".json"]
 
-    output_dir = Path(str(source_dir) + "_with_metadata_" + metadata_source)
+    output_dir = Path(str(Path(source_dir)) + "_with_metadata_" + metadata_source)
     output_dir.mkdir(exist_ok=True, parents=True)
 
     success_count = 0
