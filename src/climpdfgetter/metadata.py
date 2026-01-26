@@ -104,7 +104,7 @@ def _metadata_one_file_solr(input_path, output_dir):
 
     try:
         response = _do_request(corpus_id)
-        abstract = response.json()["response"]["docs"][0]["abstract"]
+        abstract = response.json()["response"]["docs"][0]["abstract"][0]
     except Exception:
         return False, corpus_id, "Unable to obtain abstract from solr."
 
@@ -137,7 +137,7 @@ def _metadata_workflow(source_dir, progress, metadata_source, *args):
     progress.log("* Found " + str(len(collected_input_files)) + " input files.")
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".json"]
 
-    output_dir = Path(str(source_dir) + "_with_metadata")
+    output_dir = Path(str(source_dir) + "_with_metadata_" + metadata_source)
     output_dir.mkdir(exist_ok=True, parents=True)
 
     success_count = 0
