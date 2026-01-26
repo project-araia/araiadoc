@@ -115,7 +115,7 @@ def _metadata_one_file_solr(input_path, output_dir):
             title=schema.get("title", "") or "",
             text=schema.get("text", "") or "",
             abstract=abstract,
-            authors=schema.get("author", "") or "",
+            authors=schema.get("authors", "") or "",
             publisher=schema.get("publisher", "") or "",
             date=schema.get("date", 0) or 0,
             doi=schema.get("doi", "") or "",

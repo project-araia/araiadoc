@@ -39,6 +39,7 @@ climpdf = ["climpdf"]
 
 [tool.pixi.dependencies]
 python = ">=3.12.0,<3.13"
+psycopg2 = ">=2.9.11,<3"
 
 [tool.pixi.feature.dev.dependencies]
 ipdb = ">=0.13.13,<0.14"
