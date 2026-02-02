@@ -20,6 +20,7 @@ Commands:
   epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
   section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
   get-metadata-from-database Grabs metadata from a postgresql database.
+  get-abstracts-from-solr    Grabs abstracts from a solr database.
 ```
 
 These will be described in more detail below.
@@ -174,6 +175,16 @@ For instance:
 
 Metadata entries matching the below schema are expected to be found in the database. The document contents are set to the "text" field of
 the below schema.
+
+### Obtaining abstracts from a SOLR database
+
+```bash
+Usage: climpdf get-abstracts-from-solr [OPTIONS] SOURCE_DIR
+
+  Grabs abstracts from a solr database.
+```
+
+Given a directory of documents, this utility will attempt to associate abstracts with each document from a solr database.
 
 #### JSON Schema
 
