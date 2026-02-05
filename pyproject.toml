@@ -16,6 +16,10 @@ dependencies = [
     "torchvision>=0.22.1,<0.23",
     "grobid-client-python>=0.0.17,<0.0.18",
     "joblib",
+    "fastmcp",
+    "openai",
+    "globus_sdk",
+    "langchain",
 ]
 
 [project.scripts]
