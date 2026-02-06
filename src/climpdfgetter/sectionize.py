@@ -58,11 +58,11 @@ unneeded_sections_skip_remaining = [
     "orcid",
     "notesoncontributors",
     "forpeerreview",
-    "appendices",
+    "appendice",
     "nomenclature",
     "glossary",
     "notation",
-    "symbols",
+    "symbol",
     "openaccess",
 ]
 
