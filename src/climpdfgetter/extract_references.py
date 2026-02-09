@@ -110,7 +110,7 @@ def extract_refs(directory):
             progress.update(task, advance=1)
             if success:
                 success_count += 1
-                if msg == "References extracted":
+                if "References extracted" in msg:
                     extracted_count += 1
             else:
                 fail_count += 1

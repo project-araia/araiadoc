@@ -20,6 +20,7 @@ def get_heuristic_score(text, debug=False):
         or "https://" in text
         or "retrieved from" in text_lower
         or "accessed:" in text_lower
+        or "accessed," in text_lower
         or "available at:" in text_lower
     ):
         if debug:
@@ -63,6 +64,10 @@ def get_heuristic_score(text, debug=False):
         "nature",
         "science",
         "cell",
+        "literature cited",
+        "ph.d. thesis",
+        "doctoral thesis",
+        "springer",
     ]
     # Check for whole words to avoid "res" matching "results"
     # We'll use a regex for these
@@ -91,7 +96,7 @@ def get_heuristic_score(text, debug=False):
         ):
             if debug:
                 print(f"  +3 Strong Year: {year_match.group(0)}")  # noqa
-            score += 3
+            score += 2
         else:
             if debug:
                 print(f"  +1 Weak Year: {year_match.group(0)}")  # noqa
@@ -131,7 +136,6 @@ def get_heuristic_score(text, debug=False):
         "as shown in",
         "the figure",
         "the table",
-        "section",
     ]
     if any(marker in text_lower for marker in prose_markers):
         if debug:
@@ -157,6 +161,23 @@ def get_heuristic_score(text, debug=False):
             print("  -2 Plain Sentence")  # noqa
         score -= 2
 
+    #  Relatively large percentage of single-character tokens resembles lists of authors
+    percentage_single_char = len([i for i in text.split(" ") if len(i) == 1]) / len(text.split(" "))
+    percentage_single_char_with_period = len([i for i in text.split(" ") if len(i) == 2 and i.endswith(".")]) / len(
+        text.split(" ")
+    )
+    if percentage_single_char + percentage_single_char_with_period > 0.10:
+        if debug:
+            print("  +3 Single Character Tokens")  # noqa
+        score += 3
+
+    print(text + "\n")
+    print(f"Score: {score}\n")
+    if score <= 2:
+        import ipdb
+
+        ipdb.set_trace()
+
     return score
 
 
@@ -177,7 +198,7 @@ def extract_references(file_path):
     # Threshold for deciding "Is this a reference?"
     # Since visual inspection showed some refs scoring 0 or 2, and captions scoring 2
     # We really want to avoid captions.
-    threshold = 1
+    threshold = 2
 
     # Backward pass
     # We look for a *contiguous* block of references at the end.
@@ -248,11 +269,14 @@ def main():
         content, refs = extract_references(p)
         print(f"  Detected {len(refs)} reference blocks.")
         if refs:
-            print(f"  [REF START] score={get_heuristic_score(refs[0])}: {refs[0][:100]}...")
+            print(f"  [REF START] score={get_heuristic_score(refs[0])}: {refs}...")
         if content:
-            print(f"  [CONTENT END] score={get_heuristic_score(content[-1])}: ...{content[-1][-100:]}")
+            print(f"  [CONTENT END] score={get_heuristic_score(content[-1])}: ...{content[-1][-1000:]}")
         print("\n")
 
 
 if __name__ == "__main__":
     main()
+
+
+text = ""

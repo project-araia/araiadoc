@@ -14,6 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
 from climpdfgetter.convert import convert, epa_ocr_to_json
+from climpdfgetter.extract_references import extract_refs
 from climpdfgetter.metadata import get_abstracts_from_solr, get_metadata_from_database
 from climpdfgetter.schema import ParsedDocumentSchema
 from climpdfgetter.searches import RESILIENCE_SEARCHES
@@ -691,6 +692,7 @@ main.add_command(count_remote_osti)
 main.add_command(section_dataset)
 main.add_command(get_metadata_from_database)
 main.add_command(get_abstracts_from_solr)
+main.add_command(extract_refs)
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,7 @@ def get_heuristic_score(text):
         or "https://" in text
         or "retrieved from" in text_lower
         or "accessed:" in text_lower
+        or "accessed," in text_lower
         or "available at:" in text_lower
     ):
         score += 4
@@ -62,6 +63,10 @@ def get_heuristic_score(text):
         "eds.",
         "ltd",
         "inc",
+        "literature cited",
+        "ph.d. thesis",
+        "doctoral thesis",
+        "springer",
     ]
 
     # Check for whole words to avoid false matches
@@ -74,7 +79,7 @@ def get_heuristic_score(text):
     # Year (1900-2029) - Context aware
     # Matches (1999), 1999., , 1999
     if re.search(r"[\(,]\s*(19|20)\d{2}[\)\.]", text) or re.search(r"\b(19|20)\d{2}[a-z]?\s*[\)\.]", text):
-        score += 3
+        score += 2
     elif re.search(r"\b(19|20)\d{2}\b", text):
         # Raw year, less strong
         score += 1
@@ -135,6 +140,14 @@ def get_heuristic_score(text):
     if len(text.split()) > 15 and text.strip().endswith(".") and score < 2:
         score -= 2
 
+    #  Relatively large percentage of single-character tokens resembles lists of authors
+    percentage_single_char = len([i for i in text.split(" ") if len(i) == 1]) / len(text.split(" "))
+    percentage_single_char_with_period = len([i for i in text.split(" ") if len(i) == 2 and i.endswith(".")]) / len(
+        text.split(" ")
+    )
+    if percentage_single_char + percentage_single_char_with_period > 0.10:
+        score += 3
+
     return score
 
 
@@ -151,6 +164,9 @@ def split_references(text):
 
     split_index = len(chunks)
 
+    patience = 3
+    consecutive_low = 0
+
     for i in range(len(chunks) - 1, -1, -1):
         chunk = chunks[i].strip()
         if not chunk:
@@ -160,8 +176,11 @@ def split_references(text):
 
         if score >= threshold:
             split_index = i
+            consecutive_low = 0
         else:
-            break
+            consecutive_low += 1
+            if consecutive_low > patience:
+                break
 
     if split_index == len(chunks):
         return text, None
