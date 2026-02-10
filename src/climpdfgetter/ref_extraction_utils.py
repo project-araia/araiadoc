@@ -164,7 +164,7 @@ def split_references(text):
 
     split_index = len(chunks)
 
-    patience = 3
+    patience = 2
     consecutive_low = 0
 
     for i in range(len(chunks) - 1, -1, -1):
