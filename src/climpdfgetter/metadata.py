@@ -39,17 +39,24 @@ def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, 
     else:
         return False, corpus_id, "Table is empty or not found."
 
+    abstract = sectioned_text.get("Abstract", "") or ""
+    if len(abstract):
+        sectioned_text.pop("Abstract")
+    references = sectioned_text.get("References", "") or ""
+    if len(references):
+        sectioned_text.pop("References")
+
     document = ParsedDocumentSchema(
         unique_id=corpus_id,
         source="s2orc",
         title=data.get("title", "") or "",
         text=sectioned_text,
-        abstract="",
+        abstract=abstract,
         authors=data.get("author", "") or "",
         publisher=data.get("publisher", "") or "",
         date=data.get("date", 0) or 0,
         doi=data.get("doi", "") or "",
-        references="",
+        references=references,
     )
 
     output_path = output_dir / (corpus_id + ".json")
@@ -71,17 +78,24 @@ def _metadata_one_file_semanticscholar(input_path, output_dir):
 
     data = {}
 
+    abstract = sectioned_text.get("Abstract", "") or ""
+    if len(abstract):
+        sectioned_text.pop("Abstract")
+    references = sectioned_text.get("References", "") or ""
+    if len(references):
+        sectioned_text.pop("References")
+
     document = ParsedDocumentSchema(
         unique_id=corpus_id,
         source="s2orc",
         title=data.get("title", "") or "",
         text=sectioned_text,
-        abstract="",
+        abstract=abstract,
         authors=data.get("author", "") or "",
         publisher=data.get("publisher", "") or "",
         date=data.get("date", 0) or 0,
         doi=data.get("doi", "") or "",
-        references="",
+        references=references,
     )
 
     output_path = output_dir / (corpus_id + ".json")
@@ -108,6 +122,10 @@ def _metadata_one_file_solr(input_path, output_dir):
     except Exception:
         return False, corpus_id, "Unable to obtain abstract from solr."
 
+    references = schema.get("References", "") or ""
+    if len(references):
+        schema.pop("References")
+
     try:
         document = ParsedDocumentSchema(
             unique_id=corpus_id,
@@ -119,7 +137,7 @@ def _metadata_one_file_solr(input_path, output_dir):
             publisher=schema.get("publisher", "") or "",
             date=schema.get("date", 0) or 0,
             doi=schema.get("doi", "") or "",
-            references="",
+            references=references,
         )
     except Exception:
         return False, corpus_id, "Input data likely not in the expected format."

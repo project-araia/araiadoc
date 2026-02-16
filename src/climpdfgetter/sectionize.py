@@ -25,6 +25,7 @@ unneeded_sections_no_skip_remaining = [
     "disclaimer",
     "fig",
     "deleted",
+    "http",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
