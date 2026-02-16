@@ -56,10 +56,15 @@ def get_from_titanv(source: Path, search_terms: bool):
         search_terms (bool): Whether to search for terms or not.
     """
 
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(max_retries=2)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
     @sleep_and_retry
-    @limits(calls=60, period=1)
+    @limits(calls=150, period=1)
     def _do_request(corpus_id):
-        return requests.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=10)
+        return session.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=5)
 
     @sleep_and_retry
     @limits(calls=15, period=1)
@@ -149,9 +154,9 @@ def get_from_titanv(source: Path, search_terms: bool):
 
     async def finish_main(source, search_terms):
         if not search_terms:
-            path = _prep_output_dir("600k_titanv_results")
+            path = _prep_output_dir("600k_titanv_results_v2")
         else:
-            path = _prep_output_dir("titanv_search_results")
+            path = _prep_output_dir("titanv_search_results_v2")
         checkpoint = path.parent / Path("combined_titanv_checkpoint.json")
         if not checkpoint.exists():
             checkpoint.touch()
