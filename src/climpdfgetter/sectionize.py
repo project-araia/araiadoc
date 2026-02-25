@@ -109,6 +109,8 @@ def is_string_valid(string):
 
 
 def _line_spacing_resembles_header(line, splitlines, index):
+    if index < 2 or index >= len(splitlines) - 1:
+        return False
     if (
         len(line.split()) >= 1
         and len(line.split()) < 15
@@ -139,6 +141,7 @@ def _sectionize_one_file(
     input_path: Path,
     output_dir: Path,
     rejected: bool = False,
+    v2: bool = False,
 ):
     output_file = output_dir / Path(input_path.stem + ".json")
     if rejected:
@@ -147,87 +150,107 @@ def _sectionize_one_file(
     try:
         with open(input_path, "r") as f:
             doc = json.load(f)
-        try:
-            raw_text = doc["response"]["docs"][0]["text"][0]
-            full = False
-        except KeyError:
-            raw_text = doc["text"][0]
-            title = doc.get("title", [""])[0]
-            full = True
 
-        indexes = []
-        headers = []
+        # Handle Solr response format vs flat format
+        if "response" in doc and "docs" in doc["response"] and doc["response"]["docs"]:
+            item = doc["response"]["docs"][0]
+        else:
+            item = doc
 
-        splitlines = raw_text.splitlines()
-        for index, line in enumerate(splitlines):
-            # single line of text between three newlines before and two newlines after. likely a header
-            if _line_spacing_resembles_header(line, splitlines, index):
-                indexes.append([index])
-                headers.append(line)
+        def get_first(field):
+            val = item.get(field, [""])
+            if isinstance(val, list) and len(val) > 0:
+                return val[0]
+            return val if isinstance(val, str) else ""
+
+        title = get_first("title")
+        abstract = get_first("abstract")
+        raw_text = get_first("text")
+        paragraphs = item.get("paragraph", [])
+        section_headers = item.get("sectionheader", [])
+
+        # If no raw text but we have paragraphs, join them for extraction if needed
+        if not raw_text and paragraphs:
+            raw_text = "\n\n".join(paragraphs)
 
         sectioned_text = {}
-
-        headers_to_lower = [header.lower() for header in headers]
-        for i, header in enumerate(headers_to_lower):
-
-            if "abstract" in header:  # remove all content before abstract, if found
-                abstract_index = i
-                headers = headers[abstract_index + 1 :]  # noqa
-                indexes = indexes[abstract_index + 1 :]  # noqa
-                if len(header.split()) >= 15:  # abstract may actually be a section that starts with "abstract"
-                    sectioned_text["abstract"] = header
-                break
-
-        indexes.append([len(raw_text)])
-        index_pairs = [(i[-1], j[0]) for i, j in zip(indexes, indexes[1:])]
+        if title:
+            sectioned_text["title"] = title
+        if abstract:
+            sectioned_text["abstract"] = abstract
 
         rejected_paragraphs = []
-        rejected_whole_subsections = []
+        actual_headers_count = 0
 
-        actual_headers = 0
-
-        for i, (start, end) in enumerate(index_pairs):
-            header = headers[i]
+        def process_content(header, content):
+            nonlocal actual_headers_count
             compare_header = "".join(header.split()).lower()
-            if len(header.split()) > 2 and not is_string_valid(compare_header):
-                continue
-            section = splitlines[start:end]
-            new_section = [j for j in section if j not in [header, "", [], "  "]]
-            validated_new_section = _get_valid_sections(new_section)
-            rejected_paragraphs.extend(_get_invalid_sections(new_section))
-            combined_validated_new_section = "\n\n".join(validated_new_section).replace("  ", " ")
-            validated_new_section = [unicodedata.normalize("NFD", i) for i in combined_validated_new_section]
-            validated_new_section = [html.unescape(i) for i in validated_new_section]
-            join_validated_new_section = "".join(validated_new_section)
 
             if any([j in compare_header for j in unneeded_sections_skip_remaining]):
-                rejected_whole_subsections.extend(index_pairs[i:])
-                break
+                return "STOP_ALL"
 
-            elif any([j in compare_header for j in needed_sections_but_skip_remaining]):
-                actual_headers += 1
-                sectioned_text[header] = join_validated_new_section
-                rejected_whole_subsections.extend(index_pairs[i + 1 :])  # noqa
-                break
+            should_stop_after = any([j in compare_header for j in needed_sections_but_skip_remaining])
 
-            elif (
-                not any([j in compare_header for j in unneeded_sections_no_skip_remaining])
-                and is_english(join_validated_new_section)
-                and is_string_valid(join_validated_new_section)
-            ):
-                actual_headers += 1
-                sectioned_text[header] = join_validated_new_section
+            if should_stop_after or not any([j in compare_header for j in unneeded_sections_no_skip_remaining]):
+                if isinstance(content, list):
+                    content = "\n\n".join(content)
 
+                # Normalize and clean
+                content = unicodedata.normalize("NFD", content)
+                content = html.unescape(content).replace("  ", " ")
+
+                if is_english(content) and is_string_valid(content):
+                    sectioned_text[header] = content
+                    actual_headers_count += 1
+                else:
+                    rejected_paragraphs.append(content)
+
+                return "STOP_AFTER" if should_stop_after else "CONTINUE"
             else:
-                rejected_whole_subsections.append(index_pairs[i])
+                rejected_paragraphs.append(content)
+                return "CONTINUE"
 
-        rejected_paragraphs.extend(rejected_whole_subsections)
+        if v2 and section_headers and paragraphs:
+            # v2 logic: use provided headers and paragraphs
+            for header, content in zip(section_headers, paragraphs):
+                res = process_content(header, content)
+                if res == "STOP_ALL" or res == "STOP_AFTER":
+                    break
+        else:
+            # v1 logic: extract headers from raw_text
+            if not raw_text:
+                return (False, input_path.stem, "No text found to sectionize")
 
-        if len(sectioned_text) == 0:
-            return (False, input_path.stem, "No valid sections found")
+            splitlines = raw_text.splitlines()
+            indexes = []
+            headers = []
 
-        if full:
-            sectioned_text["title"] = title
+            for index, line in enumerate(splitlines):
+                if _line_spacing_resembles_header(line, splitlines, index):
+                    indexes.append(index)
+                    headers.append(line)
+
+            # skip everything before abstract
+            for i, header in enumerate(headers):
+                if "abstract" in header.lower():
+                    headers = headers[i + 1 :]  # noqa
+                    indexes = indexes[i + 1 :]  # noqa
+                    break
+
+            # Process ranges between headers
+            for i, start in enumerate(indexes):
+                end = indexes[i + 1] if i + 1 < len(indexes) else len(splitlines)
+                header = headers[i]
+                section_content = [lines for lines in splitlines[start:end] if lines not in [header, "", " ", "  "]]
+                res = process_content(header, section_content)
+                if res == "STOP_ALL" or res == "STOP_AFTER":
+                    break
+
+        # Check if we found anything useful besides title/abstract
+        content_keys = [k for k in sectioned_text.keys() if k not in ["title", "abstract"]]
+        if not content_keys and actual_headers_count == 0:
+            return (False, input_path.stem, "No valid content sections found")
+
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
@@ -241,7 +264,7 @@ def _sectionize_one_file(
         return (False, input_path.stem, str(e))
 
 
-def _sectionize_workflow(source: Path, progress: Progress, rejected: bool = False):
+def _sectionize_workflow(source: Path, progress: Progress, rejected: bool = False, v2: bool = False):
 
     collected_input_files = _collect_from_path(Path(source))
     success_count = 0
@@ -270,7 +293,7 @@ def _sectionize_workflow(source: Path, progress: Progress, rejected: bool = Fals
 
     # Run in parallel
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file)(i, output_dir, rejected) for i in files_to_process
+        delayed(_sectionize_one_file)(i, output_dir, rejected, v2) for i in files_to_process
     )
 
     for success, stem, error in results:
@@ -303,4 +326,24 @@ def section_dataset(source: Path, rejected: bool = False):
     """
 
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow(source, progress, rejected)
+        _sectionize_workflow(source, progress, rejected, False)
+
+
+@click.command()
+@click.argument("source", nargs=1)
+@click.option("--dump_rejected", "rejected", is_flag=True, default=False)
+def section_dataset_v2(source: Path, rejected: bool = False):
+    """Preprocess full-text files in s2orc/pes2o format into headers and subsections.
+
+    Unlike v1, the input files are assumed to contain an "abstract" field,
+    a "paragraph" field containing a list of paragraphs, a "title" field, and a
+    "sectionheader" field containing a list of section headers. The section headers
+    are assumed to be in the same order as the paragraphs, and they'll be compared against a
+    a similar heuristic as v1. The main difference is that the section headers are
+    provided, so we don't have to extract them from the text.
+
+    NOTE: Each file is assumed to contain one result.
+    """
+
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        _sectionize_workflow(source, progress, rejected, True)

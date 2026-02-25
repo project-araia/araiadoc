@@ -57,12 +57,12 @@ def get_from_titanv(source: Path, search_terms: bool):
     """
 
     session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(max_retries=2)
+    adapter = requests.adapters.HTTPAdapter(max_retries=0)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
 
     @sleep_and_retry
-    @limits(calls=150, period=1)
+    @limits(calls=180, period=1)
     def _do_request(corpus_id):
         return session.get(SINGLE_REQUESTS_QUERY.format(corpus_id), stream=True, timeout=5)
 
@@ -129,6 +129,7 @@ def get_from_titanv(source: Path, search_terms: bool):
             try:
                 corpus_id = doc[6]
                 if corpus_id in checkpoint_data:
+                    progress.update(task, advance=1)
                     continue
                 doc_path = subdir / Path(str(corpus_id) + ".json")
                 r = _do_request(corpus_id)
@@ -157,7 +158,7 @@ def get_from_titanv(source: Path, search_terms: bool):
             path = _prep_output_dir("600k_titanv_results_v2")
         else:
             path = _prep_output_dir("titanv_search_results_v2")
-        checkpoint = path.parent / Path("combined_titanv_checkpoint.json")
+        checkpoint = path.parent / Path("600k_titanv_checkpoint.json")
         if not checkpoint.exists():
             checkpoint.touch()
             checkpoint_data = []
