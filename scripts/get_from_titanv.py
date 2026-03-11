@@ -13,7 +13,7 @@ from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.utils import _prep_output_dir
 
 REQUESTS_QUERY = (
-    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=text&"
+    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=paragraph&"
     + "indent=true&q.op=OR&q={}&rows=100&start={}&useParams="
 )
 
@@ -45,15 +45,15 @@ def fetch_metadata(source: Path):
 
 @click.command()
 @click.option("--source", "-s", nargs=1)
-@click.option("--search-terms", "-t", is_flag=True)
-def get_from_titanv(source: Path, search_terms: bool):
+@click.option("--search-term", "-t", multiple=True)
+def get_from_titanv(source: Path, search_term: tuple[str]):
     """Provide an input dataset containing corpus IDs. OR load search terms.
 
     Use one or the other, not both.
 
     Args:
         source (Path): Path to input dataset.
-        search_terms (bool): Whether to search for terms or not.
+        search_term (tuple[str]): Specific search terms to look for.
     """
 
     session = requests.Session()
@@ -81,16 +81,17 @@ def get_from_titanv(source: Path, search_terms: bool):
         task = progress.add_task(f"[{random_color}] {search_term}: ", total=num_found)
 
         num_rejected = 0
-        results = []
+        all_ids = []
         for doc in first_request.json()["response"]["docs"]:
-            if str(doc["corpus_id"]) not in checkpoint_data:
-                results.append(doc)
+            corpus_id = str(doc["corpus_id"][0])
+            if corpus_id not in checkpoint_data:
+                with open(subdir / Path(corpus_id + ".json"), "w") as f:
+                    json.dump(doc, f)
+                all_ids.append(corpus_id)
             else:
                 num_rejected += 1
 
-        with open(subdir / Path("search_term_0.json"), "w") as f:
-            json.dump(results, f)
-        progress.update(task, advance=len(results))
+        progress.update(task, advance=100)
         if num_rejected > 0:
             progress.log(f"{search_term}: Rejected {num_rejected} docs for first search.")
 
@@ -99,23 +100,24 @@ def get_from_titanv(source: Path, search_terms: bool):
             try:
                 r.raise_for_status()
 
-                results = []
                 num_rejected = 0
                 for doc in r.json()["response"]["docs"]:
-                    if str(doc["corpus_id"]) not in checkpoint_data:
-                        results.append(doc)
+                    corpus_id = str(doc["corpus_id"][0])
+                    if corpus_id not in checkpoint_data:
+                        with open(subdir / Path(corpus_id + ".json"), "w") as f:
+                            json.dump(doc, f)
+                        all_ids.append(corpus_id)
                     else:
                         num_rejected += 1
 
-                progress.update(task, advance=len(results))
+                progress.update(task, advance=100)
                 if num_rejected > 0:
                     progress.log(f"{search_term}: Rejected {num_rejected} docs for search iteration {i // 100}.")
-                with open(subdir / Path("search_term_" + str(i // 100) + ".json"), "w") as f:
-                    json.dump(results, f)
             except Exception as e:
                 progress.log(f"\n* Error with {search_term} iteration {i // 100}. Error: {e}")
                 progress.update(task, advance=100)
                 continue
+        return all_ids
 
     def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
@@ -153,8 +155,8 @@ def get_from_titanv(source: Path, search_terms: bool):
 
         return checkpoint_data
 
-    async def finish_main(source, search_terms):
-        if not search_terms:
+    async def finish_main(source, search_term):
+        if not search_term:
             path = _prep_output_dir("600k_titanv_results_v2")
         else:
             path = _prep_output_dir("titanv_search_results_v2")
@@ -196,7 +198,8 @@ def get_from_titanv(source: Path, search_terms: bool):
                         for i, chunk in enumerate(chunks)
                     ]
                 )
-        elif search_terms:
+        elif search_term:
+            terms = search_term if search_term else RESILIENCE_SEARCHES
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 checkpoint_chunks = await asyncio.gather(
                     *[
@@ -209,7 +212,7 @@ def get_from_titanv(source: Path, search_terms: bool):
                             checkpoint_lock,
                             semaphore,
                         )
-                        for term in RESILIENCE_SEARCHES
+                        for term in terms
                     ]
                 )
 
@@ -219,7 +222,7 @@ def get_from_titanv(source: Path, search_terms: bool):
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source, search_terms))
+    asyncio.run(finish_main(source, search_term))
 
 
 @click.command()
