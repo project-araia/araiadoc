@@ -20,6 +20,7 @@ from climpdfgetter.schema import ParsedDocumentSchema
 from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.sectionize import section_dataset, section_dataset_v2
 from climpdfgetter.sources import source_mapping
+from climpdfgetter.titanv import get_from_titanv
 from climpdfgetter.utils import (
     _collect_from_path,
     _find_project_root,
@@ -694,6 +695,8 @@ main.add_command(section_dataset_v2)
 main.add_command(get_metadata_from_database)
 main.add_command(get_abstracts_from_solr)
 main.add_command(extract_refs)
+main.add_command(get_from_titanv)
+
 
 if __name__ == "__main__":
     main()
