@@ -14,7 +14,7 @@ from climpdfgetter.utils import _prep_output_dir
 
 REQUESTS_QUERY = (
     "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=paragraph&"
-    + "indent=true&q.op=OR&q={}&rows=100&start={}&useParams="
+    + "indent=true&q.op=OR&q={}&rows=250&start={}&useParams="
 )
 
 SINGLE_REQUESTS_QUERY = (
@@ -69,7 +69,7 @@ def get_from_titanv(source: Path, search_term: tuple[str]):
     @sleep_and_retry
     @limits(calls=15, period=1)
     def _do_search_request(search_term, start):
-        return requests.get(REQUESTS_QUERY.format(search_term, start), stream=True, timeout=100)
+        return session.get(REQUESTS_QUERY.format(search_term, start), stream=True, timeout=100)
 
     def _complete_semantic_scholar_search_terms(search_term, output_dir, progress, checkpoint_data, lock, semaphore):
 
@@ -91,11 +91,11 @@ def get_from_titanv(source: Path, search_term: tuple[str]):
             else:
                 num_rejected += 1
 
-        progress.update(task, advance=100)
+        progress.update(task, advance=250)
         if num_rejected > 0:
             progress.log(f"{search_term}: Rejected {num_rejected} docs for first search.")
 
-        for i in range(100, num_found, 100):
+        for i in range(250, num_found, 250):
             r = _do_search_request(search_term, i)
             try:
                 r.raise_for_status()
@@ -176,11 +176,22 @@ def get_from_titanv(source: Path, search_term: tuple[str]):
         semaphore = asyncio.Semaphore(nchunks)
 
         if source:
-            with open(source, "r") as f:
-                reader = csv.reader(f)
-                data = list(reader)[1:]  # first line is header
-                chunk_size = len(data) // nchunks
-                chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
+            source_path = Path(source)
+            if source_path.suffix == ".json":
+                with source_path.open("r") as f:
+                    ids = json.load(f)
+                # Convert list of IDs to the format expected by _complete_semantic_scholar (id at index 6)
+                data = [[None] * 6 + [cid] for cid in ids]
+            else:
+                with open(source, "r") as f:
+                    reader = csv.reader(f)
+                    data = list(reader)[1:]  # first line is header
+
+            if not data:
+                return
+
+            chunk_size = max(1, len(data) // nchunks)
+            chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
 
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 checkpoint_chunks = await asyncio.gather(
