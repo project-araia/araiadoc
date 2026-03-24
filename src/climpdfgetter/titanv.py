@@ -115,9 +115,6 @@ def get_from_titanv(source: Path, search_term: tuple[str]):
         for doc in data_chunk:
             try:
                 corpus_id = doc[6]
-                if corpus_id in checkpoint_data:
-                    progress.update(task, advance=1)
-                    continue
                 doc_path = subdir / Path(str(corpus_id) + ".json")
                 r = _do_request(corpus_id)
                 r.raise_for_status()
@@ -142,9 +139,9 @@ def get_from_titanv(source: Path, search_term: tuple[str]):
 
     async def finish_main(source, search_term):
         if not search_term:
-            path = _prep_output_dir("600k_titanv_results_v2")
+            path = _prep_output_dir("titanv_id_results_v2")
         else:
-            path = _prep_output_dir("titanv_search_results_v2")
+            path = _prep_output_dir("titanv_search_term_results_v2")
         checkpoint = path.parent / Path("titanv_checkpoint.json")
         if not checkpoint.exists():
             checkpoint.touch()
