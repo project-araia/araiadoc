@@ -1,3 +1,4 @@
+import argparse
 import glob
 import json
 from pathlib import Path
@@ -15,9 +16,13 @@ def get_corpus_id(item):
 
 
 def main():
-    data_dir = Path("/Users/jnavarro/callm/climpdfgetter/data")
-    checkpoint_file = data_dir / "titanv_checkpoint.json"
-    search_results_dir = data_dir / "titanv_search_results_2025-12-08_15:27:00"
+    parser = argparse.ArgumentParser(description="Update checkpoint from search results.")
+    parser.add_argument("checkpoint_file", type=Path, help="Path to the checkpoint JSON file.")
+    parser.add_argument("search_results_dir", type=Path, help="Directory containing search results JSON files.")
+    args = parser.parse_args()
+
+    checkpoint_file = args.checkpoint_file
+    search_results_dir = args.search_results_dir
 
     all_ids = set()
 
@@ -33,8 +38,14 @@ def main():
                     s_item = s_item[1:-1]
                 all_ids.add(s_item)
         print(f"Loaded {len(all_ids)} existing IDs.")
+    else:
+        print(f"Checkpoint file {checkpoint_file} not found. Starting fresh.")
 
     # Process search results
+    if not search_results_dir.exists():
+        print(f"Search results directory {search_results_dir} not found.")
+        return
+
     print(f"Processing {search_results_dir}...")
     files = glob.glob(str(search_results_dir / "**" / "*.json"), recursive=True)
     print(f"Found {len(files)} files to process.")
@@ -64,6 +75,9 @@ def main():
             print(f"Error reading {f_path}: {e}")
 
     print(f"Total unique IDs: {len(all_ids)}")
+
+    # Ensure parent directory of checkpoint file exists
+    checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
 
     with open(checkpoint_file, "w") as f:
         json.dump(sorted(list(all_ids)), f, indent=2)
