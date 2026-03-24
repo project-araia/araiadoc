@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 
@@ -38,6 +39,9 @@ def update_checkpoint(source_dir, checkpoint_file):
 
 
 if __name__ == "__main__":
-    source_directory = "/Users/jnavarro/callm/climpdfgetter/data/600k_titanv_results_v2_2026-02-16_18:42:30"
-    checkpoint_filename = "/Users/jnavarro/callm/climpdfgetter/data/600k_titanv_checkpoint.json"
-    update_checkpoint(source_directory, checkpoint_filename)
+    parser = argparse.ArgumentParser(description="Update checkpoint from directory.")
+    parser.add_argument("source_directory", type=str, help="Source directory with JSON files.")
+    parser.add_argument("checkpoint_filename", type=str, help="Checkpoint filename.")
+    args = parser.parse_args()
+
+    update_checkpoint(args.source_directory, args.checkpoint_filename)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 def main():
     data_dir = Path("/Users/jnavarro/callm/climpdfgetter/data")
-    checkpoint_file = data_dir / "combined_titanv_checkpoint.json"
+    checkpoint_file = data_dir / "titanv_checkpoint.json"
 
     if not checkpoint_file.exists():
         print(f"File not found: {checkpoint_file}")
