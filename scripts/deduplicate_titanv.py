@@ -1,3 +1,4 @@
+import argparse
 import glob
 import json
 import logging
@@ -114,13 +115,16 @@ def split_and_delete_file(file_path, ids_to_extract):
         return file_path, "error_write_subfiles"
 
 
-def main(root_dir=None):
-    if root_dir is None:
-        root_dir = Path("/Users/jnavarro/callm/climpdfgetter/data/all_titanv_search_results_2025-11-24_16:56:30")
-        if not root_dir.exists():
-            root_dir = Path("/Users/jnavarro/callm/climpdfgetter/data/titanv_search_results_2025-11-24_16:56:30")
-    else:
-        root_dir = Path(root_dir)
+def main():
+    parser = argparse.ArgumentParser(description="Deduplicate TitanV search results.")
+    parser.add_argument("root_dir", type=str, help="Target directory to process.")
+    args = parser.parse_args()
+
+    root_dir = Path(args.root_dir)
+
+    if not root_dir.exists():
+        logging.error(f"Directory does not exist: {root_dir}")
+        return
 
     logging.info(f"Target directory: {root_dir}")
 
