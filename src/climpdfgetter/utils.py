@@ -5,9 +5,34 @@ from pathlib import Path
 
 import click
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # regex from https://www.geeksforgeeks.org/python-check-url-string/ - cant answer any questions about it :)
 URL_RE = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"  # noqa
+
+
+def _build_session() -> requests.Session:
+    session = requests.Session()
+
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        backoff_factor=1.0,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+
+    adapter = HTTPAdapter(
+        max_retries=retry,
+        pool_connections=20,
+        pool_maxsize=20,
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 def _count_local(source: str):

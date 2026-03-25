@@ -2847,7 +2847,7 @@ packages:
 - pypi: ./
   name: climpdfgetter
   version: 0.1.0
-  sha256: b81fb1db493a6071e14dc3709c90df9ff715e0f445b470bbc6e5730382f5e361
+  sha256: 32753d04f08ecb59de463e392653fdf777aecec55e4a64a30f080e1bf484a4e8
   requires_dist:
   - openparse>=0.7.0,<0.8
   - layoutparser>=0.3.4,<0.4
