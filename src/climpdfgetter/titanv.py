@@ -2,39 +2,20 @@ import asyncio
 import csv
 import gzip
 import json
-import random
 import time
 from pathlib import Path
 
 import click
-import requests
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from climpdfgetter.searches import RESILIENCE_SEARCHES, q
+from climpdfgetter.searches import q
 from climpdfgetter.utils import _build_session, _prep_output_dir
 
-REQUESTS_QUERY = (
-    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=paragraph&"
-    + "indent=true&q.op=OR&q={}&rows=250&start={}&useParams="
-)
-
-SINGLE_REQUESTS_QUERY = (
+SINGLE_CORPUS_ID_REQUESTS_QUERY = (
     "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&" + "indent=true&q.op=OR&q={}&useParams="
 )
 
-ALL_TERMS_QUERY = (
-    "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=paragraph"
-    + "&indent=true&q.op=OR&start={}&q=%27Extreme%20Heat%20Climate%27%20OR%0A"
-    + "%27Extreme%20Cold%20Climate%27%20OR%0A%27Heat%20Wave%20Climate%27%20OR%0A"
-    + "Drought%20OR%0A%27Flooding%20Climate%27%20OR%0A%27Tropical%20Cyclone%27%20OR%0AHurricane%"
-    + "20OR%0AWildfire%20OR%0A%27Convective%20Storm%27%20OR%0A%27Sea%20Level%20Rise"
-    + "%27%20OR%0A%27Permafrost%20Thaw%27%20OR%0A%27Ocean%20Acidification%27%20OR%0A%27"
-    + "Carbon%20Dioxide%20Fertilizer%27%20OR%0A%27Rising%20Ocean%20Temperature%27%20OR%0A%27"
-    + "Snowmelt%20Timing%27%20OR%0A%27Arctic%20Sea%20Ice%27%20OR%0A%27Ice%20Storm%27%20OR%"
-    + "0ADerecho%20OR%0ATornado%20OR%0A%27Extreme%20Wind%27%20OR%0A%27Urban%20Heat%20Island"
-    + "%27%20OR%0A%27Coastal%20Flooding%27%20OR%0A%27Extreme%20Rainfall%27%20OR%0ABlizzard&rows=200&useParams="
-)
 
 TITANV_SELECT_URL = "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select"
 
@@ -208,120 +189,23 @@ def _complete_all_terms_cursor(
 
 @click.command()
 @click.option("--source", "-s", nargs=1, type=click.Path(exists=True))
-@click.option("--search-term", "-t", multiple=True)
 @click.option("--all-terms", "-a", is_flag=True)
-def get_from_titanv(source: Path, search_term: tuple[str], all_terms: bool):
-    """Provide an input dataset containing corpus IDs. OR load search terms. OR perform an "all terms" search.
+def get_from_titanv(source: Path, all_terms: bool):
+    """Provide an input dataset containing corpus IDs OR perform an "all terms" search.
 
     Use one of the options, not multiple.
 
     Args:
         source (Path): Path to input dataset.
-        search_term (tuple[str]): Specific search terms to look for.
         all_terms (bool): Whether to perform the pre-defined "all terms" search.
     """
 
-    session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(max_retries=0)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    session = _build_session()
 
     @sleep_and_retry
     @limits(calls=180, period=1)
     def _do_request(corpus_id):
-        return session.get(SINGLE_REQUESTS_QUERY.format(corpus_id), timeout=5)
-
-    @sleep_and_retry
-    @limits(calls=180, period=1)
-    def _do_all_terms_request(start):
-        return session.get(ALL_TERMS_QUERY.format(start), timeout=100)
-
-    @sleep_and_retry
-    @limits(calls=15, period=1)
-    def _do_search_request(search_term, start):
-        return session.get(REQUESTS_QUERY.format(search_term, start), stream=True, timeout=100)
-
-    def _complete_semantic_scholar_search_terms(search_term, output_dir, progress, checkpoint_data, lock, semaphore):
-
-        subdir = output_dir / Path(search_term)
-        subdir.mkdir(exist_ok=True)
-        try:
-            first_request = _do_search_request(search_term, 0)
-            first_request.raise_for_status()
-            num_found = first_request.json()["response"]["numFound"]
-        except Exception as e:
-            progress.log(f"* Error starting search for {search_term}: {e}")
-            return []
-
-        random_color = random.choice(["red", "green", "blue", "yellow", "magenta", "cyan"])
-        task = progress.add_task(f"[{random_color}] {search_term}: ", total=num_found)
-
-        all_ids = []
-        for doc in first_request.json()["response"]["docs"]:
-            corpus_id = str(doc["corpus_id"][0])
-            with open(subdir / Path(corpus_id + ".json"), "w") as f:
-                json.dump(doc, f)
-            all_ids.append(corpus_id)
-
-        progress.update(task, advance=250)
-
-        for i in range(250, num_found, 250):
-            r = _do_search_request(search_term, i)
-            try:
-                r.raise_for_status()
-
-                for doc in r.json()["response"]["docs"]:
-                    corpus_id = str(doc["corpus_id"][0])
-                    with open(subdir / Path(corpus_id + ".json"), "w") as f:
-                        json.dump(doc, f)
-                    all_ids.append(corpus_id)
-
-                progress.update(task, advance=250)
-            except Exception as e:
-                progress.log(f"\n* Error with {search_term} iteration {i // 250}. Error: {e}")
-                progress.update(task, advance=250)
-                continue
-        return all_ids
-
-    def _complete_all_terms(output_dir, progress, checkpoint_data, lock, semaphore):
-        subdir = output_dir / "all_terms"
-        subdir.mkdir(exist_ok=True)
-        try:
-            first_request = _do_all_terms_request(0)
-            first_request.raise_for_status()
-            num_found = first_request.json()["response"]["numFound"]
-        except Exception as e:
-            progress.log(f"* Error starting all terms search: {e}")
-            return []
-
-        task = progress.add_task("[white]All Terms: ", total=num_found)
-
-        all_ids = []
-        for doc in first_request.json()["response"]["docs"]:
-            corpus_id = str(doc["corpus_id"][0])
-            with open(subdir / Path(corpus_id + ".json"), "w") as f:
-                json.dump(doc, f)
-            all_ids.append(corpus_id)
-
-        progress.update(task, advance=200)
-
-        for i in range(200, num_found, 200):
-            r = _do_all_terms_request(i)
-            try:
-                r.raise_for_status()
-
-                for doc in r.json()["response"]["docs"]:
-                    corpus_id = str(doc["corpus_id"][0])
-                    with open(subdir / Path(corpus_id + ".json"), "w") as f:
-                        json.dump(doc, f)
-                    all_ids.append(corpus_id)
-
-                progress.update(task, advance=200)
-            except Exception as e:
-                progress.log(f"\n* Error with all terms iteration {i // 200}. Error: {e}")
-                progress.update(task, advance=200)
-                continue
-        return all_ids
+        return session.get(SINGLE_CORPUS_ID_REQUESTS_QUERY.format(corpus_id), timeout=5)
 
     def _complete_semantic_scholar(chunk_idx, data_chunk, output_dir, progress, checkpoint_data, lock, semaphore):
 
@@ -356,13 +240,16 @@ def get_from_titanv(source: Path, search_term: tuple[str], all_terms: bool):
 
         return checkpoint_data
 
-    async def finish_main(source, search_term, all_terms):
+    async def finish_main(source, all_terms):
+        if not source and not all_terms:
+            click.echo("Please provide a source (-s) or use --all-terms (-a).")
+            return
+
         if all_terms:
             path = _prep_output_dir("titanv_all_terms_results_v2")
-        elif not search_term:
-            path = _prep_output_dir("titanv_id_results_v2")
         else:
-            path = _prep_output_dir("titanv_search_term_results_v2")
+            path = _prep_output_dir("titanv_id_results_v2")
+
         checkpoint = path.parent / Path("titanv_checkpoint.json")
         if not checkpoint.exists():
             checkpoint.touch()
@@ -377,6 +264,7 @@ def get_from_titanv(source: Path, search_term: tuple[str], all_terms: bool):
         nchunks = 8
         checkpoint_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(nchunks)
+        checkpoint_chunks = []
 
         if source:
             source_path = Path(source)
@@ -412,23 +300,7 @@ def get_from_titanv(source: Path, search_term: tuple[str], all_terms: bool):
                         for i, chunk in enumerate(chunks)
                     ]
                 )
-        elif search_term:
-            terms = search_term if search_term else RESILIENCE_SEARCHES
-            with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-                checkpoint_chunks = await asyncio.gather(
-                    *[
-                        asyncio.to_thread(
-                            _complete_semantic_scholar_search_terms,
-                            term,
-                            path,
-                            progress,
-                            checkpoint_data,
-                            checkpoint_lock,
-                            semaphore,
-                        )
-                        for term in terms
-                    ]
-                )
+
         elif all_terms:
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 totals = await asyncio.gather(
@@ -449,4 +321,4 @@ def get_from_titanv(source: Path, search_term: tuple[str], all_terms: bool):
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source, search_term, all_terms))
+    asyncio.run(finish_main(source, all_terms))
