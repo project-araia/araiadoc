@@ -11,7 +11,7 @@ import requests
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from climpdfgetter.searches import RESILIENCE_SEARCHES
+from climpdfgetter.searches import RESILIENCE_SEARCHES, q
 from climpdfgetter.utils import _build_session, _prep_output_dir
 
 REQUESTS_QUERY = (
@@ -85,35 +85,6 @@ def _complete_all_terms_cursor(
             total_downloaded = checkpoint_data.get("total_downloaded", 0)
         except json.JSONDecodeError:
             pass
-
-    # You can keep the exact same query terms as your ALL_TERMS_QUERY
-    # but pass them as a normal q parameter.
-    q = (
-        '"Extreme Heat Climate" OR '
-        '"Extreme Cold Climate" OR '
-        '"Heat Wave Climate" OR '
-        "Drought OR "
-        '"Flooding Climate" OR '
-        '"Tropical Cyclone" OR '
-        "Hurricane OR "
-        "Wildfire OR "
-        '"Convective Storm" OR '
-        '"Sea Level Rise" OR '
-        '"Permafrost Thaw" OR '
-        '"Ocean Acidification" OR '
-        '"Carbon Dioxide Fertilizer" OR '
-        '"Rising Ocean Temperature" OR '
-        '"Snowmelt Timing" OR '
-        '"Arctic Sea Ice" OR '
-        '"Ice Storm" OR '
-        "Derecho OR "
-        "Tornado OR "
-        '"Extreme Wind" OR '
-        '"Urban Heat Island" OR '
-        '"Coastal Flooding" OR '
-        '"Extreme Rainfall" OR '
-        "Blizzard"
-    )
 
     # First request: get numFound for progress
     initial_params = {
