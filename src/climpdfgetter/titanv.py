@@ -64,6 +64,7 @@ def _complete_all_terms_cursor(
             page_index = checkpoint_data.get("page_index", 0)
             batch_index = checkpoint_data.get("batch_index", 0)
             total_downloaded = checkpoint_data.get("total_downloaded", 0)
+            progress.log(f"* Resuming from checkpoint: {total_downloaded} documents downloaded.")
         except json.JSONDecodeError:
             pass
 
@@ -248,16 +249,14 @@ def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
 
         return checkpoint_data
 
-    async def finish_main(source, search_term, all_terms, output_dir=None):
+    async def finish_main(source, all_terms, output_dir=None):
         if output_dir is not None:
             path = Path(output_dir)
             path.mkdir(parents=True, exist_ok=True)
         elif all_terms:
             path = _prep_output_dir("titanv_all_terms_results_v2")
-        elif not search_term:
-            path = _prep_output_dir("titanv_id_results_v2")
         else:
-            path = _prep_output_dir("titanv_search_term_results_v2")
+            path = _prep_output_dir("titanv_id_results_v2")
 
         checkpoint = path.parent / Path("titanv_checkpoint.json")
         if not checkpoint.exists():
