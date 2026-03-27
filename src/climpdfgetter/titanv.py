@@ -190,7 +190,15 @@ def _complete_all_terms_cursor(
 @click.command()
 @click.option("--source", "-s", nargs=1, type=click.Path(exists=True))
 @click.option("--all-terms", "-a", is_flag=True)
-def get_from_titanv(source: Path, all_terms: bool):
+@click.option(
+    "--output-dir",
+    "-o",
+    nargs=1,
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional existing or new output directory. Reuse existing all-terms directory to resume from checkpoint.",
+)
+def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
     """Provide an input dataset containing corpus IDs OR perform an "all terms" search.
 
     Use one of the options, not multiple.
@@ -240,15 +248,16 @@ def get_from_titanv(source: Path, all_terms: bool):
 
         return checkpoint_data
 
-    async def finish_main(source, all_terms):
-        if not source and not all_terms:
-            click.echo("Please provide a source (-s) or use --all-terms (-a).")
-            return
-
-        if all_terms:
+    async def finish_main(source, search_term, all_terms, output_dir=None):
+        if output_dir is not None:
+            path = Path(output_dir)
+            path.mkdir(parents=True, exist_ok=True)
+        elif all_terms:
             path = _prep_output_dir("titanv_all_terms_results_v2")
-        else:
+        elif not search_term:
             path = _prep_output_dir("titanv_id_results_v2")
+        else:
+            path = _prep_output_dir("titanv_search_term_results_v2")
 
         checkpoint = path.parent / Path("titanv_checkpoint.json")
         if not checkpoint.exists():
@@ -321,4 +330,4 @@ def get_from_titanv(source: Path, all_terms: bool):
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source, all_terms))
+    asyncio.run(finish_main(source, all_terms, output_dir))
