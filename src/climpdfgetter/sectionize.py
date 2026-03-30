@@ -29,6 +29,8 @@ unneeded_sections_no_skip_remaining = [
     "fig",
     "deleted",
     "http",
+    "et al",
+    "equation",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
@@ -190,6 +192,11 @@ def _header_is_noise(header):
     # mostly symbols / numbers
     alpha_count = len(re.findall(r"[A-Za-z]", normalized))
     if alpha_count < 2:
+        return True
+
+    # reject mojibake / decomposition artifacts (e.g. "ï¨ ï" → "i̋¨ i̋" after NFD)
+    # that inflate alpha_count with isolated letters from combining sequences
+    if not re.search(r"[A-Za-z]{2,}", normalized):
         return True
 
     if not is_string_valid(normalized):
