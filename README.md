@@ -11,16 +11,18 @@ Options:
   --help  Show this message and exit.
 
 Commands:
+  complete-semantic-scholar  Download documents from Semantic Scholar that match a given input file containing document ID.
   convert                    Convert PDFs in a given directory ``source`` to json.
   count-local                Count the number of downloaded files from a given source. Creates a checkpoint file.
   count-remote-osti          Count potentially downloadable files from OSTI, for any number of search terms. Leave blank for all.
   crawl-epa                  Asynchronously crawl EPA result pages.
   crawl-osti                 Asynchronously crawl OSTI result pages.
-  complete-semantic-scholar  Download documents from Semantic Scholar that match a given input file containing document ID.
   epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
-  section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
+  extract-refs               Extract references from JSON files in a directory.
+  get-from-titanv            Download from TitanV database or perform an all-terms search.
   get-metadata-from-database Grabs metadata from a postgresql database.
-  get-abstracts-from-solr    Grabs abstracts from a solr database.
+  section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
+  section-dataset-v2         Preprocess full-text files into header:paragraph JSON dictionaries.
 ```
 
 These will be described in more detail below.
@@ -53,60 +55,29 @@ Note that dependency resolution issues are much less likely with Pixi.
 
 ## Basic Usage
 
-### Downloading documents
+### Complete Semantic Scholar
 
-Multiple provided search terms are collected in parallel.
+```bash
+Usage: climpdf complete-semantic-scholar [OPTIONS] INPUT_FILE
 
-#### OSTI
+Options:
+  -i, --input_format [csv|checkpoint|pes2o|combined]
+  -m, --input_metadata_file PATH
+  -o, --output_format [metadata|pdf|combined]
+  -n, -nproc INTEGER
+```
 
-```Usage: climpdf crawl-osti [OPTIONS] START_YEAR STOP_YEAR```
-
-Specify the *start year* and *stop year* range for document publishing, then
-any number of `-t <term>`. For instance:
-
-```climpdf crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
-
-Notes:
-- OSTI limits search results to 1000 for each term.
-Use ```climpdf count-remote-osti [OPTIONS] START_YEAR STOP_YEAR``` to help adjust year ranges.
-- Corresponding metadata is also downloaded.
-- Run ```climpdf count-local OSTI``` between searches to determine the number of documents downloaded from OSTI, *and* update the local
-checkpoint file. The checkpoint prevents downloading duplicates.
-
-#### EPA [Needs maintenance]
-
-```Usage: climpdf crawl-epa [OPTIONS] STOP_IDX START_IDX```
-
-Specify the *stop index* and *start index* out of the search results, then any
-number of `-t <term>`, for instance:
-
-```climpdf crawl-epa 100 0 -t Flooding```
-
-
-### Counting results
-
-```Usage: climpdf count-local [OPTIONS] SOURCE```
-
-Specify a source to count the number of downloaded files. Directories prefixed with `SOURCE` are
-assumed to contain downloaded files corresponding to that source.
-
-Also creates a ```SOURCE_docs_ids.json``` in the data directory.
-This file is treated as a checkpoint file, and is referenced by ```climpdf crawl-osti``` and ```climpdf crawl-epa```.
+Given an input file containing Semantic Scholar corpus IDs, this command downloads documents. Supports CSV files with columns (`lineno`, `abstract`, `score`, `year`, `field`, `title`, `paper_id`, `authors`), `.json` checkpoint files, or pes2o directories.
 
 For instance:
 
-````bash
-$ climpdf count-local EPA
-2342
-````
+```climpdf complete-semantic-scholar paper_ids.csv```
+```climpdf complete-semantic-scholar corpus_ids.json --input_format checkpoint```
 
-### Document conversion
+### Convert documents
 
 ```bash
 Usage: climpdf convert [OPTIONS] SOURCE
-
-  Convert PDFs in a given directory ``source`` to json. If the input files are
-  of a different format, they'll first be converted to PDF.
 
 Options:
   -i, --images-tables
@@ -114,77 +85,163 @@ Options:
   -g, --grobid_service TEXT
 ```
 
-Collects downloaded files in a given directory and:
-  1. Convert non-PDF documents to PDF if eligible (png, tiff, etc.).
-  2. Extract text using [Grobid - recommended](https://github.com/kermitt2/grobid) or [Open Parse](https://github.com/Filimoa/open-parse).
-  3. [In active development] Extract images and tables from text using [Layout Parser](https://github.com/Layout-Parser/layout-parser)
-  4. Dump text to `<output_dir>.json`.
-  5. If 3. is enabled, save tables and images to a per-document directory.
+Converts PDFs in a given directory to JSON. Non-PDF documents (png, tiff, etc.) are first converted to PDF. Extracts text using [Grobid](https://github.com/kermitt2/grobid) or [Open Parse](https://github.com/Filimoa/open-parse). Optionally extracts images and tables using [Layout Parser](https://github.com/Layout-Parser/layout-parser).
 
 For instance:
 
-```climpdf convert data/EPA_2024-12-18_15:09:27``` or
-```climpdf convert data/EPA_2024-12-18_15:09:27 --grobid_service http://localhost:8080```.
+```climpdf convert data/EPA_2024-12-18_15:09:27```
+```climpdf convert data/EPA_2024-12-18_15:09:27 --grobid_service http://localhost:8080```
 
-Eligible documents are collected from subdirectories.
-
-Problematic documents are noted as-such for future conversion attempts.
-
-### Sectionizing
+### Count downloaded files
 
 ```bash
-Usage: climpdf section-dataset [OPTIONS] SOURCE
-
-  Preprocess full-text files in s2orc/grobid format into headers and subsections.
-
+Usage: climpdf count-local SOURCE
 ```
 
-This utility scans a directory for files presumably in the [s2orc](https://github.com/allenai/s2orc) format;
-that have been processed by [Grobid](https://github.com/kermitt2/grobid) as the original authors of `s2orc` did, and like
-`climpdf convert --grobid_service`.
+Counts the number of downloaded files from a given source. Directories prefixed with `SOURCE` are assumed to contain downloaded files. Also creates a `SOURCE_docs_ids.json` checkpoint file.
 
-For instance:
+```climpdf count-local EPA```
+```climpdf count-local OSTI```
+
+### Count remote OSTI results
+
+```bash
+Usage: climpdf count-remote-osti [OPTIONS] START_YEAR STOP_YEAR
+
+Options:
+  -t, --search-term TEXT  (multiple allowed)
+```
+
+Counts potentially downloadable files from OSTI for any number of search terms. Helps adjust year ranges before crawling.
+
+```climpdf count-remote-osti 2010 2025```
+```climpdf count-remote-osti 2000 2025 -t "Heat Waves" -t Tornado```
+
+### Crawl EPA [Needs maintenance]
+
+```bash
+Usage: climpdf crawl-epa STOP_IDX START_IDX
+
+Options:
+  -t, --search-term TEXT  (multiple allowed)
+```
+
+Asynchronously crawls EPA result pages. Specify the stop and start index out of search results, then any number of search terms.
+
+```climpdf crawl-epa 100 0 -t Flooding```
+
+### Crawl OSTI
+
+```bash
+Usage: climpdf crawl-osti START_YEAR [STOP_YEAR]
+
+Options:
+  -t, --search-term TEXT  (multiple allowed)
+```
+
+Asynchronously crawls OSTI result pages. Specify the start year range for document publishing, then any number of `-t <term>`. OSTI limits results to 1000 per term.
+
+```climpdf crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
+
+Use `climpdf count-remote-osti` to help adjust year ranges. Run `climpdf count-local OSTI` between searches to update the checkpoint file and prevent downloading duplicates.
+
+### EPA OCR to JSON
+
+```bash
+Usage: climpdf epa-ocr-to-json SOURCE
+```
+
+Converts EPA's OCR fulltext to similar JSON format as internal schema.
+
+```climpdf epa-ocr-to-json data/EPA_ocr_output```
+
+### Extract references
+
+```bash
+Usage: climpdf extract-refs DIRECTORY
+```
+
+Extracts references from JSON files in a directory. Looks for files matching `*_processed.json`.
+
+```climpdf extract-refs data/processed_documents```
+
+### Get from TitanV
+
+```bash
+Usage: climpdf get-from-titanv [OPTIONS]
+
+Options:
+  -s, --source PATH        Input dataset containing corpus IDs
+  -a, --all-terms          Perform an all-terms search
+  -o, --output-dir PATH    Optional output directory (resumes from checkpoint)
+```
+
+Downloads from TitanV database or performs an all-terms search. Use one option at a time.
+
+```climpdf get-from-titanv --all-terms```
+```climpdf get-from-titanv --source data/corpus_ids.json```
+
+### Get metadata from database
+
+```bash
+Usage: climpdf get-metadata-from-database SOURCE_DIR DBNAME USER PASSWORD HOST PORT TABLE_NAME
+```
+
+Associates metadata with documents from a PostgreSQL database. Entries matching the JSON schema below are expected.
+
+```climpdf get-metadata-from-database data/OSTI_documents mydb myuser mypass localhost 5432 metadata_table```
+
+### Get metadata from Semantic Scholar
+
+```bash
+Usage: climpdf get-metadata-from-semanticscholar SOURCE_DIR
+```
+
+Associates metadata with documents from Semantic Scholar.
+
+```climpdf get-metadata-from-semanticscholar data/OSTI_documents```
+
+### Sectionize dataset
+
+```bash
+Usage: climpdf section-dataset SOURCE
+
+Options:
+  --dump_rejected         Dump rejected sections
+```
+
+Preprocesses full-text files in s2orc/Grobid format into headers and subsections. Scans for titles, headers, and associated subsections. Rejects headers that are too short/long, non-English, or contain special characters.
 
 ```climpdf section-dataset data/OSTI_2024-12-18_15:09:27```
 
-The parsed documents are scanned for titles, headers, and associated subsections. A heuristic rejects headers and subsections
-that are too short, too long, aren't english, and/or contain too many special characters.
-
-Additional subsections and headers are rejected if they likely don't correspond with natural language text. For instance,
-ASCII-representations of tables are rejected.
-
-Fields without referenceable content like ``"author affiliations"``, ``"disclaimer"``, ``"acknowledgements"``, and
-others are rejected.
-
-The resulting output is a dictionary containing relevant headers as keys and subsections as values.
-
-### Metadata association
-
+### Sectionize dataset v2
 
 ```bash
-Usage: climpdf get-metadata-from-database [OPTIONS] SOURCE
+Usage: climpdf section-dataset-v2 SOURCE
 
-  Grabs metadata from a postgresql database.
+Options:
+  --dump_rejected         Dump rejected sections
 ```
 
-Given a directory of documents, this utility will attempt to associate metadata with each document from a postgresql database.
+Preprocesses full-text files into header:paragraph JSON dictionaries. Supports both legacy per-document JSON files and batched JSONL.GZ output.
 
-For instance:
+```climpdf section-dataset-v2 data/all_terms/batches```
 
-```climpdf get-metadata-from-database data/OSTI_2024-12-18_15:09:27 db_name db_user db_password hostname.addr.io 5432 table_name```
+#### JSON Schema
 
-Metadata entries matching the below schema are expected to be found in the database. The document contents are set to the "text" field of
-the below schema.
-
-### Obtaining abstracts from a SOLR database
-
-```bash
-Usage: climpdf get-abstracts-from-solr [OPTIONS] SOURCE_DIR
-
-  Grabs abstracts from a solr database.
+```python
+class ParsedDocumentSchema(BaseModel):
+    source: str = ""
+    title: str = ""
+    text: dict[str, str] = {}  # keys are section headings, values are text
+    abstract: str = ""
+    authors: list[str] | str = []
+    publisher: str = ""
+    date: int | str = 0
+    unique_id: str = ""
+    doi: str = ""
+    references: str = ""
 ```
-
-Given a directory of documents, this utility will attempt to associate abstracts with each document from a solr database.
 
 #### JSON Schema
 
