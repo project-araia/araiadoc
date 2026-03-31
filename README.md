@@ -117,7 +117,7 @@ Counts potentially downloadable files from OSTI for any number of search terms. 
 ```climpdf count-remote-osti 2010 2025```
 ```climpdf count-remote-osti 2000 2025 -t "Heat Waves" -t Tornado```
 
-### Crawl EPA [Needs maintenance]
+### Crawl EPA
 
 ```bash
 Usage: climpdf crawl-epa STOP_IDX START_IDX
@@ -227,21 +227,14 @@ Preprocesses full-text files into header:paragraph JSON dictionaries. Supports b
 
 ```climpdf section-dataset-v2 data/all_terms/batches```
 
-#### JSON Schema
+### Agent Skills
 
-```python
-class ParsedDocumentSchema(BaseModel):
-    source: str = ""
-    title: str = ""
-    text: dict[str, str] = {}  # keys are section headings, values are text
-    abstract: str = ""
-    authors: list[str] | str = []
-    publisher: str = ""
-    date: int | str = 0
-    unique_id: str = ""
-    doi: str = ""
-    references: str = ""
-```
+Agent Skills are available in the `.agents/skills` directory. Supported skills include:
+  - `crawl_epa`: Crawl EPA result pages
+  - `crawl_osti`: Crawl OSTI result pages
+  - `get_metadata_from_database`: Get metadata from database
+  - `get_from_titanv`: Get metadata from Semantic Scholar
+  - `sectionize_dataset_v2`: Sectionize dataset v2
 
 #### JSON Schema
 
