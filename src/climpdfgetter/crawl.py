@@ -61,13 +61,22 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
         verbose=True,
     )
 
-    run_config = CrawlerRunConfig(
+    search_run_config = CrawlerRunConfig(
         exclude_external_links=True,
         remove_overlay_elements=True,
         simulate_user=True,
         magic=True,
         wait_for_images=True,
-        wait_for="js:() => document.getElementById('results_header').offsetParent !== null",
+        wait_for="js:() => { const el = document.getElementById('results_header');"
+        + "return el ? el.offsetParent !== null : false; }",
+    )
+
+    doc_run_config = CrawlerRunConfig(
+        exclude_external_links=True,
+        remove_overlay_elements=True,
+        simulate_user=True,
+        magic=True,
+        wait_for_images=False,
     )
 
     async def main_epa(search_term: str, start_idx: int, stop_idx: int):
@@ -101,7 +110,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
 
                 try:
 
-                    main_result_page = await crawler.arun(url=source, config=run_config)
+                    main_result_page = await crawler.arun(url=source, config=search_run_config)
 
                     search_result_links = [
                         i
@@ -110,7 +119,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
                     ]
 
                     for doc_page in search_result_links:
-                        doc_page_result = await crawler.arun(url=doc_page["href"], config=run_config)
+                        doc_page_result = await crawler.arun(url=doc_page["href"], config=doc_run_config)
                         if doc_page_result.success:
                             soup = BeautifulSoup(doc_page_result.html, "html.parser")
 
