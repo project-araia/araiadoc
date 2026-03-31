@@ -70,7 +70,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
         wait_for="js:() => document.getElementById('results_header').offsetParent !== null",
     )
 
-    async def main_epa(stop_idx: int, start_idx: int, search_term: str):
+    async def main_epa(search_term: str, start_idx: int, stop_idx: int):
 
         assert stop_idx > start_idx
 
@@ -128,6 +128,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
                             path_to_doc = path / f"{token}.txt"
                             with path_to_doc.open("wb") as f:
                                 f.write(r.content)
+                            n_successful_crawls += 1
 
                         n_of_pages_crawled += 1
 
