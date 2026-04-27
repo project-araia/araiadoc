@@ -1,11 +1,11 @@
-# climpdfgetter
+# araiadoc
 
 A large suite of tools and scripts for downloading and processing documents for the ARAIA project.
 
-The primary utility is the `climpdf` command-line tool, with the following commands:
+The primary utility is the `araiadoc` command-line tool, with the following commands:
 
 ```bash
-Usage: climpdf [OPTIONS] COMMAND [ARGS]...
+Usage: araiadoc [OPTIONS] COMMAND [ARGS]...
 
 Options:
   --help  Show this message and exit.
@@ -32,8 +32,8 @@ The `scripts` directory contains additional tools for associating metadata with 
 ## Installation
 
 ```bash
-git clone https://github.com/project-araia/climpdfgetter.git
-cd climpdfgetter
+git clone https://github.com/project-araia/araiadoc.git
+cd araiadoc
 ```
 
 Then either:
@@ -42,7 +42,7 @@ Then either:
 
 ```bash
 curl -fsSL https://pixi.sh/install.sh | sh
-pixi shell -e climpdf
+pixi shell -e araiadoc
 ```
 
 *Or*:
@@ -58,7 +58,7 @@ Note that dependency resolution issues are much less likely with Pixi.
 ### Complete Semantic Scholar
 
 ```bash
-Usage: climpdf complete-semantic-scholar [OPTIONS] INPUT_FILE
+Usage: araiadoc complete-semantic-scholar [OPTIONS] INPUT_FILE
 
 Options:
   -i, --input_format [csv|checkpoint|pes2o|combined]
@@ -71,13 +71,13 @@ Given an input file containing Semantic Scholar corpus IDs, this command downloa
 
 For instance:
 
-```climpdf complete-semantic-scholar paper_ids.csv```
-```climpdf complete-semantic-scholar corpus_ids.json --input_format checkpoint```
+```araiadoc complete-semantic-scholar paper_ids.csv```
+```araiadoc complete-semantic-scholar corpus_ids.json --input_format checkpoint```
 
 ### Convert documents
 
 ```bash
-Usage: climpdf convert [OPTIONS] SOURCE
+Usage: araiadoc convert [OPTIONS] SOURCE
 
 Options:
   -i, --images-tables
@@ -89,24 +89,24 @@ Converts PDFs in a given directory to JSON. Non-PDF documents (png, tiff, etc.) 
 
 For instance:
 
-```climpdf convert data/EPA_2024-12-18_15:09:27```
-```climpdf convert data/EPA_2024-12-18_15:09:27 --grobid_service http://localhost:8080```
+```araiadoc convert data/EPA_2024-12-18_15:09:27```
+```araiadoc convert data/EPA_2024-12-18_15:09:27 --grobid_service http://localhost:8080```
 
 ### Count downloaded files
 
 ```bash
-Usage: climpdf count-local SOURCE
+Usage: araiadoc count-local SOURCE
 ```
 
 Counts the number of downloaded files from a given source. Directories prefixed with `SOURCE` are assumed to contain downloaded files. Also creates a `SOURCE_docs_ids.json` checkpoint file.
 
-```climpdf count-local EPA```
-```climpdf count-local OSTI```
+```araiadoc count-local EPA```
+```araiadoc count-local OSTI```
 
 ### Count remote OSTI results
 
 ```bash
-Usage: climpdf count-remote-osti [OPTIONS] START_YEAR STOP_YEAR
+Usage: araiadoc count-remote-osti [OPTIONS] START_YEAR STOP_YEAR
 
 Options:
   -t, --search-term TEXT  (multiple allowed)
@@ -114,13 +114,13 @@ Options:
 
 Counts potentially downloadable files from OSTI for any number of search terms. Helps adjust year ranges before crawling.
 
-```climpdf count-remote-osti 2010 2025```
-```climpdf count-remote-osti 2000 2025 -t "Heat Waves" -t Tornado```
+```araiadoc count-remote-osti 2010 2025```
+```araiadoc count-remote-osti 2000 2025 -t "Heat Waves" -t Tornado```
 
 ### Crawl EPA
 
 ```bash
-Usage: climpdf crawl-epa START_IDX STOP_IDX
+Usage: araiadoc crawl-epa START_IDX STOP_IDX
 
 Options:
   -t, --search-term TEXT  (multiple allowed)
@@ -128,12 +128,12 @@ Options:
 
 Asynchronously crawls EPA result pages. Specify the stop and start index out of search results, then any number of search terms.
 
-```climpdf crawl-epa 100 0 -t Flooding```
+```araiadoc crawl-epa 100 0 -t Flooding```
 
 ### Crawl OSTI
 
 ```bash
-Usage: climpdf crawl-osti START_YEAR
+Usage: araiadoc crawl-osti START_YEAR
 
 Options:
   -t, --search-term TEXT  (multiple allowed)
@@ -141,34 +141,34 @@ Options:
 
 Asynchronously crawls OSTI result pages. Specify the start year range for document publishing, then any number of `-t <term>`. OSTI limits results to 1000 per term.
 
-```climpdf crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
+```araiadoc crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
 
-Use `climpdf count-remote-osti` to help adjust year ranges. Run `climpdf count-local OSTI` between searches to update the checkpoint file and prevent downloading duplicates.
+Use `araiadoc count-remote-osti` to help adjust year ranges. Run `araiadoc count-local OSTI` between searches to update the checkpoint file and prevent downloading duplicates.
 
 ### EPA OCR to JSON
 
 ```bash
-Usage: climpdf epa-ocr-to-json SOURCE
+Usage: araiadoc epa-ocr-to-json SOURCE
 ```
 
 Converts EPA's OCR fulltext to similar JSON format as internal schema.
 
-```climpdf epa-ocr-to-json data/EPA_ocr_output```
+```araiadoc epa-ocr-to-json data/EPA_ocr_output```
 
 ### Extract references
 
 ```bash
-Usage: climpdf extract-refs DIRECTORY
+Usage: araiadoc extract-refs DIRECTORY
 ```
 
 Extracts references from JSON files in a directory. Looks for files matching `*_processed.json`.
 
-```climpdf extract-refs data/processed_documents```
+```araiadoc extract-refs data/processed_documents```
 
 ### Get from TitanV
 
 ```bash
-Usage: climpdf get-from-titanv [OPTIONS]
+Usage: araiadoc get-from-titanv [OPTIONS]
 
 Options:
   -s, --source PATH        Input dataset containing corpus IDs
@@ -178,48 +178,48 @@ Options:
 
 Downloads from TitanV database or performs an all-terms search. Use one option at a time.
 
-```climpdf get-from-titanv --all-terms```
-```climpdf get-from-titanv --source data/corpus_ids.json```
+```araiadoc get-from-titanv --all-terms```
+```araiadoc get-from-titanv --source data/corpus_ids.json```
 
 ### Get metadata from database
 
 ```bash
-Usage: climpdf get-metadata-from-database SOURCE_DIR DBNAME USER PASSWORD HOST PORT TABLE_NAME
+Usage: araiadoc get-metadata-from-database SOURCE_DIR DBNAME USER PASSWORD HOST PORT TABLE_NAME
 ```
 
 Associates metadata with documents from a PostgreSQL database. Entries matching the JSON schema below are expected.
 
-```climpdf get-metadata-from-database data/OSTI_documents mydb myuser mypass localhost 5432 metadata_table```
+```araiadoc get-metadata-from-database data/OSTI_documents mydb myuser mypass localhost 5432 metadata_table```
 
 ### Get metadata from Semantic Scholar
 
 ```bash
-Usage: climpdf get-metadata-from-semanticscholar SOURCE_DIR
+Usage: araiadoc get-metadata-from-semanticscholar SOURCE_DIR
 ```
 
 Associates metadata with documents from Semantic Scholar.
 
-```climpdf get-metadata-from-semanticscholar data/OSTI_documents```
+```araiadoc get-metadata-from-semanticscholar data/OSTI_documents```
 
 ### Sectionize dataset
 
 ```bash
-Usage: climpdf section-dataset SOURCE
+Usage: araiadoc section-dataset SOURCE
 ```
 
 Preprocesses full-text files in s2orc/Grobid format into headers and subsections. Scans for titles, headers, and associated subsections. Rejects headers that are too short/long, non-English, or contain special characters.
 
-```climpdf section-dataset data/OSTI_2024-12-18_15:09:27```
+```araiadoc section-dataset data/OSTI_2024-12-18_15:09:27```
 
 ### Sectionize dataset v2
 
 ```bash
-Usage: climpdf section-dataset-v2 SOURCE
+Usage: araiadoc section-dataset-v2 SOURCE
 ```
 
 Preprocesses full-text files into header:paragraph JSON dictionaries. Supports both legacy per-document JSON files and batched JSONL.GZ output.
 
-```climpdf section-dataset-v2 data/all_terms/batches```
+```araiadoc section-dataset-v2 data/all_terms/batches```
 
 ### Agent Skills
 
@@ -256,7 +256,7 @@ Enter the development environment with:
 
 ## Additional information
 
-``climpdf`` uses:
+``araiadoc`` uses:
 
 - [crawl4ai](https://crawl4ai.com/mkdocs/) as its primary webcrawler
 library. Downloads are at "human speeds" to try avoiding being blocked

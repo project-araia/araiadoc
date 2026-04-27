@@ -78,13 +78,6 @@ def split_and_delete_file(file_path, ids_to_extract):
         except OSError:
             return file_path, "error_delete"
 
-    # If we have no work for this file (ids_to_extract is empty),
-    # AND it was a valid file, it means all its contents were duplicates found elsewhere.
-    # So we should just delete it.
-    # BUT wait: verify that 'ids_to_extract' being empty implies we drop the file.
-    # Yes, per requirements: "Delete the original file".
-    # And if we extracted nothing, we produce 0 output files.
-
     extracted_count = 0
     errors = 0
 
@@ -105,7 +98,6 @@ def split_and_delete_file(file_path, ids_to_extract):
     if errors == 0:
         try:
             os.remove(file_path)
-            # Return 'split' status or 'deleted' if nothing was extracted
             return file_path, "split" if extracted_count > 0 else "deleted_duplicates"
         except OSError:
             return file_path, "error_delete_original"

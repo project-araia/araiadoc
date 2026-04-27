@@ -1,6 +1,6 @@
 ---
 name: section-dataset-v2
-description: Sectionize documents into header:paragraph JSON dictionaries using the climpdf tool.
+description: Sectionize documents into header:paragraph JSON dictionaries using the araiadoc tool.
 ---
 
 # `section-dataset-v2` Skill
@@ -10,7 +10,7 @@ Preprocess full-text documents into structured header:paragraph JSON dictionarie
 ## Usage
 
 ```bash
-pixi run -e climpdf climpdf section-dataset-v2 [OPTIONS] SOURCE
+pixi run -e araiadoc araiadoc section-dataset-v2 [OPTIONS] SOURCE
 ```
 
 ### Arguments
@@ -29,17 +29,17 @@ pixi run -e climpdf climpdf section-dataset-v2 [OPTIONS] SOURCE
 
 - Sectionize a directory of individual JSON files:
   ```bash
-  pixi run -e climpdf climpdf section-dataset-v2 data/titanv_documents
+  pixi run -e araiadoc araiadoc section-dataset-v2 data/titanv_documents
   ```
 
 - Process TitanV batch output (JSONL.GZ files):
   ```bash
-  pixi run -e climpdf climpdf section-dataset-v2 data/titanv_all_terms_results
+  pixi run -e araiadoc araiadoc section-dataset-v2 data/titanv_all_terms_results
   ```
 
 - Sectionize with rejected sections dump:
   ```bash
-  pixi run -e climpdf climpdf section-dataset-v2 data/documents --dump_rejected
+  pixi run -e araiadoc araiadoc section-dataset-v2 data/documents --dump_rejected
   ```
 
 ## Input Format

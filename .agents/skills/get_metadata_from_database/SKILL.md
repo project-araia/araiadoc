@@ -1,6 +1,6 @@
 ---
 name: get-metadata-from-database
-description: Associate metadata from a PostgreSQL database with sectionized documents using the climpdf tool.
+description: Associate metadata from a PostgreSQL database with sectionized documents using the araiadoc tool.
 ---
 
 # `get-metadata-from-database` Skill
@@ -10,7 +10,7 @@ Fetch metadata from a PostgreSQL database (S2ORC) and associate it with previous
 ## Usage
 
 ```bash
-pixi run -e climpdf climpdf get-metadata-from-database SOURCE_DIR DBNAME USER PASSWORD HOST PORT TABLE_NAME
+pixi run -e araiadoc araiadoc get-metadata-from-database SOURCE_DIR DBNAME USER PASSWORD HOST PORT TABLE_NAME
 ```
 
 ### Arguments
@@ -29,17 +29,17 @@ pixi run -e climpdf climpdf get-metadata-from-database SOURCE_DIR DBNAME USER PA
 
 - Retrieve metadata from a local database:
   ```bash
-  pixi run -e climpdf climpdf get-metadata-from-database data/documents mydb user secret localhost 5432 metadata
+  pixi run -e araiadoc araiadoc get-metadata-from-database data/documents mydb user secret localhost 5432 metadata
   ```
 
 - Connect to a remote database with custom port:
   ```bash
-  pixi run -e climpdf climpdf get-metadata-from-database data/sectionized_output s2orc_db admin password 5432 postgres paper_metadata
+  pixi run -e araiadoc araiadoc get-metadata-from-database data/sectionized_output s2orc_db admin password 5432 postgres paper_metadata
   ```
 
 - Use a specific table name:
   ```bash
-  pixi run -e climpdf climpdf get-metadata-from-database ./output s2orc user pass localhost 5432 s2orc_papers
+  pixi run -e araiadoc araiadoc get-metadata-from-database ./output s2orc user pass localhost 5432 s2orc_papers
   ```
 
 ## How It Works
