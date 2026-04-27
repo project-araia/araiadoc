@@ -251,7 +251,7 @@ def main():
         "92168237_processed.json",  # Refs missed
     ]
 
-    base_dir = Path("/Users/jnavarro/callm/climpdfgetter/data/600k_titanv_results_12-1_sectionized_no_rejected")
+    base_dir = Path("/Users/jnavarro/callm/araiadoc/data/600k_titanv_results_12-1_sectionized_no_rejected")
 
     print("=== TESTING PROBLEM FILES ===")
     for fname in problem_files:

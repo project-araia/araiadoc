@@ -9,8 +9,8 @@ import click
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from climpdfgetter.searches import q
-from climpdfgetter.utils import _build_session, _prep_output_dir
+from araiadoc.searches import q
+from araiadoc.utils import _build_session, _prep_output_dir
 
 SINGLE_CORPUS_ID_REQUESTS_QUERY = (
     "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select?df=corpus_id&" + "indent=true&q.op=OR&q={}&useParams="

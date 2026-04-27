@@ -1,6 +1,6 @@
 ---
 name: crawl-osti
-description: Asynchronously crawl OSTI (Office of Scientific and Technical Information) result pages using the climpdf tool.
+description: Asynchronously crawl OSTI (Office of Scientific and Technical Information) result pages using the araiadoc tool.
 ---
 
 # `crawl-osti` Skill
@@ -10,15 +10,14 @@ Asynchronously crawl the OSTI (DOE Office of Scientific and Technical Informatio
 ## Usage
 
 ```bash
-pixi run -e climpdf climpdf crawl-osti [OPTIONS] START_YEAR [STOP_YEAR]
+pixi run -e araiadoc araiadoc crawl-osti [OPTIONS] START_YEAR
 ```
 
 ### Arguments
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `START_YEAR` | integer | required | The starting year for document publication date |
-| `STOP_YEAR` | integer | 2025 | The ending year for document publication date |
+| `START_YEAR` | integer | required | The starting year for document publication date (stop year is fixed at 2025) |
 
 ### Options
 
@@ -28,19 +27,19 @@ pixi run -e climpdf climpdf crawl-osti [OPTIONS] START_YEAR [STOP_YEAR]
 
 ## Examples
 
-- Crawl OSTI for "Blizzard" documents from 2010 to 2025:
+- Crawl OSTI for "Blizzard" documents from 2010:
   ```bash
-  pixi run -e climpdf climpdf crawl-osti 2010 2025 -t Blizzard
+  pixi run -e araiadoc araiadoc crawl-osti 2010 -t Blizzard
   ```
 
-- Crawl for multiple climate terms from 2000 to present:
+- Crawl for multiple climate terms from 2000:
   ```bash
-  pixi run -e climpdf climpdf crawl-osti 2000 -t "Heat Wave" -t Flooding -t Drought
+  pixi run -e araiadoc araiadoc crawl-osti 2000 -t "Heat Wave" -t Flooding -t Drought
   ```
 
-- Search only recent documents (2020-2025):
+- Search only recent documents (from 2020):
   ```bash
-  pixi run -e climpdf climpdf crawl-osti 2020 2025 -t "Sea Level Rise"
+  pixi run -e araiadoc araiadoc crawl-osti 2020 -t "Sea Level Rise"
   ```
 
 ## How It Works
@@ -54,7 +53,7 @@ pixi run -e climpdf climpdf crawl-osti [OPTIONS] START_YEAR [STOP_YEAR]
 
 ## Output
 
-- **Location**: `data/OSTI_{START_YEAR}_{STOP_YEAR}_{SEARCH_TERM}/`
+- **Location**: `data/OSTI_{START_YEAR}_{SEARCH_TERM}/`
 - **Files**:
   - `OSTI.GOV-metadata.json` - Full API response with document metadata
   - `{TOKEN}.pdf` - Downloaded full-text PDFs

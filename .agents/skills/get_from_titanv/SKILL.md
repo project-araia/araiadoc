@@ -1,6 +1,6 @@
 ---
 name: get-from-titanv
-description: Download documents from TitanV (S2ORC) database or perform an all-terms search using the climpdf tool.
+description: Download documents from TitanV (S2ORC) database or perform an all-terms search using the araiadoc tool.
 ---
 
 # `get-from-titanv` Skill
@@ -10,7 +10,7 @@ Download documents from the S2ORC (Semantic Scholar Open Research Corpus) databa
 ## Usage
 
 ```bash
-pixi run -e climpdf climpdf get-from-titanv [OPTIONS]
+pixi run -e araiadoc araiadoc get-from-titanv [OPTIONS]
 ```
 
 ### Options
@@ -25,22 +25,22 @@ pixi run -e climpdf climpdf get-from-titanv [OPTIONS]
 
 - Download documents using corpus IDs from a JSON file:
   ```bash
-  pixi run -e climpdf climpdf get-from-titanv --source data/corpus_ids.json
+  pixi run -e araiadoc araiadoc get-from-titanv --source data/corpus_ids.json
   ```
 
 - Download documents from a CSV file (with header row):
   ```bash
-  pixi run -e climpdf climpdf get-from-titanv --source data/papers.csv
+  pixi run -e araiadoc araiadoc get-from-titanv --source data/papers.csv
   ```
 
 - Perform an all-terms climate search:
   ```bash
-  pixi run -e climpdf climpdf get-from-titanv --all-terms
+  pixi run -e araiadoc araiadoc get-from-titanv --all-terms
   ```
 
 - Resume an all-terms search from checkpoint:
   ```bash
-  pixi run -e climpdf climpdf get-from-titanv --all-terms --output-dir data/titanv_all_terms_results_v2_2024-01-15/
+  pixi run -e araiadoc araiadoc get-from-titanv --all-terms --output-dir data/titanv_all_terms_results_v2_2024-01-15/
   ```
 
 ## All Terms Search Coverage

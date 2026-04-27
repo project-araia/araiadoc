@@ -13,15 +13,15 @@ from crawl4ai import AsyncWebCrawler
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
-from climpdfgetter.convert import convert, epa_ocr_to_json
-from climpdfgetter.extract_references import extract_refs
-from climpdfgetter.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
-from climpdfgetter.schema import ParsedDocumentSchema
-from climpdfgetter.searches import RESILIENCE_SEARCHES
-from climpdfgetter.sectionize import section_dataset, section_dataset_v2
-from climpdfgetter.sources import source_mapping
-from climpdfgetter.titanv import get_from_titanv
-from climpdfgetter.utils import (
+from araiadoc.convert import convert, epa_ocr_to_json
+from araiadoc.extract_references import extract_refs
+from araiadoc.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
+from araiadoc.schema import ParsedDocumentSchema
+from araiadoc.searches import RESILIENCE_SEARCHES
+from araiadoc.sectionize import section_dataset, section_dataset_v2
+from araiadoc.sources import source_mapping
+from araiadoc.titanv import get_from_titanv
+from araiadoc.utils import (
     _collect_from_path,
     _find_project_root,
     _get_configs,
@@ -45,7 +45,7 @@ signal.signal(signal.SIGALRM, timeout_handler)
 def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
     """Asynchronously crawl EPA result pages:
 
-    `climpdf crawl-epa 0 2000 -t "Heat Waves" -t Flooding`
+    `araiadoc crawl-epa 0 2000 -t "Heat Waves" -t Flooding`
 
     """
     import asyncio
@@ -174,7 +174,7 @@ def _conversion(path):
 def crawl_osti(start_year: int, search_term: list[str]):
     """Asynchronously crawl OSTI result pages:
 
-    `climpdf crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
+    `araiadoc crawl-osti 2000 2005 -t "Heat Waves" -t Flooding`
 
     """
     import asyncio
