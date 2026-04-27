@@ -120,7 +120,7 @@ Counts potentially downloadable files from OSTI for any number of search terms. 
 ### Crawl EPA
 
 ```bash
-Usage: climpdf crawl-epa STOP_IDX START_IDX
+Usage: climpdf crawl-epa START_IDX STOP_IDX
 
 Options:
   -t, --search-term TEXT  (multiple allowed)
@@ -133,7 +133,7 @@ Asynchronously crawls EPA result pages. Specify the stop and start index out of 
 ### Crawl OSTI
 
 ```bash
-Usage: climpdf crawl-osti START_YEAR [STOP_YEAR]
+Usage: climpdf crawl-osti START_YEAR
 
 Options:
   -t, --search-term TEXT  (multiple allowed)
@@ -205,9 +205,6 @@ Associates metadata with documents from Semantic Scholar.
 
 ```bash
 Usage: climpdf section-dataset SOURCE
-
-Options:
-  --dump_rejected         Dump rejected sections
 ```
 
 Preprocesses full-text files in s2orc/Grobid format into headers and subsections. Scans for titles, headers, and associated subsections. Rejects headers that are too short/long, non-English, or contain special characters.
@@ -218,9 +215,6 @@ Preprocesses full-text files in s2orc/Grobid format into headers and subsections
 
 ```bash
 Usage: climpdf section-dataset-v2 SOURCE
-
-Options:
-  --dump_rejected         Dump rejected sections
 ```
 
 Preprocesses full-text files into header:paragraph JSON dictionaries. Supports both legacy per-document JSON files and batched JSONL.GZ output.
@@ -233,7 +227,7 @@ Agent Skills are available in the `.agents/skills` directory. Supported skills i
   - `crawl_epa`: Crawl EPA result pages
   - `crawl_osti`: Crawl OSTI result pages
   - `get_metadata_from_database`: Get metadata from database
-  - `get_from_titanv`: Get metadata from Semantic Scholar
+  - `get_from_titanv`: Download from TitanV (S2ORC) database
   - `sectionize_dataset_v2`: Sectionize dataset v2
 
 #### JSON Schema

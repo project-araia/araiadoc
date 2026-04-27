@@ -539,8 +539,7 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
 
 @click.command()
 @click.argument("source", nargs=1)
-@click.option("--dump_rejected", "rejected", is_flag=True, default=False)
-def section_dataset(source: Path, rejected: bool = False):
+def section_dataset(source: Path):
     """Preprocess full-text files in s2orc/pes2o format into headers and subsections.
 
     NOTE: Each file is assumed to contain one result.
@@ -551,8 +550,7 @@ def section_dataset(source: Path, rejected: bool = False):
 
 @click.command()
 @click.argument("source", nargs=1)
-@click.option("--dump_rejected", "rejected", is_flag=True, default=False)
-def section_dataset_v2(source: Path, rejected: bool = False):
+def section_dataset_v2(source: Path):
     """Preprocess full-text files into header:paragraph JSON dictionaries.
 
     Supports both:

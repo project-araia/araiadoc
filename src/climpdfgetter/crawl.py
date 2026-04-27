@@ -15,7 +15,7 @@ from semanticscholar import AsyncSemanticScholar
 
 from climpdfgetter.convert import convert, epa_ocr_to_json
 from climpdfgetter.extract_references import extract_refs
-from climpdfgetter.metadata import get_metadata_from_database
+from climpdfgetter.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
 from climpdfgetter.schema import ParsedDocumentSchema
 from climpdfgetter.searches import RESILIENCE_SEARCHES
 from climpdfgetter.sectionize import section_dataset, section_dataset_v2
@@ -703,6 +703,7 @@ main.add_command(count_remote_osti)
 main.add_command(section_dataset)
 main.add_command(section_dataset_v2)
 main.add_command(get_metadata_from_database)
+main.add_command(get_metadata_from_semanticscholar)
 main.add_command(extract_refs)
 main.add_command(get_from_titanv)
 
