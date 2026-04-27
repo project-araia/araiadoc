@@ -1,0 +1,28 @@
+"use client";
+
+import { CrawlEpa } from "@/components/tools/CrawlEpa";
+import { CrawlOsti } from "@/components/tools/CrawlOsti";
+import { CompleteSemanticScholar } from "@/components/tools/CompleteSemanticScholar";
+import { Convert } from "@/components/tools/Convert";
+import { GetFromTitanv } from "@/components/tools/GetFromTitanv";
+
+export default function DashboardPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold">Pipeline Tools</h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Configure and run araiadoc tools. Logs stream in real time below each job.
+        </p>
+      </div>
+
+      <div className="grid gap-4">
+        <CrawlEpa />
+        <CrawlOsti />
+        <CompleteSemanticScholar />
+        <Convert />
+        <GetFromTitanv />
+      </div>
+    </div>
+  );
+}
