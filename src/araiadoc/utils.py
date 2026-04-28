@@ -184,6 +184,7 @@ def _prep_output_dir(name: str) -> Path:
     single_crawl_dir = name + "_" + datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     path = Path(_find_project_root()) / Path("data/" + single_crawl_dir)
     path.mkdir(parents=True, exist_ok=True)
+    click.echo(f"Output directory: {path}")
     return path
 
 

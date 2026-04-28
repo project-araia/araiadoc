@@ -18,6 +18,7 @@ interface ToolCardProps {
   tool: string;
   children: (props: { disabled: boolean }) => React.ReactNode;
   buildArgs: () => string[] | null; // returns null if validation fails
+  onFinish?: (exitCode: number, jobId: string) => void;
 }
 
 export function ToolCard({
@@ -26,6 +27,7 @@ export function ToolCard({
   tool,
   children,
   buildArgs,
+  onFinish,
 }: ToolCardProps) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -60,11 +62,12 @@ export function ToolCard({
     }
   };
 
-  const handleFinish = (exitCode: number) => {
+  const handleFinish = (exitCode: number, finishedJobId: string) => {
     setIsRunning(false);
     if (exitCode !== 0) {
       setError(`Process exited with code ${exitCode}`);
     }
+    onFinish?.(exitCode, finishedJobId);
   };
 
   return (

@@ -21,7 +21,7 @@ export function CrawlOsti() {
     }
 
     const args = [year];
-    if (term) args.push("--term", term);
+    if (term) args.push("--search-term", term);
     return args;
   };
 

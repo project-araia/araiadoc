@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 
 interface LogViewerProps {
   jobId: string;
-  onFinish?: (exitCode: number) => void;
+  onFinish?: (exitCode: number, jobId: string) => void;
 }
 
 export function LogViewer({ jobId, onFinish }: LogViewerProps) {
@@ -26,7 +26,7 @@ export function LogViewer({ jobId, onFinish }: LogViewerProps) {
       const code = parseInt((e as MessageEvent).data ?? "-1", 10);
       setExitCode(code);
       setStatus(code === 0 ? "done" : "error");
-      onFinish?.(code);
+      onFinish?.(code, jobId);
       es.close();
     });
 
