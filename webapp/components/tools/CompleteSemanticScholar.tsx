@@ -4,13 +4,9 @@ import { useRef, useState } from "react";
 import { ToolCard } from "@/components/ToolCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
+const selectClass =
+  "h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function CompleteSemanticScholar() {
   const inputFileRef = useRef<HTMLInputElement>(null);
@@ -57,36 +53,30 @@ export function CompleteSemanticScholar() {
           </div>
           <div className="space-y-1">
             <Label htmlFor="ss-input-format" className="text-xs">Input format</Label>
-            <Select
+            <select
+              id="ss-input-format"
               value={inputFormat}
-              onValueChange={(v) => { if (v !== null) setInputFormat(v); }}
+              onChange={(e) => setInputFormat(e.target.value)}
               disabled={disabled}
+              className={selectClass}
             >
-              <SelectTrigger id="ss-input-format" className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="csv">csv</SelectItem>
-                <SelectItem value="json">json</SelectItem>
-                <SelectItem value="txt">txt</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="csv">csv</option>
+              <option value="json">json</option>
+              <option value="txt">txt</option>
+            </select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="ss-output-format" className="text-xs">Output format</Label>
-            <Select
+            <select
+              id="ss-output-format"
               value={outputFormat}
-              onValueChange={(v) => { if (v !== null) setOutputFormat(v); }}
+              onChange={(e) => setOutputFormat(e.target.value)}
               disabled={disabled}
+              className={selectClass}
             >
-              <SelectTrigger id="ss-output-format" className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="json">json</SelectItem>
-                <SelectItem value="pdf">pdf</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="json">json</option>
+              <option value="pdf">pdf</option>
+            </select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="ss-nproc" className="text-xs">Workers (optional)</Label>

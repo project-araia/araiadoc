@@ -31,8 +31,6 @@ export async function POST(req: NextRequest) {
     "crawl-epa",
     "crawl-osti",
     "complete-semantic-scholar",
-    "convert",
-    "get-from-titanv",
   ];
 
   if (!allowedTools.includes(tool)) {

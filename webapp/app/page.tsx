@@ -3,8 +3,7 @@
 import { CrawlEpa } from "@/components/tools/CrawlEpa";
 import { CrawlOsti } from "@/components/tools/CrawlOsti";
 import { CompleteSemanticScholar } from "@/components/tools/CompleteSemanticScholar";
-import { Convert } from "@/components/tools/Convert";
-import { GetFromTitanv } from "@/components/tools/GetFromTitanv";
+import { TitanvSearch } from "@/components/tools/TitanvSearch";
 
 export default function DashboardPage() {
   return (
@@ -20,8 +19,7 @@ export default function DashboardPage() {
         <CrawlEpa />
         <CrawlOsti />
         <CompleteSemanticScholar />
-        <Convert />
-        <GetFromTitanv />
+        <TitanvSearch />
       </div>
     </div>
   );

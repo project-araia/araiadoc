@@ -15,6 +15,11 @@ export function LogViewer({ jobId, onFinish }: LogViewerProps) {
   const [exitCode, setExitCode] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Keep a stable ref to onFinish so the EventSource effect doesn't
+  // tear down and reconnect every time the parent re-renders.
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
+
   useEffect(() => {
     const es = new EventSource(`/api/logs/${jobId}`);
 
@@ -26,7 +31,7 @@ export function LogViewer({ jobId, onFinish }: LogViewerProps) {
       const code = parseInt((e as MessageEvent).data ?? "-1", 10);
       setExitCode(code);
       setStatus(code === 0 ? "done" : "error");
-      onFinish?.(code, jobId);
+      onFinishRef.current?.(code, jobId);
       es.close();
     });
 
@@ -36,7 +41,7 @@ export function LogViewer({ jobId, onFinish }: LogViewerProps) {
     };
 
     return () => es.close();
-  }, [jobId, onFinish]);
+  }, [jobId]);
 
   // Auto-scroll to bottom whenever new lines arrive
   useEffect(() => {
