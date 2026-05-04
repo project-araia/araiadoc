@@ -15,13 +15,14 @@ const ROWS_PER_PAGE = 1000;
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const categoriesParam = searchParams.get("categories") ?? "";
+  const relevance = searchParams.get("relevance") ?? "default";
 
   const categoryIds = categoriesParam
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const query = buildQuery(categoryIds);
+  const query = buildQuery(categoryIds, relevance);
   if (!query) {
     return new Response("No valid categories selected", { status: 400 });
   }
