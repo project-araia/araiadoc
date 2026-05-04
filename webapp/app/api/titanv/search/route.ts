@@ -33,6 +33,7 @@ export interface SearchResult {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const categoriesParam = searchParams.get("categories") ?? "";
+  const relevance = searchParams.get("relevance") ?? "default";
   const rows = Math.min(parseInt(searchParams.get("rows") ?? "20", 10), 100);
   const start = parseInt(searchParams.get("start") ?? "0", 10);
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const query = buildQuery(categoryIds);
+  const query = buildQuery(categoryIds, relevance);
   if (!query) {
     return NextResponse.json({ error: "No valid categories selected" }, { status: 400 });
   }

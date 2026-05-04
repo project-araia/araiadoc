@@ -11,11 +11,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CATEGORIES, LARGE_RESULT_THRESHOLD } from "@/lib/titanvQueries";
+import {
+  CATEGORIES,
+  LARGE_RESULT_THRESHOLD,
+  RELEVANCE_FILTERS,
+} from "@/lib/titanvQueries";
 import type { SearchResult } from "@/app/api/titanv/search/route";
+
+const selectClass =
+  "h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function TitanvSearch() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [relevanceFilter, setRelevanceFilter] = useState("default");
   const [isSearching, setIsSearching] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +49,7 @@ export function TitanvSearch() {
     try {
       const params = new URLSearchParams({
         categories: Array.from(selected).join(","),
+        relevance: relevanceFilter,
         rows: "20",
       });
       const res = await fetch(`/api/titanv/search?${params}`);
@@ -58,8 +67,12 @@ export function TitanvSearch() {
   };
 
   const downloadUrl = result
-    ? `/api/titanv/download?categories=${Array.from(selected).join(",")}`
+    ? `/api/titanv/download?categories=${Array.from(selected).join(",")}&relevance=${encodeURIComponent(relevanceFilter)}`
     : null;
+
+  const selectedRelevance =
+    RELEVANCE_FILTERS.find((filter) => filter.id === relevanceFilter) ??
+    RELEVANCE_FILTERS[0];
 
   const formatAuthors = (authors: string[]) => {
     if (authors.length === 0) return "—";
@@ -85,24 +98,48 @@ export function TitanvSearch() {
 
       <CardContent className="space-y-4">
         {/* Category checkboxes */}
-        <div>
-          <p className="text-xs text-muted-foreground mb-2">Select categories (OR-combined)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
-            {CATEGORIES.map((cat) => (
-              <label
-                key={cat.id}
-                className="flex items-center gap-2 cursor-pointer select-none"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(cat.id)}
-                  onChange={() => toggle(cat.id)}
-                  disabled={isSearching}
-                  className="size-4 rounded border border-input bg-transparent accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                />
-                <span className="text-xs leading-none">{cat.label}</span>
-              </label>
-            ))}
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Select categories (OR-combined)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+              {CATEGORIES.map((cat) => (
+                <label
+                  key={cat.id}
+                  className="flex items-center gap-2 cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(cat.id)}
+                    onChange={() => toggle(cat.id)}
+                    disabled={isSearching}
+                    className="size-4 rounded border border-input bg-transparent accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="text-xs leading-none">{cat.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+            <div>
+              <p className="text-xs font-medium">Advanced relevance filter</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Narrow results to a specific context. The default keeps the existing broad climate filter.
+              </p>
+            </div>
+            <select
+              value={relevanceFilter}
+              onChange={(e) => setRelevanceFilter(e.target.value)}
+              disabled={isSearching}
+              className={selectClass}
+            >
+              {RELEVANCE_FILTERS.map((filter) => (
+                <option key={filter.id} value={filter.id}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">{selectedRelevance.description}</p>
           </div>
         </div>
 

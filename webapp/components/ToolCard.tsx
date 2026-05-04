@@ -62,6 +62,21 @@ export function ToolCard({
     }
   };
 
+  const handleCancel = async () => {
+    if (!jobId) return;
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to cancel job");
+    }
+  };
+
   const handleFinish = (exitCode: number, finishedJobId: string) => {
     setIsRunning(false);
     if (exitCode !== 0) {
@@ -93,14 +108,26 @@ export function ToolCard({
           </p>
         )}
 
-        <Button
-          onClick={handleRun}
-          disabled={isRunning}
-          className="w-full"
-          size="sm"
-        >
-          {isRunning ? "Running..." : "Run"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleRun}
+            disabled={isRunning}
+            className="flex-1"
+            size="sm"
+          >
+            {isRunning ? "Running..." : "Run"}
+          </Button>
+          {isRunning && (
+            <Button
+              onClick={handleCancel}
+              variant="destructive"
+              size="sm"
+              className="px-6"
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
 
         {jobId && (
           <LogViewer key={jobId} jobId={jobId} onFinish={handleFinish} />
