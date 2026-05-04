@@ -3,7 +3,7 @@ dependencies = [
     "openparse>=0.7.0,<0.8",
     "layoutparser>=0.3.4,<0.4",
     "grobid-client-python>=0.1.4,<0.2",
-    "semanticscholar>=0.11.0,<0.12",
+    "semanticscholar>=0.12.0,<0.13",
     "crawl4ai>=0.8.5,<0.9",
 ]
 
