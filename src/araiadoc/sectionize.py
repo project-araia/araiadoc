@@ -31,6 +31,7 @@ unneeded_sections_no_skip_remaining = [
     "http",
     "et al",
     "equation",
+    "â¢",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
