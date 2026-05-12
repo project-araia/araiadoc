@@ -9,7 +9,7 @@ import click
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from araiadoc.searches import q
+from araiadoc.searches import q, q2_chunks
 from araiadoc.utils import _build_session, _prep_output_dir
 
 SINGLE_CORPUS_ID_REQUESTS_QUERY = (
@@ -23,26 +23,35 @@ TITANV_SELECT_URL = "http://titanv.gss.anl.gov:8983/solr/s2orc_corpus/select"
 def _complete_all_terms_cursor(
     output_dir: Path,
     progress,
+    query_text: str,
+    search_name: str,
     rows: int = 1000,
     flush_every_pages: int = 25,
+    seen_ids: set | None = None,
 ):
     """
-    Download all matching Solr documents using cursor-based pagination and write them
+    Download matching Solr documents using cursor-based pagination and write them
     to compressed JSONL batches.
+
+    If ``seen_ids`` is provided (a shared set), any document whose corpus_id is
+    already in the set is skipped and the set is updated with newly-written ids.
+    This enables cross-chunk deduplication when the same output directory is
+    reused across multiple sub-queries.
 
     Output layout:
       output_dir/
-        all_terms/
+        <search_name>/
           batches/
             batch_000001.jsonl.gz
-            batch_000002.jsonl.gz
             ...
           ids.txt
           checkpoint.json
     """
+    if seen_ids is None:
+        seen_ids = set()
     session = _build_session()
 
-    subdir = output_dir / "all_terms"
+    subdir = output_dir / search_name
     subdir.mkdir(exist_ok=True)
 
     batch_dir = subdir / "batches"
@@ -73,7 +82,7 @@ def _complete_all_terms_cursor(
         "df": "paragraph",
         "indent": "true",
         "q.op": "OR",
-        "q": q,
+        "q": query_text,
         "rows": rows,
         "sort": "id asc",  # replace if needed with true unique sort field
         "cursorMark": cursor_mark,
@@ -85,7 +94,9 @@ def _complete_all_terms_cursor(
     payload = r.json()
 
     num_found = payload["response"]["numFound"]
-    task = progress.add_task("[white]All Terms: ", total=num_found, completed=total_downloaded)
+    task = progress.add_task(
+        f"[white]{search_name.replace('_', ' ').title()}: ", total=num_found, completed=total_downloaded
+    )
 
     pending_docs = []
     pending_ids = []
@@ -95,7 +106,7 @@ def _complete_all_terms_cursor(
             "df": "paragraph",
             "indent": "true",
             "q.op": "OR",
-            "q": q,
+            "q": query_text,
             "rows": rows,
             "sort": "id asc",  # replace if needed
             "cursorMark": cursor_mark,
@@ -119,8 +130,15 @@ def _complete_all_terms_cursor(
             progress.log("* No more docs returned; stopping.")
             break
 
-        pending_docs.extend(docs)
-        pending_ids.extend(str(doc["corpus_id"][0]) for doc in docs if "corpus_id" in doc)
+        for doc in docs:
+            if "corpus_id" not in doc:
+                continue
+            cid = str(doc["corpus_id"][0])
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            pending_docs.append(doc)
+            pending_ids.append(cid)
 
         page_index += 1
         total_downloaded += len(docs)
@@ -190,23 +208,20 @@ def _complete_all_terms_cursor(
 
 @click.command()
 @click.option("--source", "-s", nargs=1, type=click.Path(exists=True))
-@click.option("--all-terms", "-a", is_flag=True)
+@click.option("--all-weather", "-a", is_flag=True)
+@click.option("--all-utility", "-u", is_flag=True)
 @click.option(
     "--output-dir",
     "-o",
     nargs=1,
     type=click.Path(path_type=Path),
     default=None,
-    help="Optional existing or new output directory. Reuse existing all-terms directory to resume from checkpoint.",
+    help="Optional existing or new output directory.",
 )
-def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
-    """Provide an input dataset containing corpus IDs OR perform an "all terms" search.
+def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_dir: Path | None):
+    """Provide an input dataset containing corpus IDs OR perform a pre-defined search.
 
     Use one of the options, not multiple.
-
-    Args:
-        source (Path): Path to input dataset.
-        all_terms (bool): Whether to perform the pre-defined "all terms" search.
     """
 
     session = _build_session()
@@ -249,12 +264,14 @@ def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
 
         return checkpoint_data
 
-    async def finish_main(source, all_terms, output_dir=None):
+    async def finish_main(source, all_weather, all_utility, output_dir=None):
         if output_dir is not None:
             path = Path(output_dir)
             path.mkdir(parents=True, exist_ok=True)
-        elif all_terms:
-            path = _prep_output_dir("titanv_all_terms_results_v2")
+        elif all_weather:
+            path = _prep_output_dir("titanv_all_weather_results")
+        elif all_utility:
+            path = _prep_output_dir("titanv_all_utility_results")
         else:
             path = _prep_output_dir("titanv_id_results_v2")
 
@@ -309,18 +326,32 @@ def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
                     ]
                 )
 
-        elif all_terms:
+        elif all_weather or all_utility:
+            search_name = "all_weather" if all_weather else "all_utility"
+
+            if all_weather:
+                queries = [q]
+            else:
+                queries = q2_chunks
+
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-                totals = await asyncio.gather(
-                    asyncio.to_thread(
+                seen_ids: set = set()
+                total = 0
+                for chunk_idx, query_text in enumerate(queries, start=1):
+                    if len(queries) > 1:
+                        progress.log(f"* Running sub-query {chunk_idx}/{len(queries)} ...")
+                    chunk_total = await asyncio.to_thread(
                         _complete_all_terms_cursor,
                         path,
                         progress,
+                        query_text,
+                        search_name,
                         200,  # rows
                         50,  # flush_every_pages
+                        seen_ids,
                     )
-                )
-                progress.log(f"\n* Found {sum(totals)} documents.")
+                    total += chunk_total
+                progress.log(f"\n* Found {total} unique documents across {len(queries)} sub-queries.")
             return
 
         output_checkpoint_data = []
@@ -329,4 +360,4 @@ def get_from_titanv(source: Path, all_terms: bool, output_dir: Path | None):
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source, all_terms, output_dir))
+    asyncio.run(finish_main(source, all_weather, all_utility, output_dir))
