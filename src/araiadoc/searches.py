@@ -213,10 +213,92 @@ counts_init = {
     "Blizzard": 2326,
 }
 
-q2 = """
-(
-  (
-    "electric utility" OR
+# q2 is split into URL-safe chunks (each ~5-8k encoded chars) to avoid HTTP 414.
+# titanv.py iterates over all chunks and deduplicates results by corpus_id.
+_Q2_AND_BLOCK = """(
+  "electricity" OR
+  "electric power" OR
+  "power system" OR
+  "power grid" OR
+  "energy system" OR
+  "electric system" OR
+  "electricity grid" OR
+  "electric grid" OR
+  "electric utility" OR
+  "energy infrastructure" OR
+  "generation infrastructure" OR
+  "generation asset" OR
+  "transmission infrastructure" OR
+  "transmission system" OR
+  "transmission asset" OR
+  "distribution infrastructure" OR
+  "distribution system" OR
+  "distribution asset" OR
+  "substation" OR
+  "electric service" OR
+  "megawatt" OR
+  "kilowatt" OR
+  "voltage" OR
+  "service territory"
+)"""
+
+_Q2_NOT_BLOCK = """(
+  "protein structure" OR
+  "gene expression" OR
+  "amino acid" OR
+  "cell signaling" OR
+  "neural circuit" OR
+  "synaptic" OR
+  "genome" OR
+  "genomic" OR
+  "transcriptome" OR
+  "metabolome" OR
+  "clinical trial" OR
+  "randomized controlled trial" OR
+  "patient outcome" OR
+  "drug delivery" OR
+  "pharmaceutical" OR
+  "oncology" OR
+  "tumor" OR
+  "pathogen" OR
+
+  "chemical reactor" OR
+  "polymerization" OR
+  "distillation column" OR
+  "catalytic cracking" OR
+  "reaction kinetics" OR
+  "molar concentration" OR
+
+  "stellar" OR
+  "galactic" OR
+  "exoplanet" OR
+  "black hole" OR
+  "neutron star" OR
+  "dark matter" OR
+  "dark energy" OR
+  "redshift" OR
+
+  "hadron" OR
+  "quark" OR
+  "lepton" OR
+  "boson" OR
+  "particle accelerator" OR
+  "collider" OR
+
+  "thin film deposition" OR
+  "sputter" OR
+  "epitaxial growth" OR
+  "nanoparticle synthesis" OR
+  "quantum dot"
+)"""
+
+
+def _q2_chunk(or_block: str) -> str:
+    return f"(\n{or_block}\n)\nAND\n{_Q2_AND_BLOCK}\nNOT\n{_Q2_NOT_BLOCK}"
+
+
+# Chunk 1: Utility types (G1) + Grid infrastructure (G2)
+_Q2_CHUNK_1_OR = """(
     "electric cooperative" OR
     "electric co-op" OR
     "rural electric" OR
@@ -225,7 +307,6 @@ q2 = """
     "municipal electric" OR
     "public utility" OR
     "public power" OR
-    "investor-owned utility" OR
     "investor owned utility" OR
     "power utility" OR
     "energy utility" OR
@@ -235,7 +316,6 @@ q2 = """
     "utility operations" OR
     "utility infrastructure" OR
     "utility planning" OR
-    "load-serving entity" OR
     "load serving entity" OR
     "distribution utility" OR
     "vertically integrated utility" OR
@@ -244,16 +324,10 @@ q2 = """
   )
   OR
   (
-    "power grid" OR
-    "electric grid" OR
     "electrical grid" OR
-    "electricity grid" OR
     "transmission line" OR
-    "transmission system" OR
     "transmission network" OR
-    "transmission infrastructure" OR
     "distribution line" OR
-    "distribution system" OR
     "distribution network" OR
     "distribution feeder" OR
     "overhead line" OR
@@ -277,7 +351,6 @@ q2 = """
     "reconductoring" OR
     "grid hardening" OR
     "undergrounding" OR
-    "substation" OR
     "distribution substation" OR
     "transmission substation" OR
     "power transformer" OR
@@ -292,7 +365,6 @@ q2 = """
     "voltage regulator" OR
     "capacitor bank" OR
     "grid modernization" OR
-    "grid resilience" OR
     "grid reliability" OR
     "grid vulnerability" OR
     "smart grid" OR
@@ -304,9 +376,10 @@ q2 = """
     "metering infrastructure" OR
     "SCADA" OR
     "supervisory control and data acquisition"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 2: Generation (G3) + Outages & reliability (G4)
+_Q2_CHUNK_2_OR = """(
     "power plant" OR
     "power station" OR
     "power generation" OR
@@ -375,7 +448,6 @@ q2 = """
     "cooling water" OR
     "once-through cooling" OR
     "cooling tower" OR
-    "water-energy nexus" OR
     "water energy nexus" OR
     "water withdrawal" OR
     "water consumption" OR
@@ -431,9 +503,10 @@ q2 = """
     "NERC" OR
     "North American Electric Reliability Corporation"
     "situational awareness"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 3: Planning & markets (G5) + Asset management (G6)
+_Q2_CHUNK_3_OR = """(
     "integrated resource plan" OR
     "integrated resource planning" OR
     "capacity expansion" OR
@@ -463,7 +536,6 @@ q2 = """
     "reserve margin" OR
     "planning reserve" OR
     "loss of load" OR
-    "loss-of-load" OR
     "expected unserved energy" OR
     "capacity market" OR
     "energy market" OR
@@ -482,9 +554,7 @@ q2 = """
     "distributed energy integration" OR
     "grid integration" OR
     "renewable integration" OR
-    "inverter-based resource" OR
     "inverter based resource" OR
-    "grid-forming inverter" OR
     "grid forming inverter"
   )
   OR
@@ -505,7 +575,6 @@ q2 = """
     "inspection program" OR
     "vegetation management" OR
     "tree trimming" OR
-    "right-of-way" OR
     "right of way" OR
     "tree-caused outage" OR
     "vegetation contact" OR
@@ -531,7 +600,6 @@ q2 = """
     "pole corrosion" OR
     "equipment corrosion" OR
     "weather degradation" OR
-    "weather-related degradation" OR
     "environmental degradation" OR
     "UV degradation" OR
     "material weathering" OR
@@ -543,11 +611,11 @@ q2 = """
     "ice loading" OR
     "galloping" OR
     "aeolian vibration"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 4: Demand/DERs (G7) + Regulation (G8) + Resilience (G9) + Equity (G10)
+_Q2_CHUNK_4_OR = """(
     "demand response" OR
-    "demand-side management" OR
     "demand side management" OR
     "load management" OR
     "load control" OR
@@ -563,11 +631,9 @@ q2 = """
     "electric vehicle" OR
     "EV charging" OR
     "heat pump" OR
-    "behind-the-meter" OR
     "behind the meter" OR
     "net metering" OR
     "net energy metering" OR
-    "time-of-use" OR
     "time of use" OR
     "critical peak pricing" OR
     "load flexibility" OR
@@ -584,7 +650,6 @@ q2 = """
     "rate design" OR
     "rate structure" OR
     "cost of service" OR
-    "performance-based regulation" OR
     "performance based regulation" OR
     "resilience standard" OR
     "reliability standard" OR
@@ -613,7 +678,6 @@ q2 = """
     "climate impact" OR
     "weather impact" OR
     "extreme weather" OR
-    "weather-related" OR
     "weather related" OR
     "climate resilience" OR
     "disaster preparedness" OR
@@ -665,14 +729,14 @@ q2 = """
     "underserved community" OR
     "frontline community" OR
     "customer impact" OR
-    "service territory" OR
     "ratepayer" OR
     "community resilience" OR
     "critical facility" OR
     "critical load"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 5: Workforce (G11) + Organizations (G12) + Cybersecurity (G13) + Federal programs (G14)
+_Q2_CHUNK_5_OR = """(
     "utility workforce" OR
     "lineworker" OR
     "line worker" OR
@@ -723,7 +787,6 @@ q2 = """
   )
   OR
   (
-    -- GROUP 14: Federal Programs & Funding
     "FEMA" OR
     "Federal Emergency Management Agency" OR
     "hazard mitigation grant" OR
@@ -737,84 +800,13 @@ q2 = """
     "Bipartisan Infrastructure Law" OR
     "IIJA" OR
     "Infrastructure Investment and Jobs Act"
-  )
-)
-AND
-(
-  "electricity" OR
-  "electric power" OR
-  "power system" OR
-  "power grid" OR
-  "energy system" OR
-  "electric system" OR
-  "electricity grid" OR
-  "electric grid" OR
-  "power grid" OR
-  "electric utility" OR
-  "energy infrastructure" OR
-  "generation infrastructure" OR
-  "generation asset" OR
-  "transmission infrastructure" OR
-  "transmission system" OR
-  "transmission asset" OR
-  "distribution infrastructure" OR
-  "distribution system" OR
-  "distribution asset" OR
-  "substation" OR
-  "electric service" OR
-  "megawatt" OR
-  "kilowatt" OR
-  "voltage" OR
-  "service territory"
-)
-NOT
-(
-  "protein structure" OR
-  "gene expression" OR
-  "amino acid" OR
-  "cell signaling" OR
-  "neural circuit" OR
-  "synaptic" OR
-  "genome" OR
-  "genomic" OR
-  "transcriptome" OR
-  "metabolome" OR
-  "clinical trial" OR
-  "randomized controlled trial" OR
-  "patient outcome" OR
-  "drug delivery" OR
-  "pharmaceutical" OR
-  "oncology" OR
-  "tumor" OR
-  "pathogen" OR
+  )"""
 
-  "chemical reactor" OR
-  "polymerization" OR
-  "distillation column" OR
-  "catalytic cracking" OR
-  "reaction kinetics" OR
-  "molar concentration" OR
 
-  "stellar" OR
-  "galactic" OR
-  "exoplanet" OR
-  "black hole" OR
-  "neutron star" OR
-  "dark matter" OR
-  "dark energy" OR
-  "redshift" OR
-
-  "hadron" OR
-  "quark" OR
-  "lepton" OR
-  "boson" OR
-  "particle accelerator" OR
-  "collider" OR
-
-  "thin film deposition" OR
-  "sputter" OR
-  "epitaxial growth" OR
-  "nanoparticle synthesis" OR
-  "quantum dot"
-)
-"""
+q2_chunks = [
+    _q2_chunk(_Q2_CHUNK_1_OR),
+    _q2_chunk(_Q2_CHUNK_2_OR),
+    _q2_chunk(_Q2_CHUNK_3_OR),
+    _q2_chunk(_Q2_CHUNK_4_OR),
+    _q2_chunk(_Q2_CHUNK_5_OR),
+]
