@@ -21,7 +21,7 @@ def _build_session() -> requests.Session:
         read=5,
         backoff_factor=1.0,
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
+        allowed_methods=["GET", "POST"],
         raise_on_status=False,
     )
 

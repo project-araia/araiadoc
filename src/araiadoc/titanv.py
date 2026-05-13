@@ -28,6 +28,7 @@ def _complete_all_terms_cursor(
     rows: int = 1000,
     flush_every_pages: int = 25,
     seen_ids: set | None = None,
+    chunk_idx: int = 1,
 ):
     """
     Download matching Solr documents using cursor-based pagination and write them
@@ -38,6 +39,9 @@ def _complete_all_terms_cursor(
     This enables cross-chunk deduplication when the same output directory is
     reused across multiple sub-queries.
 
+    ``chunk_idx`` is used to give each sub-query its own checkpoint file so that
+    resume logic does not bleed across chunks.
+
     Output layout:
       output_dir/
         <search_name>/
@@ -45,10 +49,11 @@ def _complete_all_terms_cursor(
             batch_000001.jsonl.gz
             ...
           ids.txt
-          checkpoint.json
+          checkpoint_1.json  (one per chunk)
     """
     if seen_ids is None:
         seen_ids = set()
+
     session = _build_session()
 
     subdir = output_dir / search_name
@@ -58,17 +63,35 @@ def _complete_all_terms_cursor(
     batch_dir.mkdir(exist_ok=True)
 
     ids_path = subdir / "ids.txt"
-    checkpoint_path = subdir / "checkpoint.json"
+    checkpoint_path = subdir / f"checkpoint_{chunk_idx}.json"
 
     # Resume support
     cursor_mark = "*"
     page_index = 0
-    batch_index = 0
     total_downloaded = 0
+
+    # Determine starting batch_index: continue from highest existing batch file
+    # to avoid overwriting batches written by previous chunks.
+    existing_batches = sorted(batch_dir.glob("batch_*.jsonl.gz"))
+    if existing_batches:
+        # Parse the numeric part from e.g. "batch_ 00008.jsonl.gz"
+        last_name = existing_batches[-1].stem.replace(".jsonl", "")  # "batch_ 00008"
+        try:
+            batch_index = int(last_name.split("batch_")[1].strip())
+        except (ValueError, IndexError):
+            batch_index = len(existing_batches)
+    else:
+        batch_index = 0
 
     if checkpoint_path.exists():
         try:
             checkpoint_data = json.loads(checkpoint_path.read_text())
+            if checkpoint_data.get("complete"):
+                progress.log(
+                    f"* Chunk {chunk_idx} already complete ({checkpoint_data.get('total_downloaded', '?')} docs)."
+                    + " Skipping."
+                )
+                return checkpoint_data.get("total_downloaded", 0)
             cursor_mark = checkpoint_data.get("cursor_mark", "*")
             page_index = checkpoint_data.get("page_index", 0)
             batch_index = checkpoint_data.get("batch_index", 0)
@@ -89,14 +112,23 @@ def _complete_all_terms_cursor(
         "useParams": "",
     }
 
-    r = session.get(TITANV_SELECT_URL, params=initial_params, timeout=120)
-    r.raise_for_status()
-    payload = r.json()
+    for attempt in range(10):
+        try:
+            r = session.post(TITANV_SELECT_URL, data=initial_params, timeout=300)
+            r.raise_for_status()
+            payload = r.json()
+            break
+        except Exception as e:
+            progress.log(f"* Initial request failed (attempt {attempt + 1}/10): {e}")
+            if attempt == 9:
+                raise
+            time.sleep(5 * (attempt + 1))
 
     num_found = payload["response"]["numFound"]
-    task = progress.add_task(
-        f"[white]{search_name.replace('_', ' ').title()}: ", total=num_found, completed=total_downloaded
-    )
+    label = search_name.replace("_", " ").title()
+    if chunk_idx > 1 or True:  # always show chunk index for clarity
+        label = f"{label} (chunk {chunk_idx})"
+    task = progress.add_task(f"[white]{label}: ", total=num_found, completed=total_downloaded)
 
     pending_docs = []
     pending_ids = []
@@ -114,7 +146,7 @@ def _complete_all_terms_cursor(
         }
 
         try:
-            r = session.get(TITANV_SELECT_URL, params=params, timeout=120)
+            r = session.post(TITANV_SELECT_URL, data=params, timeout=300)
             r.raise_for_status()
             payload = r.json()
         except Exception as e:
@@ -130,6 +162,8 @@ def _complete_all_terms_cursor(
             progress.log("* No more docs returned; stopping.")
             break
 
+        new_docs = []
+        new_ids = []
         for doc in docs:
             if "corpus_id" not in doc:
                 continue
@@ -137,8 +171,10 @@ def _complete_all_terms_cursor(
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            pending_docs.append(doc)
-            pending_ids.append(cid)
+            new_docs.append(doc)
+            new_ids.append(cid)
+        pending_docs.extend(new_docs)
+        pending_ids.extend(new_ids)
 
         page_index += 1
         total_downloaded += len(docs)
@@ -336,6 +372,18 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
 
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 seen_ids: set = set()
+
+                # Preload already-downloaded IDs for cross-chunk deduplication on resume
+                ids_path = path / search_name / "ids.txt"
+                if ids_path.exists():
+                    with ids_path.open("r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                seen_ids.add(line)
+                    if seen_ids:
+                        progress.log(f"* Loaded {len(seen_ids)} previously downloaded IDs for deduplication.")
+
                 total = 0
                 for chunk_idx, query_text in enumerate(queries, start=1):
                     if len(queries) > 1:
@@ -349,6 +397,7 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
                         200,  # rows
                         50,  # flush_every_pages
                         seen_ids,
+                        chunk_idx,
                     )
                     total += chunk_total
                 progress.log(f"\n* Found {total} unique documents across {len(queries)} sub-queries.")
