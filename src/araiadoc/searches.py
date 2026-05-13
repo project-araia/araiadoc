@@ -505,8 +505,8 @@ _Q2_CHUNK_2_OR = """(
     "situational awareness"
   )"""
 
-# Chunk 3: Planning & markets (G5) + Asset management (G6)
-_Q2_CHUNK_3_OR = """(
+# Chunk 3A: Planning & markets (G5)
+_Q2_CHUNK_3A_OR = """(
     "integrated resource plan" OR
     "integrated resource planning" OR
     "capacity expansion" OR
@@ -556,9 +556,10 @@ _Q2_CHUNK_3_OR = """(
     "renewable integration" OR
     "inverter based resource" OR
     "grid forming inverter"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 3B: Asset management (G6)
+_Q2_CHUNK_3B_OR = """(
     "asset management" OR
     "infrastructure aging" OR
     "aging infrastructure" OR
@@ -806,7 +807,8 @@ _Q2_CHUNK_5_OR = """(
 q2_chunks = [
     _q2_chunk(_Q2_CHUNK_1_OR),
     _q2_chunk(_Q2_CHUNK_2_OR),
-    _q2_chunk(_Q2_CHUNK_3_OR),
+    _q2_chunk(_Q2_CHUNK_3A_OR),
+    _q2_chunk(_Q2_CHUNK_3B_OR),
     _q2_chunk(_Q2_CHUNK_4_OR),
     _q2_chunk(_Q2_CHUNK_5_OR),
 ]
