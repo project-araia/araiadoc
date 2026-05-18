@@ -9,7 +9,7 @@ import click
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from araiadoc.searches import q, q2_chunks
+from araiadoc.searches import Q2_NOT_BLOCK, q, q2_chunks
 from araiadoc.utils import _build_session, _prep_output_dir
 
 SINGLE_CORPUS_ID_REQUESTS_QUERY = (
@@ -29,6 +29,7 @@ def _complete_all_terms_cursor(
     flush_every_pages: int = 25,
     seen_ids: set | None = None,
     chunk_idx: int = 1,
+    filter_query: str | None = None,
 ):
     """
     Download matching Solr documents using cursor-based pagination and write them
@@ -111,6 +112,8 @@ def _complete_all_terms_cursor(
         "cursorMark": cursor_mark,
         "useParams": "",
     }
+    if filter_query:
+        initial_params["fq"] = filter_query
 
     for attempt in range(10):
         try:
@@ -128,6 +131,7 @@ def _complete_all_terms_cursor(
     label = search_name.replace("_", " ").title()
     if chunk_idx > 1 or True:  # always show chunk index for clarity
         label = f"{label} (chunk {chunk_idx})"
+    progress.log(f"* Chunk {chunk_idx} Num found: {num_found}")
     task = progress.add_task(f"[white]{label}: ", total=num_found, completed=total_downloaded)
 
     pending_docs = []
@@ -144,6 +148,8 @@ def _complete_all_terms_cursor(
             "cursorMark": cursor_mark,
             "useParams": "",
         }
+        if filter_query:
+            params["fq"] = filter_query
 
         try:
             r = session.post(TITANV_SELECT_URL, data=params, timeout=300)
@@ -367,8 +373,12 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
 
             if all_weather:
                 queries = [q]
+                not_filter = None
             else:
                 queries = q2_chunks
+                # Use a cached filter query for the NOT block instead of
+                # embedding it in every q param — dramatically faster on Solr.
+                not_filter = f"-({Q2_NOT_BLOCK})"
 
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 seen_ids: set = set()
@@ -398,6 +408,7 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
                         50,  # flush_every_pages
                         seen_ids,
                         chunk_idx,
+                        not_filter,
                     )
                     total += chunk_total
                 progress.log(f"\n* Found {total} unique documents across {len(queries)} sub-queries.")
