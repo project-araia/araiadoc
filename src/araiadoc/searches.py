@@ -242,7 +242,7 @@ _Q2_AND_BLOCK = """(
   "service territory"
 )"""
 
-_Q2_NOT_BLOCK = """(
+Q2_NOT_BLOCK = """(
   "protein structure" OR
   "gene expression" OR
   "amino acid" OR
@@ -294,11 +294,11 @@ _Q2_NOT_BLOCK = """(
 
 
 def _q2_chunk(or_block: str) -> str:
-    return f"(\n{or_block}\n)\nAND\n{_Q2_AND_BLOCK}\nNOT\n{_Q2_NOT_BLOCK}"
+    return f"(\n{or_block}\n)\nAND\n{_Q2_AND_BLOCK}"
 
 
-# Chunk 1: Utility types (G1) + Grid infrastructure (G2)
-_Q2_CHUNK_1_OR = """(
+# Chunk 01: Utility types (G1)
+_Q2_CHUNK_01_OR = """(
     "electric cooperative" OR
     "electric co-op" OR
     "rural electric" OR
@@ -321,9 +321,10 @@ _Q2_CHUNK_1_OR = """(
     "vertically integrated utility" OR
     "small utility" OR
     "cooperative utility"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 02: Grid lines & conductors (G2a)
+_Q2_CHUNK_02_OR = """(
     "electrical grid" OR
     "transmission line" OR
     "transmission network" OR
@@ -348,7 +349,11 @@ _Q2_CHUNK_1_OR = """(
     "ampacity" OR
     "thermal rating" OR
     "dynamic line rating" OR
-    "reconductoring" OR
+    "reconductoring"
+  )"""
+
+# Chunk 03: Grid equipment & modernization (G2b)
+_Q2_CHUNK_03_OR = """(
     "grid hardening" OR
     "undergrounding" OR
     "distribution substation" OR
@@ -378,8 +383,8 @@ _Q2_CHUNK_1_OR = """(
     "supervisory control and data acquisition"
   )"""
 
-# Chunk 2: Generation (G3) + Outages & reliability (G4)
-_Q2_CHUNK_2_OR = """(
+# Chunk 04: Conventional generation (G3a)
+_Q2_CHUNK_04_OR = """(
     "power plant" OR
     "power station" OR
     "power generation" OR
@@ -408,7 +413,11 @@ _Q2_CHUNK_2_OR = """(
     "hydroelectric" OR
     "hydropower" OR
     "hydroelectric power" OR
-    "pumped storage" OR
+    "pumped storage"
+  )"""
+
+# Chunk 05: Renewable generation (G3b)
+_Q2_CHUNK_05_OR = """(
     "solar power" OR
     "solar generation" OR
     "photovoltaic" OR
@@ -432,7 +441,11 @@ _Q2_CHUNK_2_OR = """(
     "grid-scale storage" OR
     "battery energy storage" OR
     "distributed energy resource" OR
-    "distributed generation" OR
+    "distributed generation"
+  )"""
+
+# Chunk 06: Generation economics & water nexus (G3c)
+_Q2_CHUNK_06_OR = """(
     "cogeneration" OR
     "combined heat and power" OR
     "peaking plant" OR
@@ -454,9 +467,10 @@ _Q2_CHUNK_2_OR = """(
     "thermal discharge" OR
     "intake temperature" OR
     "condenser cooling"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 07: Outages & interruptions (G4a)
+_Q2_CHUNK_07_OR = """(
     "power outage" OR
     "electric outage" OR
     "electricity outage" OR
@@ -479,7 +493,11 @@ _Q2_CHUNK_2_OR = """(
     "electric reliability" OR
     "power system reliability" OR
     "bulk power system" OR
-    "power system operation" OR
+    "power system operation"
+  )"""
+
+# Chunk 08: Grid operations & restoration (G4b)
+_Q2_CHUNK_08_OR = """(
     "grid operation" OR
     "system operator" OR
     "economic dispatch" OR
@@ -501,12 +519,12 @@ _Q2_CHUNK_2_OR = """(
     "storm response" OR
     "emergency response" OR
     "NERC" OR
-    "North American Electric Reliability Corporation"
+    "North American Electric Reliability Corporation" OR
     "situational awareness"
   )"""
 
-# Chunk 3A: Planning & markets (G5)
-_Q2_CHUNK_3A_OR = """(
+# Chunk 09: Resource & capacity planning (G5a)
+_Q2_CHUNK_09_OR = """(
     "integrated resource plan" OR
     "integrated resource planning" OR
     "capacity expansion" OR
@@ -531,7 +549,11 @@ _Q2_CHUNK_3A_OR = """(
     "electricity demand" OR
     "electric demand" OR
     "power demand" OR
-    "energy demand" OR
+    "energy demand"
+  )"""
+
+# Chunk 10: Markets & grid integration (G5b)
+_Q2_CHUNK_10_OR = """(
     "capacity planning" OR
     "reserve margin" OR
     "planning reserve" OR
@@ -558,8 +580,8 @@ _Q2_CHUNK_3A_OR = """(
     "grid forming inverter"
   )"""
 
-# Chunk 3B: Asset management (G6)
-_Q2_CHUNK_3B_OR = """(
+# Chunk 11: Asset condition & maintenance (G6a)
+_Q2_CHUNK_11_OR = """(
     "asset management" OR
     "infrastructure aging" OR
     "aging infrastructure" OR
@@ -585,7 +607,11 @@ _Q2_CHUNK_3B_OR = """(
     "PSPS" OR
     "de-energization" OR
     "fire risk" OR
-    "ignition risk" OR
+    "ignition risk"
+  )"""
+
+# Chunk 12: Physical damage & degradation (G6b)
+_Q2_CHUNK_12_OR = """(
     "utility-caused wildfire" OR
     "utility wildfire" OR
     "wire down" OR
@@ -614,8 +640,8 @@ _Q2_CHUNK_3B_OR = """(
     "aeolian vibration"
   )"""
 
-# Chunk 4: Demand/DERs (G7) + Regulation (G8) + Resilience (G9) + Equity (G10)
-_Q2_CHUNK_4_OR = """(
+# Chunk 13: Demand-side management & DERs (G7)
+_Q2_CHUNK_13_OR = """(
     "demand response" OR
     "demand side management" OR
     "load management" OR
@@ -640,9 +666,10 @@ _Q2_CHUNK_4_OR = """(
     "load flexibility" OR
     "flexible load" OR
     "virtual power plant"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 14: Utility regulation & policy (G8)
+_Q2_CHUNK_14_OR = """(
     "public utility commission" OR
     "public service commission" OR
     "utility regulation" OR
@@ -664,9 +691,10 @@ _Q2_CHUNK_4_OR = """(
     "energy policy" OR
     "electricity policy" OR
     "utility investment"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 15: System resilience & climate risk (G9a)
+_Q2_CHUNK_15_OR = """(
     "power system resilience" OR
     "grid resilience" OR
     "infrastructure resilience" OR
@@ -690,7 +718,11 @@ _Q2_CHUNK_4_OR = """(
     "risk assessment" OR
     "vulnerability assessment" OR
     "consequence analysis" OR
-    "threat assessment" OR
+    "threat assessment"
+  )"""
+
+# Chunk 16: Hardening, standards & financial resilience (G9b)
+_Q2_CHUNK_16_OR = """(
     "asset hardening" OR
     "system hardening" OR
     "flood protection" OR
@@ -716,9 +748,10 @@ _Q2_CHUNK_4_OR = """(
     "resilience investment" OR
     "resilience benefit" OR
     "avoided cost"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 17: Energy equity & community impact (G10)
+_Q2_CHUNK_17_OR = """(
     "energy burden" OR
     "energy poverty" OR
     "energy insecurity" OR
@@ -736,8 +769,8 @@ _Q2_CHUNK_4_OR = """(
     "critical load"
   )"""
 
-# Chunk 5: Workforce (G11) + Organizations (G12) + Cybersecurity (G13) + Federal programs (G14)
-_Q2_CHUNK_5_OR = """(
+# Chunk 18: Workforce & organizations (G11 + G12)
+_Q2_CHUNK_18_OR = """(
     "utility workforce" OR
     "lineworker" OR
     "line worker" OR
@@ -776,18 +809,20 @@ _Q2_CHUNK_5_OR = """(
     "Edison Electric Institute" OR
     "IEEE" OR
     "Institute of Electrical and Electronics Engineers"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 19: Cybersecurity (G13)
+_Q2_CHUNK_19_OR = """(
     "grid cybersecurity" OR
     "cyber-physical security" OR
     "grid security" OR
     "physical security" OR
     "cyber attack" OR
     "cyberattack"
-  )
-  OR
-  (
+  )"""
+
+# Chunk 20: Federal programs & disaster funding (G14)
+_Q2_CHUNK_20_OR = """(
     "FEMA" OR
     "Federal Emergency Management Agency" OR
     "hazard mitigation grant" OR
@@ -805,10 +840,24 @@ _Q2_CHUNK_5_OR = """(
 
 
 q2_chunks = [
-    _q2_chunk(_Q2_CHUNK_1_OR),
-    _q2_chunk(_Q2_CHUNK_2_OR),
-    _q2_chunk(_Q2_CHUNK_3A_OR),
-    _q2_chunk(_Q2_CHUNK_3B_OR),
-    _q2_chunk(_Q2_CHUNK_4_OR),
-    _q2_chunk(_Q2_CHUNK_5_OR),
+    _q2_chunk(_Q2_CHUNK_01_OR),
+    _q2_chunk(_Q2_CHUNK_02_OR),
+    _q2_chunk(_Q2_CHUNK_03_OR),
+    _q2_chunk(_Q2_CHUNK_04_OR),
+    _q2_chunk(_Q2_CHUNK_05_OR),
+    _q2_chunk(_Q2_CHUNK_06_OR),
+    _q2_chunk(_Q2_CHUNK_07_OR),
+    _q2_chunk(_Q2_CHUNK_08_OR),
+    _q2_chunk(_Q2_CHUNK_09_OR),
+    _q2_chunk(_Q2_CHUNK_10_OR),
+    _q2_chunk(_Q2_CHUNK_11_OR),
+    _q2_chunk(_Q2_CHUNK_12_OR),
+    _q2_chunk(_Q2_CHUNK_13_OR),
+    _q2_chunk(_Q2_CHUNK_14_OR),
+    _q2_chunk(_Q2_CHUNK_15_OR),
+    _q2_chunk(_Q2_CHUNK_16_OR),
+    _q2_chunk(_Q2_CHUNK_17_OR),
+    _q2_chunk(_Q2_CHUNK_18_OR),
+    _q2_chunk(_Q2_CHUNK_19_OR),
+    _q2_chunk(_Q2_CHUNK_20_OR),
 ]
