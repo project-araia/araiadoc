@@ -9,7 +9,6 @@ __pycache__/
 
 # data directory
 data
-scratch
 
 # C extensions
 *.so

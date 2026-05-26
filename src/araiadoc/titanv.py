@@ -9,7 +9,7 @@ import click
 from ratelimit import limits, sleep_and_retry
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from araiadoc.searches import Q2_NOT_BLOCK, q, q2_chunks
+from araiadoc.searches import Q2_AND_BLOCK, Q2_NOT_BLOCK, q, q2_chunks
 from araiadoc.utils import _build_session, _prep_output_dir
 
 SINGLE_CORPUS_ID_REQUESTS_QUERY = (
@@ -29,7 +29,7 @@ def _complete_all_terms_cursor(
     flush_every_pages: int = 25,
     seen_ids: set | None = None,
     chunk_idx: int = 1,
-    filter_query: str | None = None,
+    filter_queries: list[str] | None = None,
 ):
     """
     Download matching Solr documents using cursor-based pagination and write them
@@ -42,6 +42,11 @@ def _complete_all_terms_cursor(
 
     ``chunk_idx`` is used to give each sub-query its own checkpoint file so that
     resume logic does not bleed across chunks.
+
+    ``filter_queries`` is an optional list of Solr ``fq`` strings.  Each one is
+    cached independently by Solr, so invariant constraints (e.g. the AND anchor
+    block and the NOT exclusion block) are evaluated once and reused across all
+    sub-queries and cursor pages.
 
     Output layout:
       output_dir/
@@ -71,14 +76,16 @@ def _complete_all_terms_cursor(
     page_index = 0
     total_downloaded = 0
 
-    # Determine starting batch_index: continue from highest existing batch file
-    # to avoid overwriting batches written by previous chunks.
-    existing_batches = sorted(batch_dir.glob("batch_*.jsonl.gz"))
+    # Determine starting batch_index for *this* chunk.  Each chunk uses its own
+    # filename prefix (batch_c{chunk_idx}_NNNNNN) so parallel chunks never
+    # collide.
+    chunk_prefix = f"batch_c{chunk_idx:02d}_"
+    existing_batches = sorted(batch_dir.glob(f"{chunk_prefix}*.jsonl.gz"))
     if existing_batches:
-        # Parse the numeric part from e.g. "batch_ 00008.jsonl.gz"
-        last_name = existing_batches[-1].stem.replace(".jsonl", "")  # "batch_ 00008"
+        # Parse the numeric part from e.g. "batch_c01_000008.jsonl.gz"
+        last_name = existing_batches[-1].stem.replace(".jsonl", "")
         try:
-            batch_index = int(last_name.split("batch_")[1].strip())
+            batch_index = int(last_name.split(chunk_prefix)[1].strip())
         except (ValueError, IndexError):
             batch_index = len(existing_batches)
     else:
@@ -103,7 +110,7 @@ def _complete_all_terms_cursor(
 
     # First request: get numFound for progress
     initial_params = {
-        "df": "paragraph",
+        "df": "abstract",
         "indent": "true",
         "q.op": "OR",
         "q": query_text,
@@ -112,8 +119,8 @@ def _complete_all_terms_cursor(
         "cursorMark": cursor_mark,
         "useParams": "",
     }
-    if filter_query:
-        initial_params["fq"] = filter_query
+    if filter_queries:
+        initial_params["fq"] = filter_queries
 
     for attempt in range(10):
         try:
@@ -139,7 +146,7 @@ def _complete_all_terms_cursor(
 
     while True:
         params = {
-            "df": "paragraph",
+            "df": "abstract",
             "indent": "true",
             "q.op": "OR",
             "q": query_text,
@@ -148,8 +155,8 @@ def _complete_all_terms_cursor(
             "cursorMark": cursor_mark,
             "useParams": "",
         }
-        if filter_query:
-            params["fq"] = filter_query
+        if filter_queries:
+            params["fq"] = filter_queries
 
         try:
             r = session.post(TITANV_SELECT_URL, data=params, timeout=300)
@@ -190,9 +197,9 @@ def _complete_all_terms_cursor(
 
         if should_flush:
             batch_index += 1
-            batch_path = batch_dir / f"batch_{batch_index: 06}.jsonl.gz"
+            batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
 
-            with gzip.open(batch_path, "at", encoding="utf-8") as f:
+            with gzip.open(batch_path, "wt", encoding="utf-8") as f:
                 for doc in pending_docs:
                     f.write(json.dumps(doc))
                     f.write("\n")
@@ -223,9 +230,9 @@ def _complete_all_terms_cursor(
     # Final flush
     if pending_docs:
         batch_index += 1
-        batch_path = batch_dir / f"batch_{batch_index: 06}.jsonl.gz"
+        batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
 
-        with gzip.open(batch_path, "at", encoding="utf-8") as f:
+        with gzip.open(batch_path, "wt", encoding="utf-8") as f:
             for doc in pending_docs:
                 f.write(json.dumps(doc))
                 f.write("\n")
@@ -373,12 +380,17 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
 
             if all_weather:
                 queries = [q]
-                not_filter = None
+                filter_queries = None
             else:
                 queries = q2_chunks
-                # Use a cached filter query for the NOT block instead of
-                # embedding it in every q param — dramatically faster on Solr.
-                not_filter = f"-({Q2_NOT_BLOCK})"
+                # Use cached filter queries instead of embedding the AND / NOT
+                # blocks in every q param — Solr evaluates each fq once, caches
+                # the resulting bitset, and reuses it across all 20 sub-queries
+                # and every cursor page within each sub-query.
+                filter_queries = [
+                    Q2_AND_BLOCK,  # positive: must match anchor terms
+                    f"-({Q2_NOT_BLOCK})",  # negative: exclude false-positive domains
+                ]
 
             with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
                 seen_ids: set = set()
@@ -394,23 +406,27 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
                     if seen_ids:
                         progress.log(f"* Loaded {len(seen_ids)} previously downloaded IDs for deduplication.")
 
-                total = 0
-                for chunk_idx, query_text in enumerate(queries, start=1):
-                    if len(queries) > 1:
-                        progress.log(f"* Running sub-query {chunk_idx}/{len(queries)} ...")
-                    chunk_total = await asyncio.to_thread(
-                        _complete_all_terms_cursor,
-                        path,
-                        progress,
-                        query_text,
-                        search_name,
-                        200,  # rows
-                        50,  # flush_every_pages
-                        seen_ids,
-                        chunk_idx,
-                        not_filter,
-                    )
-                    total += chunk_total
+                sem = asyncio.Semaphore(4)
+
+                async def _run_chunk(idx, qt):
+                    async with sem:
+                        if len(queries) > 1:
+                            progress.log(f"* Running sub-query {idx}/{len(queries)} ...")
+                        return await asyncio.to_thread(
+                            _complete_all_terms_cursor,
+                            path,
+                            progress,
+                            qt,
+                            search_name,
+                            500,  # rows
+                            50,  # flush_every_pages
+                            seen_ids,
+                            idx,
+                            filter_queries,
+                        )
+
+                results = await asyncio.gather(*[_run_chunk(idx, qt) for idx, qt in enumerate(queries, start=1)])
+                total = sum(results)
                 progress.log(f"\n* Found {total} unique documents across {len(queries)} sub-queries.")
             return
 

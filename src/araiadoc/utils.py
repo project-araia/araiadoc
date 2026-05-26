@@ -32,6 +32,7 @@ def _build_session() -> requests.Session:
     )
     session.mount("http://", adapter)
     session.mount("https://", adapter)
+    session.headers["Accept-Encoding"] = "gzip"
     return session
 
 
