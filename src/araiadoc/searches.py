@@ -215,7 +215,7 @@ counts_init = {
 
 # q2 is split into URL-safe chunks (each ~5-8k encoded chars) to avoid HTTP 414.
 # titanv.py iterates over all chunks and deduplicates results by corpus_id.
-_Q2_AND_BLOCK = """(
+Q2_AND_BLOCK = """(
   "electricity" OR
   "electric power" OR
   "power system" OR
@@ -239,7 +239,31 @@ _Q2_AND_BLOCK = """(
   "megawatt" OR
   "kilowatt" OR
   "voltage" OR
-  "service territory"
+  "service territory" OR
+  "kilowatt-hour" OR
+  "kWh" OR
+  "megawatt-hour" OR
+  "MWh" OR
+  "gigawatt" OR
+  "GW" OR
+  "transformer" OR
+  "feeder" OR
+  "powerline" OR
+  "power line" OR
+  "electrification" OR
+  "grid-connected" OR
+  "grid connected" OR
+  "off-grid" OR
+  "bulk electric" OR
+  "interconnection" OR
+  "ISO" OR
+  "independent system operator" OR
+  "RTO" OR
+  "regional transmission organization" OR
+  "utility-scale" OR
+  "behind-the-meter" OR
+  "ratepayer" OR
+  "load-serving"
 )"""
 
 Q2_NOT_BLOCK = """(
@@ -261,6 +285,7 @@ Q2_NOT_BLOCK = """(
   "oncology" OR
   "tumor" OR
   "pathogen" OR
+  "spectroscopy" OR
 
   "chemical reactor" OR
   "polymerization" OR
@@ -284,21 +309,52 @@ Q2_NOT_BLOCK = """(
   "boson" OR
   "particle accelerator" OR
   "collider" OR
+  "plasma" OR
 
   "thin film deposition" OR
   "sputter" OR
   "epitaxial growth" OR
   "nanoparticle synthesis" OR
-  "quantum dot"
+  "quantum dot" OR
+  "CMOS" OR
+
+  "microbial fuel cell" OR
+  "microbial fuel cells" OR
+  "sediment microbial" OR
+
+  "perovskite" OR
+  "hole transport layer" OR
+  "hole transport layers" OR
+
+  "cathode material" OR
+  "cathode materials" OR
+  "anode material" OR
+  "anode materials" OR
+  "lithium-ion battery" OR
+  "lithium-ion batteries" OR
+  "Li-ion battery" OR
+  "Li-ion batteries" OR
+  "Li-ion cell" OR
+  "Li-ion cells" OR
+  "sodium-ion battery" OR
+  "sodium-ion batteries" OR
+  "Na-ion battery" OR
+  "Na-ion batteries" OR
+  "coin cell" OR
+  "coin cells" OR
+  "pouch cell" OR
+  "pouch cells"
+
 )"""
 
 
 def _q2_chunk(or_block: str) -> str:
-    return f"(\n{or_block}\n)\nAND\n{_Q2_AND_BLOCK}"
+    return f"(\n{or_block}\n)"
 
 
 # Chunk 01: Utility types (G1)
 _Q2_CHUNK_01_OR = """(
+    "electric utility" OR
     "electric cooperative" OR
     "electric co-op" OR
     "rural electric" OR
@@ -307,6 +363,7 @@ _Q2_CHUNK_01_OR = """(
     "municipal electric" OR
     "public utility" OR
     "public power" OR
+    "investor-owned utility" OR
     "investor owned utility" OR
     "power utility" OR
     "energy utility" OR
@@ -316,6 +373,7 @@ _Q2_CHUNK_01_OR = """(
     "utility operations" OR
     "utility infrastructure" OR
     "utility planning" OR
+    "load-serving entity" OR
     "load serving entity" OR
     "distribution utility" OR
     "vertically integrated utility" OR
@@ -325,10 +383,16 @@ _Q2_CHUNK_01_OR = """(
 
 # Chunk 02: Grid lines & conductors (G2a)
 _Q2_CHUNK_02_OR = """(
+    "power grid" OR
+    "electric grid" OR
     "electrical grid" OR
+    "electricity grid" OR
     "transmission line" OR
+    "transmission system" OR
     "transmission network" OR
+    "transmission infrastructure" OR
     "distribution line" OR
+    "distribution system" OR
     "distribution network" OR
     "distribution feeder" OR
     "overhead line" OR
@@ -356,6 +420,7 @@ _Q2_CHUNK_02_OR = """(
 _Q2_CHUNK_03_OR = """(
     "grid hardening" OR
     "undergrounding" OR
+    "substation" OR
     "distribution substation" OR
     "transmission substation" OR
     "power transformer" OR
@@ -370,6 +435,7 @@ _Q2_CHUNK_03_OR = """(
     "voltage regulator" OR
     "capacitor bank" OR
     "grid modernization" OR
+    "grid resilience" OR
     "grid reliability" OR
     "grid vulnerability" OR
     "smart grid" OR
@@ -461,6 +527,7 @@ _Q2_CHUNK_06_OR = """(
     "cooling water" OR
     "once-through cooling" OR
     "cooling tower" OR
+    "water-energy nexus" OR
     "water energy nexus" OR
     "water withdrawal" OR
     "water consumption" OR
@@ -558,6 +625,7 @@ _Q2_CHUNK_10_OR = """(
     "reserve margin" OR
     "planning reserve" OR
     "loss of load" OR
+    "loss-of-load" OR
     "expected unserved energy" OR
     "capacity market" OR
     "energy market" OR
@@ -576,7 +644,9 @@ _Q2_CHUNK_10_OR = """(
     "distributed energy integration" OR
     "grid integration" OR
     "renewable integration" OR
+    "inverter-based resource" OR
     "inverter based resource" OR
+    "grid-forming inverter" OR
     "grid forming inverter"
   )"""
 
@@ -598,6 +668,7 @@ _Q2_CHUNK_11_OR = """(
     "inspection program" OR
     "vegetation management" OR
     "tree trimming" OR
+    "right-of-way" OR
     "right of way" OR
     "tree-caused outage" OR
     "vegetation contact" OR
@@ -627,6 +698,7 @@ _Q2_CHUNK_12_OR = """(
     "pole corrosion" OR
     "equipment corrosion" OR
     "weather degradation" OR
+    "weather-related degradation" OR
     "environmental degradation" OR
     "UV degradation" OR
     "material weathering" OR
@@ -643,6 +715,7 @@ _Q2_CHUNK_12_OR = """(
 # Chunk 13: Demand-side management & DERs (G7)
 _Q2_CHUNK_13_OR = """(
     "demand response" OR
+    "demand-side management" OR
     "demand side management" OR
     "load management" OR
     "load control" OR
@@ -658,9 +731,11 @@ _Q2_CHUNK_13_OR = """(
     "electric vehicle" OR
     "EV charging" OR
     "heat pump" OR
+    "behind-the-meter" OR
     "behind the meter" OR
     "net metering" OR
     "net energy metering" OR
+    "time-of-use" OR
     "time of use" OR
     "critical peak pricing" OR
     "load flexibility" OR
@@ -678,6 +753,7 @@ _Q2_CHUNK_14_OR = """(
     "rate design" OR
     "rate structure" OR
     "cost of service" OR
+    "performance-based regulation" OR
     "performance based regulation" OR
     "resilience standard" OR
     "reliability standard" OR
@@ -707,6 +783,7 @@ _Q2_CHUNK_15_OR = """(
     "climate impact" OR
     "weather impact" OR
     "extreme weather" OR
+    "weather-related" OR
     "weather related" OR
     "climate resilience" OR
     "disaster preparedness" OR
@@ -763,6 +840,7 @@ _Q2_CHUNK_17_OR = """(
     "underserved community" OR
     "frontline community" OR
     "customer impact" OR
+    "service territory" OR
     "ratepayer" OR
     "community resilience" OR
     "critical facility" OR

@@ -277,6 +277,19 @@ def _sectionize_item_v2(item):
     return (True, sectioned_text, None)
 
 
+def _sharded_output_file(output_dir: Path, corpus_id: str) -> Path:
+    """Return a sharded output path: output_dir/<last-2-digits>/corpus_id.json.
+
+    Sharding by the last two characters of the corpus_id distributes files
+    evenly across up to 100 subdirectories for numeric IDs, avoiding
+    filesystem degradation from too many files in a single directory.
+    """
+    shard = corpus_id[-2:] if len(corpus_id) >= 2 else corpus_id
+    shard_dir = output_dir / shard
+    shard_dir.mkdir(exist_ok=True)
+    return shard_dir / f"{corpus_id}.json"
+
+
 def _sectionize_one_file(input_path: Path, output_dir: Path):
     try:
         with open(input_path, "r") as f:
@@ -284,7 +297,7 @@ def _sectionize_one_file(input_path: Path, output_dir: Path):
 
         item = _extract_item_from_doc(doc)
         corpus_id = _get_corpus_id(item, fallback_stem=input_path.stem)
-        output_file = output_dir / Path(corpus_id + ".json")
+        output_file = _sharded_output_file(output_dir, corpus_id)
 
         if output_file.exists():
             return (True, corpus_id, None, "skipped_existing")
@@ -305,13 +318,17 @@ def _sectionize_one_file(input_path: Path, output_dir: Path):
 def _discover_batch_files(source: Path):
     batch_files = []
 
+    # Direct batches at the source root
     direct_batches = sorted(source.glob("*.jsonl.gz"))
     if direct_batches:
         batch_files.extend(direct_batches)
 
-    nested_batches = sorted((source / "all_terms" / "batches").glob("*.jsonl.gz"))
+    # Batches nested under any subdirectory (covers all_terms/, all_utility/,
+    # all_weather/, and any future search_name directories).
+    nested_batches = sorted(source.glob("*/batches/*.jsonl.gz"))
     if nested_batches:
-        batch_files.extend(i for i in nested_batches if i not in batch_files)
+        seen = set(batch_files)
+        batch_files.extend(i for i in nested_batches if i not in seen)
 
     return batch_files
 
@@ -347,7 +364,7 @@ def _sectionize_batch_file(batch_file: Path, output_dir: Path):
                 doc = json.loads(line)
                 item = _extract_item_from_doc(doc)
                 corpus_id = _get_corpus_id(item, fallback_stem=f"{batch_file.stem}_line_{line_number}")
-                output_file = output_dir / Path(corpus_id + ".json")
+                output_file = _sharded_output_file(output_dir, corpus_id)
 
                 if output_file.exists():
                     skipped_existing += 1
@@ -490,7 +507,7 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
         except Exception:
             corpus_id = i.stem
 
-        output_file = output_dir / Path(corpus_id + ".json")
+        output_file = _sharded_output_file(output_dir, corpus_id)
         if output_file.exists():
             skipped_existing_count += 1
             progress.update(task, advance=1)
@@ -557,7 +574,8 @@ def section_dataset_v2(source: Path):
     Supports both:
     1. Legacy per-document JSON files under the provided source directory.
     2. Batched JSONL.GZ output from _complete_all_terms_cursor, discovered at:
-       source/all_terms/batches/*.jsonl.gz
+       source/*.jsonl.gz
+       source/*/batches/*.jsonl.gz  (all_terms/, all_utility/, all_weather/, etc.)
 
     For batch input:
     - each gzip file is streamed line-by-line
