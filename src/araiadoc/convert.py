@@ -14,14 +14,13 @@ import openparse
 import pymupdf
 import requests
 from bs4 import BeautifulSoup
-from langdetect import DetectorFactory, LangDetectException, detect
 from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .utils import _clean_subsections, _collect_from_path
-
-DetectorFactory.seed = 0
+from .text_quality.content_assessment import is_english
+from .text_quality.text_cleaning import _clean_subsections
+from .utils import _collect_from_path
 
 BOLD_RE = re.compile(r"\*{2,3}([^*]+?)\*{2,3}")  # inside **...** or ***...***
 
@@ -31,20 +30,6 @@ def timeout_handler(signum, frame):
 
 
 signal.signal(signal.SIGALRM, timeout_handler)
-
-
-def is_english(text):
-    """
-    Returns True if the text is detected as English, False otherwise.
-    Handles exceptions for numeric/symbol-only strings or empty text: returns False in those cases.
-    """
-    if not text or text.strip() == "":
-        return False
-    try:
-        # detect() can throw an exception for numeric/symbol-only text
-        return detect(text) == "en"
-    except LangDetectException:
-        return False
 
 
 def convert_html(text):
@@ -236,7 +221,10 @@ def _convert(
             progress.log("[red]Grobid service not found. Skipping Grobid conversion.")
             grobid_service = ""
 
-    task2 = progress.add_task("[bright_green]Converting multiple documents to text", total=len(collected_input_files))
+    task2 = progress.add_task(
+        "[bright_green]Converting multiple documents to text",
+        total=len(collected_input_files),
+    )
 
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
 
@@ -334,7 +322,12 @@ def convert(source: Path, images_tables: bool, output_dir: str = None, grobid_se
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
     """
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+    with Progress(
+        SpinnerColumn(),
+        *Progress.get_default_columns(),
+        TimeElapsedColumn(),
+        disable=True,
+    ) as progress:
         _convert(source, progress, images_tables, output_dir, grobid_service)
 
 
@@ -357,7 +350,6 @@ def epa_ocr_to_json(source: Path):
     for i in collected_input_files:
         signal.alarm(60)
         try:
-
             with open(i, "rb") as f:
                 data = f.read()
 
