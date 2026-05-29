@@ -37,6 +37,7 @@ experiment = ["experiment"]
 python = ">=3.13.0,<3.14"
 psycopg2 = ">=2.9.11,<3"
 sshuttle = ">=1.1.1,<2"
+langdetect = ">=1.0.9,<2"
 
 [tool.pixi.feature.dev.dependencies]
 ipdb = ">=0.13.13,<0.14"

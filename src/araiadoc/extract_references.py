@@ -6,9 +6,9 @@ from joblib import Parallel, delayed
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 try:
-    from .ref_extraction_utils import split_references
+    from .text_quality.reference_quality import extract_references as split_references
 except ImportError:
-    from ref_extraction_utils import split_references
+    from text_quality.reference_quality import extract_references as split_references
 
 
 def process_file(file_path):
