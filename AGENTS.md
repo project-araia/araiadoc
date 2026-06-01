@@ -18,33 +18,6 @@ The short form `-t` and long form `--search-term` are both valid. Do not use `--
 
 When writing webapp form components (or any code that builds CLI argument lists), **always verify flag names against the corresponding SKILL.md** in `.agents/skills/` before trusting your own knowledge. The skill files are kept in sync with the actual Click definitions in `src/araiadoc/crawl.py`.
 
-## Webapp (`webapp/`)
-
-### Runtime
-
-All Next.js API routes that access Node.js built-ins (`child_process`, `fs`) or the in-memory job registry **must** declare:
-
-```ts
-export const runtime = "nodejs";
-```
-
-Without this, routes default to the Edge runtime, which has no access to Node.js APIs or the in-process job registry (`lib/jobs.ts`).
-
-### Job registry
-
-The job registry (`lib/jobs.ts`) is a plain in-memory `Map`. It is intentionally ephemeral (local dev only). Any API route that reads from it (`/api/jobs/[id]`, `/api/logs/[id]`) must run in the same Node.js process, which the `runtime = "nodejs"` declaration ensures.
-
-### CLI spawning
-
-The webapp spawns `araiadoc` via:
-
-```
-pixi run --manifest-path <ARAIADOC_ROOT> araiadoc <tool> <args>
-```
-
-Override with env vars:
-- `ARAIADOC_CMD` — replace `pixi` with a direct executable path
-- `ARAIADOC_ROOT` — path to the araiadoc repo root (default: `..` relative to `webapp/`)
 
 ### Output directory detection
 
