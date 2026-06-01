@@ -17,6 +17,7 @@ from .text_quality.content_assessment import (
     unneeded_sections_no_skip_remaining,
     unneeded_sections_skip_remaining,
 )
+from .text_quality.text_validation import MIN_CONTENT_CHARS
 from .utils import _collect_from_path
 
 
@@ -65,6 +66,9 @@ def _sectionize_item_v2(item):
         sectioned_text["title"] = title
     if abstract:
         sectioned_text["abstract"] = abstract
+
+    if len(sectioned_text["abstract"]) < MIN_CONTENT_CHARS:
+        return (False, {}, "Abstract too short")
 
     actual_headers_count = 0
 
