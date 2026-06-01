@@ -68,7 +68,7 @@ def _sectionize_item_v2(item):
         sectioned_text["abstract"] = abstract
 
     if len(sectioned_text["abstract"]) < MIN_CONTENT_CHARS:
-        return (False, {}, "Abstract too short")
+        return (False, {}, "Abstract missing or too short.")
 
     actual_headers_count = 0
 

@@ -70,25 +70,20 @@ def _metadata_one_file_semanticscholar(input_path, output_dir):
     with open(input_path, "r") as f:
         sectioned_text = json.load(f)
 
-    data = {}
-
-    abstract = sectioned_text.get("Abstract", "") or ""
-    if len(abstract):
-        sectioned_text.pop("Abstract")
-    references = sectioned_text.get("References", "") or ""
-    if len(references):
-        sectioned_text.pop("References")
+    title = sectioned_text.pop("title", "") or ""
+    abstract = sectioned_text.pop("abstract", "") or ""
+    references = sectioned_text.pop("references", "") or ""
 
     document = ParsedDocumentSchema(
         unique_id=corpus_id,
         source="s2orc",
-        title=data.get("title", "") or "",
+        title=title,
         text=sectioned_text,
         abstract=abstract,
-        authors=data.get("author", "") or "",
-        publisher=data.get("publisher", "") or "",
-        date=data.get("date", 0) or 0,
-        doi=data.get("doi", "") or "",
+        authors="",
+        publisher="",
+        date=0,
+        doi="",
         references=references,
     )
 
@@ -111,7 +106,8 @@ def _metadata_workflow(source_dir, progress, metadata_source, *args):
     success_count = 0
     fail_count = 0
     task = progress.add_task(
-        "[green]Fetching metadata from " + str(metadata_source) + ":", total=len(collected_input_files)
+        "[green]Fetching metadata from " + str(metadata_source) + ":",
+        total=len(collected_input_files),
     )
 
     if metadata_source == "db":
