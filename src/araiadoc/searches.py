@@ -272,27 +272,29 @@ Q2_NOT_BLOCK = """(
   "amino acid" OR
   "cell signaling" OR
   "neural circuit" OR
-  "synaptic" OR
   "genome" OR
   "genomic" OR
   "transcriptome" OR
   "metabolome" OR
   "clinical trial" OR
-  "randomized controlled trial" OR
   "patient outcome" OR
   "drug delivery" OR
   "pharmaceutical" OR
   "oncology" OR
   "tumor" OR
   "pathogen" OR
-  "spectroscopy" OR
 
   "chemical reactor" OR
-  "polymerization" OR
   "distillation column" OR
   "catalytic cracking" OR
   "reaction kinetics" OR
   "molar concentration" OR
+
+  "mass spectrometry" OR
+  "NMR spectroscopy" OR
+  "X-ray diffraction" OR
+  "emulsion polymerization" OR
+  "radical polymerization"
 
   "stellar" OR
   "galactic" OR
@@ -309,8 +311,11 @@ Q2_NOT_BLOCK = """(
   "boson" OR
   "particle accelerator" OR
   "collider" OR
-  "plasma" OR
   "photoinjection" OR
+  "tokamak" OR
+  "magnetic confinement fusion" OR
+  "inertial confinement fusion" OR
+  "plasma confinement" OR
 
   "thin film deposition" OR
   "sputter" OR
@@ -327,25 +332,17 @@ Q2_NOT_BLOCK = """(
   "hole transport layer" OR
   "hole transport layers" OR
 
-  "cathode material" OR
-  "cathode materials" OR
-  "anode material" OR
-  "anode materials" OR
-  "lithium-ion battery" OR
-  "lithium-ion batteries" OR
-  "Li-ion battery" OR
-  "Li-ion batteries" OR
-  "Li-ion cell" OR
-  "Li-ion cells" OR
-  "sodium-ion battery" OR
-  "sodium-ion batteries" OR
-  "Na-ion battery" OR
-  "Na-ion batteries" OR
-  "coin cell" OR
-  "coin cells" OR
-  "pouch cell" OR
-  "pouch cells"
-
+  "half cell" OR
+  "half-cell" OR
+  "galvanostatic cycling" OR
+  "galvanostatic cycle" OR
+  "galvanostatic cell" OR
+  "galvanostatic cells" OR
+  "coulombic efficiency" OR
+  "intercalation mechanism" OR
+  "intercalation mechanisms" OR
+  "electrolyte decomposition" OR
+  "solid electrolyte interphase"
 )"""
 
 
