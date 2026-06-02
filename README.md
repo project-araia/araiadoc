@@ -18,9 +18,9 @@ Commands:
   crawl-epa                  Asynchronously crawl EPA result pages.
   crawl-osti                 Asynchronously crawl OSTI result pages.
   epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
-  extract-refs               Extract references from JSON files in a directory.
-  get-from-titanv            Download from TitanV database or perform an all-terms search.
+  get-from-titanv            Download from TitanV database or perform a pre-defined search.
   get-metadata-from-database Grabs metadata from a postgresql database.
+  get-metadata-from-semanticscholar  Packages pre-fetched Semantic Scholar metadata into output files.
   section-dataset            Preprocess full-text files in s2orc/pes2o format into headers and subsections.
   section-dataset-v2         Preprocess full-text files into header:paragraph JSON dictionaries.
 ```
@@ -80,7 +80,6 @@ For instance:
 Usage: araiadoc convert [OPTIONS] SOURCE
 
 Options:
-  -i, --images-tables
   -o, --output-dir TEXT
   -g, --grobid_service TEXT
 ```
@@ -128,7 +127,7 @@ Options:
 
 Asynchronously crawls EPA result pages. Specify the stop and start index out of search results, then any number of search terms.
 
-```araiadoc crawl-epa 100 0 -t Flooding```
+```araiadoc crawl-epa 0 100 -t Flooding```
 
 ### Crawl OSTI
 
@@ -141,7 +140,7 @@ Options:
 
 Asynchronously crawls OSTI result pages. Specify the start year range for document publishing, then any number of `-t <term>`. OSTI limits results to 1000 per term.
 
-```araiadoc crawl-osti 2010 2025 -t Blizzard -t Tornado -t "Heat Waves"```
+```araiadoc crawl-osti 2010 -t Blizzard -t Tornado -t "Heat Waves"```
 
 Use `araiadoc count-remote-osti` to help adjust year ranges. Run `araiadoc count-local OSTI` between searches to update the checkpoint file and prevent downloading duplicates.
 
@@ -155,30 +154,22 @@ Converts EPA's OCR fulltext to similar JSON format as internal schema.
 
 ```araiadoc epa-ocr-to-json data/EPA_ocr_output```
 
-### Extract references
-
-```bash
-Usage: araiadoc extract-refs DIRECTORY
-```
-
-Extracts references from JSON files in a directory. Looks for files matching `*_processed.json`.
-
-```araiadoc extract-refs data/processed_documents```
-
 ### Get from TitanV
 
 ```bash
 Usage: araiadoc get-from-titanv [OPTIONS]
 
 Options:
-  -s, --source PATH        Input dataset containing corpus IDs
-  -a, --all-terms          Perform an all-terms search
+  -s, --source PATH        Input dataset containing corpus IDs (CSV or JSON)
+  -a, --all-weather        Perform the pre-defined weather/climate search
+  -u, --all-utility        Perform the pre-defined utility/electricity search
   -o, --output-dir PATH    Optional output directory (resumes from checkpoint)
 ```
 
-Downloads from TitanV database or performs an all-terms search. Use one option at a time.
+Downloads from TitanV database or performs a pre-defined search. Use one option at a time.
 
-```araiadoc get-from-titanv --all-terms```
+```araiadoc get-from-titanv --all-weather```
+```araiadoc get-from-titanv --all-utility```
 ```araiadoc get-from-titanv --source data/corpus_ids.json```
 
 ### Get metadata from database
@@ -226,9 +217,8 @@ Preprocesses full-text files into header:paragraph JSON dictionaries. Supports b
 Agent Skills are available in the `.agents/skills` directory. Supported skills include:
   - `crawl_epa`: Crawl EPA result pages
   - `crawl_osti`: Crawl OSTI result pages
-  - `get_metadata_from_database`: Get metadata from database
   - `get_from_titanv`: Download from TitanV (S2ORC) database
-  - `sectionize_dataset_v2`: Sectionize dataset v2
+  - `section_dataset_v2`: Sectionize dataset v2
 
 #### JSON Schema
 

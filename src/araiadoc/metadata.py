@@ -1,10 +1,10 @@
-# import sys
 import json
 from pathlib import Path
 
 import click
 import psycopg2
 from joblib import Parallel, delayed
+from psycopg2 import sql
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
@@ -18,10 +18,12 @@ def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, 
 
     corpus_id = input_path.stem.removesuffix("_processed")
 
-    query = f"SELECT * FROM {table_name} WHERE corpus_id = {corpus_id} LIMIT 1;"  # noqa
+    query = sql.SQL("SELECT * FROM {} WHERE corpus_id = %s LIMIT 1;").format(sql.Identifier(table_name))
     try:
-        cur.execute(query)
+        cur.execute(query, (corpus_id,))
     except Exception as e:
+        cur.close()
+        conn.close()
         return False, corpus_id, str(e)
     rows = cur.fetchall()
 
@@ -31,6 +33,8 @@ def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, 
     if rows:
         data = {desc.name: val for desc, val in zip(cur.description, rows[0])}
     else:
+        cur.close()
+        conn.close()
         return False, corpus_id, "Table is empty or not found."
 
     abstract = sectioned_text.get("Abstract", "") or ""
@@ -57,8 +61,8 @@ def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, 
     with open(output_path, "w") as f:
         json.dump(document.model_dump(mode="json"), f)
 
-    conn.close()
     cur.close()
+    conn.close()
 
     return True, corpus_id, None
 
@@ -154,7 +158,7 @@ def get_metadata_from_database(source_dir, dbname, user, password, host, port, t
 @click.argument("source_dir", nargs=1)
 def get_metadata_from_semanticscholar(source_dir):
     """
-    Grabs metadata from a postgresql database and associates it with each of the processed input files.
+    Reads metadata stored in pre-fetched per-file JSON and packages it into ParsedDocumentSchema output files.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _metadata_workflow(source_dir, progress, "semanticscholar")

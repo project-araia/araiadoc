@@ -135,7 +135,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
                                 f.write(r.content)
                             n_successful_crawls += 1
 
-                        n_of_pages_crawled += 1
+                    n_of_pages_crawled += 1
 
                 except Exception as e:
                     click.echo(f"* Failed to crawl page {source}: {e}")
@@ -154,14 +154,6 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
         asyncio.run(main_epa(search_term[0], start_idx, stop_idx))
     else:
         asyncio.run(main_multiple_epa(search_term, start_idx, stop_idx))
-
-
-def _conversion_process(path):
-    pass
-
-
-def _conversion(path):
-    pass
 
 
 @click.command()
@@ -268,7 +260,7 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
     click.echo("* Determining OSTI search result counts.")
     click.echo("* Year range: " + str(start_year) + " to " + str(stop_year))
 
-    async def main_osti(search_term: str, start_year: int, stop_year: int) -> int:
+    async def main_osti(search_term: str, start_year: int, stop_year: int, path: Path) -> int:
 
         browser_config, run_config, _ = _get_configs(path)
 
@@ -288,7 +280,9 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
             return max_results
 
     async def main_multiple_osti(search_terms: list[str], path: Path, start_year: int, stop_year: int):
-        results = await asyncio.gather(*[main_osti(search_term, start_year, stop_year) for search_term in search_terms])
+        results = await asyncio.gather(
+            *[main_osti(search_term, start_year, stop_year, path) for search_term in search_terms]
+        )
         output = {}
         for i, term in enumerate(search_terms):
             output[term] = results[i]
@@ -309,7 +303,7 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
     path = _prep_output_dir("OSTI_counts")
 
     if len(search_term) == 1:
-        asyncio.run(main_osti(search_term[0], start_year, stop_year))
+        asyncio.run(main_osti(search_term[0], start_year, stop_year, path))
     elif len(search_term) > 1:
         asyncio.run(main_multiple_osti(search_term, path, start_year, stop_year))
     else:
@@ -652,27 +646,24 @@ def complete_semantic_scholar(
             data = [f for f in data if not f.name.endswith("_rejected.json")]
             click.echo(f"Found {len(data)} input files.")
 
-            chunk_size = len(data) // nproc
+            chunk_size = max(1, len(data) // nproc)
             chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
 
         if input_format == "csv" or input_format == "checkpoint":
             with open(input_file, "r") as f:
                 if input_format == "csv":
                     reader = csv.reader(f)
-                    # data = list(reader)
                     data = list(reader)[1:]  # first line is header
-                    chunk_size = len(data) // nproc
+                    chunk_size = max(1, len(data) // nproc)
                     chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]  # noqa
                 elif input_format == "checkpoint":
                     try:
                         with open(input_file, "r") as f:
-                            checkpoint_data = json.load(f)
+                            input_ids = json.load(f)
                     except json.decoder.JSONDecodeError:
-                        checkpoint_data = []
-                    chunk_size = len(checkpoint_data) // nproc
-                    chunks = [
-                        checkpoint_data[i : i + chunk_size] for i in range(0, len(checkpoint_data), chunk_size)  # noqa
-                    ]
+                        input_ids = []
+                    chunk_size = max(1, len(input_ids) // nproc)
+                    chunks = [input_ids[i : i + chunk_size] for i in range(0, len(input_ids), chunk_size)]  # noqa
 
         metadata_map = {}
         if output_format == "combined":
