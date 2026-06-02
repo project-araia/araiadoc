@@ -282,7 +282,10 @@ Q2_NOT_BLOCK = """(
   "pharmaceutical" OR
   "oncology" OR
   "tumor" OR
-  "pathogen" OR
+  "human pathogen" OR
+  "foodborne pathogen" OR
+  "foodborne disease" OR
+
 
   "chemical reactor" OR
   "distillation column" OR
@@ -294,7 +297,7 @@ Q2_NOT_BLOCK = """(
   "NMR spectroscopy" OR
   "X-ray diffraction" OR
   "emulsion polymerization" OR
-  "radical polymerization"
+  "radical polymerization" OR
 
   "stellar" OR
   "galactic" OR
