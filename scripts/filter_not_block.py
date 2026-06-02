@@ -114,6 +114,12 @@ def main():
         default="not_block_matches.csv",
         help="Output CSV path",
     )
+    parser.add_argument(
+        "--no-paths",
+        action="store_true",
+        default=False,
+        help="Omit the filepath column from CSV for easier visual scanning",
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -147,11 +153,18 @@ def main():
         logging.info("  %-30s %d", term, count)
 
     # Write CSV
+    if args.no_paths:
+        fieldnames = ["title", "matched_terms"]
+    else:
+        fieldnames = ["file", "title", "matched_terms"]
     with open(args.out, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["file", "title", "matched_terms"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for h in hits:
-            writer.writerow({**h, "matched_terms": "; ".join(h["matched_terms"])})
+            row = {**h, "matched_terms": "; ".join(h["matched_terms"])}
+            if args.no_paths:
+                row.pop("file", None)
+            writer.writerow(row)
     logging.info("Wrote matches to %s", args.out)
 
     # Delete if requested
