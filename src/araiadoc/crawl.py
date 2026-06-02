@@ -14,7 +14,6 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
 from araiadoc.convert import convert, epa_ocr_to_json
-from araiadoc.extract_references import extract_refs
 from araiadoc.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
 from araiadoc.schema import ParsedDocumentSchema
 from araiadoc.searches import RESILIENCE_SEARCHES
@@ -98,18 +97,15 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
         async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
-
             n_of_pages_crawled = start_idx  # STARTING INDEX FOR RESULTS ALSO
 
             url_base = source_mapping["EPA"].search_base.split("/Exe")[0]  # 'https://nepis.epa.gov'
 
             while n_of_pages_crawled < stop_idx:
-
                 source = source_mapping["EPA"].search_base + str(n_of_pages_crawled)
                 source = source.format(search_term)
 
                 try:
-
                     main_result_page = await crawler.arun(url=source, config=search_run_config)
 
                     search_result_links = [
@@ -126,7 +122,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
                             # We get document as text first, since this contains the most metadata
                             text_link_base = soup.find_all(
                                 "a",
-                                title=lambda x: x and "Download this document as unformatted OCR text" in x,
+                                title=lambda x: (x and "Download this document as unformatted OCR text" in x),
                             )[0]
 
                             text_link = text_link_base.get("onclick").split("'")[1]  # necessary link hidden within js
@@ -279,7 +275,6 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
         async with AsyncWebCrawler(
             config=browser_config,
         ) as crawler:
-
             search_base = source_mapping["OSTI"].search_base
             formatted_search_base_init = search_base.format(search_term, stop_year, start_year, 0)
             await asyncio.sleep(1)
@@ -334,7 +329,16 @@ async def _get_document(paper_id, semaphore, asch):
 
 
 async def _process_combined_chunk(
-    data_chunk, metadata_map, checkpoint_data, lock, subdir, progress, task, color, semaphore=None, asch=None
+    data_chunk,
+    metadata_map,
+    checkpoint_data,
+    lock,
+    subdir,
+    progress,
+    task,
+    color,
+    semaphore=None,
+    asch=None,
 ):
     import ast
 
@@ -476,7 +480,6 @@ async def _process_api_chunk(
                         f.write(r.content)
 
             elif output_format == "metadata":
-
                 if input_format == "pes2o":
                     # TODO: Associate metadata from SemanticScholar with input pes2o dataset
                     schema = ParsedDocumentSchema(
@@ -538,13 +541,27 @@ async def _process_api_chunk(
 @click.command()
 @click.argument("input_file", nargs=1, type=click.Path(exists=True))
 @click.option(
-    "--input_format", "-i", nargs=1, type=click.Choice(["csv", "checkpoint", "pes2o", "combined"]), default="checkpoint"
+    "--input_format",
+    "-i",
+    nargs=1,
+    type=click.Choice(["csv", "checkpoint", "pes2o", "combined"]),
+    default="checkpoint",
 )
 @click.option("--input_metadata_file", "-m", nargs=1, type=click.Path(exists=True))
-@click.option("--output_format", "-o", nargs=1, type=click.Choice(["metadata", "pdf", "combined"]), default="combined")
+@click.option(
+    "--output_format",
+    "-o",
+    nargs=1,
+    type=click.Choice(["metadata", "pdf", "combined"]),
+    default="combined",
+)
 @click.option("-nproc", "-n", nargs=1, type=click.INT, default=1)
 def complete_semantic_scholar(
-    input_file: Path, input_format: str, input_metadata_file: Path, output_format: str, nproc: int
+    input_file: Path,
+    input_format: str,
+    input_metadata_file: Path,
+    output_format: str,
+    nproc: int,
 ):
     """
     Given an input file or directory, containing either:
@@ -585,7 +602,16 @@ def complete_semantic_scholar(
                 return
 
             await _process_combined_chunk(
-                data_chunk, metadata_map, checkpoint_data, lock, subdir, progress, task, color, semaphore, asch
+                data_chunk,
+                metadata_map,
+                checkpoint_data,
+                lock,
+                subdir,
+                progress,
+                task,
+                color,
+                semaphore,
+                asch,
             )
         else:
             await _process_api_chunk(
@@ -664,7 +690,12 @@ def complete_semantic_scholar(
                 )
                 return
 
-        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn(), disable=True) as progress:
+        with Progress(
+            SpinnerColumn(),
+            *Progress.get_default_columns(),
+            TimeElapsedColumn(),
+            disable=True,
+        ) as progress:
             await asyncio.gather(
                 *[
                     _complete_semantic_scholar(
@@ -704,7 +735,6 @@ main.add_command(section_dataset)
 main.add_command(section_dataset_v2)
 main.add_command(get_metadata_from_database)
 main.add_command(get_metadata_from_semanticscholar)
-main.add_command(extract_refs)
 main.add_command(get_from_titanv)
 
 

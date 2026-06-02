@@ -18,8 +18,8 @@ from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
-from .text_quality.content_assessment import is_english
 from .text_quality.text_cleaning import _clean_subsections
+from .text_quality.text_validation import is_english
 from .utils import _collect_from_path
 
 BOLD_RE = re.compile(r"\*{2,3}([^*]+?)\*{2,3}")  # inside **...** or ***...***

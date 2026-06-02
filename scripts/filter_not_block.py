@@ -5,7 +5,7 @@ Usage
 -----
     python scripts/filter_not_block.py DATA_DIR [--delete] [--jobs N]
 
-DATA_DIR  Path to the sectionized dataset directory
+DATA_DIR  Path to the *sectionized* dataset directory
           (e.g. data/titanv_all_utility_results_2026-05-18_11:14:14_sectionized)
 
 Options
@@ -21,68 +21,43 @@ import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 
 from joblib import Parallel, delayed
 
+# Make the project src/ importable when invoked as a standalone script
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from araiadoc.searches import Q2_NOT_BLOCK  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+
 # ---------------------------------------------------------------------------
-# NOT-block terms – keep in sync with Q2_NOT_BLOCK in searches.py
+# NOT-block terms — sourced from Q2_NOT_BLOCK in araiadoc.searches so the
+# filter stays in lock-step with the actual query.
 # ---------------------------------------------------------------------------
-NOT_TERMS = [
-    # Biology / medicine
-    "protein structure",
-    "gene expression",
-    "amino acid",
-    "cell signaling",
-    "neural circuit",
-    "synaptic",
-    "genome",
-    "genomic",
-    "transcriptome",
-    "metabolome",
-    "clinical trial",
-    "randomized controlled trial",
-    "patient outcome",
-    "drug delivery",
-    "pharmaceutical",
-    "oncology",
-    "tumor",
-    "pathogen",
-    "spectroscopy",
-    # Chemical engineering
-    "chemical reactor",
-    "polymerization",
-    "distillation column",
-    "catalytic cracking",
-    "reaction kinetics",
-    "molar concentration",
-    # Astrophysics
-    "stellar",
-    "galactic",
-    "exoplanet",
-    "black hole",
-    "neutron star",
-    "dark matter",
-    "dark energy",
-    "redshift",
-    # Particle physics
-    "hadron",
-    "quark",
-    "lepton",
-    "boson",
-    "particle accelerator",
-    "collider",
-    "plasma",
-    # Semiconductor / nano fabrication
-    "thin film deposition",
-    "sputter",
-    "epitaxial growth",
-    "nanoparticle synthesis",
-    "quantum dot",
-    "CMOS",
-]
+def _parse_or_block(block: str) -> list[str]:
+    """Extract bare quoted terms from a `("term" OR "term" ...)` string.
+
+    Skips empty quoted strings, the OR operator, parens, and any clause
+    containing AND.
+    """
+    terms: list[str] = []
+    for piece in block.split('"'):
+        if not piece:
+            continue
+        stripped = piece.strip()
+        if not stripped or stripped in {"OR", "(", ")"}:
+            continue
+        if " AND " in stripped:
+            continue
+        terms.append(stripped)
+    return terms
+
+
+NOT_TERMS = _parse_or_block(Q2_NOT_BLOCK)
 
 # Pre-compile a single regex with all terms (case-insensitive)
 _NOT_PATTERN = re.compile("|".join(re.escape(t) for t in NOT_TERMS), re.IGNORECASE)
@@ -108,7 +83,12 @@ def check_file(filepath: str) -> dict | None:
         return None
 
     text = _flatten_text(doc)
-    matches = set(m.lower() for m in _NOT_PATTERN.findall(text))
+    # Strip out any empty/whitespace matches defensively — _NOT_PATTERN
+    # shouldn't ever produce one, but if it did the file would otherwise be
+    # flagged for deletion on a phantom hit.
+    matches = {m.lower() for m in _NOT_PATTERN.findall(text)}
+    matches.discard("")
+    matches = {m for m in matches if m.strip()}
     if matches:
         return {
             "file": filepath,

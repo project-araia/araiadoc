@@ -11,13 +11,12 @@ from .text_quality.content_assessment import (
     _header_is_noise,
     _normalize_header,
     _normalize_text,
-    is_english,
     is_string_valid,
     needed_sections_but_skip_remaining,
     unneeded_sections_no_skip_remaining,
     unneeded_sections_skip_remaining,
 )
-from .text_quality.text_validation import MIN_CONTENT_CHARS
+from .text_quality.text_validation import MIN_CONTENT_CHARS, is_english
 from .utils import _collect_from_path
 
 

@@ -310,6 +310,7 @@ Q2_NOT_BLOCK = """(
   "particle accelerator" OR
   "collider" OR
   "plasma" OR
+  "photoinjection" OR
 
   "thin film deposition" OR
   "sputter" OR
