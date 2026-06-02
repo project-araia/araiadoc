@@ -5,7 +5,7 @@ description: Download documents from TitanV (S2ORC) database or perform an all-t
 
 # `get-from-titanv` Skill
 
-Download documents from the S2ORC (Semantic Scholar Open Research Corpus) database (hosted on the ARAIA project's TitanV server) by corpus ID, or perform a comprehensive "all terms" search covering multiple climate-related queries.
+Download documents from the S2ORC (Semantic Scholar Open Research Corpus) database (hosted on the ARAIA project's TitanV server) by corpus ID, or perform a comprehensive pre-defined search covering climate-weather or utility/electricity queries.
 
 ## Usage
 
@@ -18,8 +18,11 @@ pixi run -e araiadoc araiadoc get-from-titanv [OPTIONS]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--source PATH` | `-s` | Input dataset containing corpus IDs (CSV or JSON file) |
-| `--all-terms` | `-a` | Perform the pre-defined "all terms" climate search |
+| `--all-weather` | `-a` | Perform the pre-defined weather/climate Solr search |
+| `--all-utility` | `-u` | Perform the pre-defined utility/electricity Solr search |
 | `--output-dir PATH` | `-o` | Existing or new output directory (resumes from checkpoint if directory exists) |
+
+Use **one option at a time** — `--source`, `--all-weather`, or `--all-utility`.
 
 ## Examples
 
@@ -33,25 +36,33 @@ pixi run -e araiadoc araiadoc get-from-titanv [OPTIONS]
   pixi run -e araiadoc araiadoc get-from-titanv --source data/papers.csv
   ```
 
-- Perform an all-terms climate search:
+- Perform the pre-defined weather/climate search:
   ```bash
-  pixi run -e araiadoc araiadoc get-from-titanv --all-terms
+  pixi run -e araiadoc araiadoc get-from-titanv --all-weather
   ```
 
-- Resume an all-terms search from checkpoint:
+- Perform the pre-defined utility/electricity search:
   ```bash
-  pixi run -e araiadoc araiadoc get-from-titanv --all-terms --output-dir data/titanv_all_terms_results_v2_2024-01-15/
+  pixi run -e araiadoc araiadoc get-from-titanv --all-utility
   ```
 
-## All Terms Search Coverage
+- Resume a search from a specific checkpoint directory:
+  ```bash
+  pixi run -e araiadoc araiadoc get-from-titanv --all-weather --output-dir data/titanv_all_weather_results_2024-01-15_12:00:00/
+  ```
 
-The `--all-terms` option queries for documents matching climate-related terms including:
+## Search Coverage
 
+### `--all-weather`
+Queries for documents matching climate/weather terms including:
 - **Temperature extremes**: heat wave, cold wave, urban heat island, wet-bulb temperature
 - **Precipitation**: flood, drought, flash flood, extreme rainfall, storm surge
 - **Storms**: hurricane, typhoon, tornado, thunderstorm, blizzard, derecho
 - **Climate impacts**: sea level rise, permafrost thaw, ocean acidification, wildfire
 - **Cross-cutting**: climate, weather, hazard, resilience, adaptation, vulnerability
+
+### `--all-utility`
+Queries for documents matching electricity/utility infrastructure terms, split across multiple Solr sub-queries (q2_chunks) to avoid HTTP 414 errors. Uses cached `fq` filter queries for performance.
 
 ## How It Works
 
@@ -63,32 +74,33 @@ The `--all-terms` option queries for documents matching climate-related terms in
 4. Saves responses as JSON files per document
 5. Maintains checkpoint to resume interrupted runs
 
-### All Terms Mode
+### Weather / Utility Search Mode
 
 1. Uses cursor-based pagination on Solr to iterate through all matching documents
-2. Downloads in batches of 1000 documents
+2. Downloads in batches of 500 documents per page
 3. Flushes to gzip-compressed JSONL files every 50 pages
-4. Creates checkpoint for resumable downloads
+4. Creates per-chunk checkpoint files for resumable downloads
 5. Writes corpus IDs to `ids.txt`
+6. Deduplicates across sub-queries using a shared `seen_ids` set
 
 ## Output
 
 ### Source Mode
-- **Location**: `data/titanv_id_results_v2/`
-- **Format**: JSON files per document
+- **Location**: `data/titanv_id_results_v2_<timestamp>/`
+- **Format**: JSON files per document (`<corpus_id>.json`)
 - **Checkpoint**: `data/titanv_checkpoint.json`
 
-### All Terms Mode
-- **Location**: `{OUTPUT_DIR}/all_terms/`
+### Weather / Utility Search Mode
+- **Location**: `{OUTPUT_DIR}/all_weather/` or `{OUTPUT_DIR}/all_utility/`
 - **Files**:
-  - `batches/batch_000001.jsonl.gz` - Gzipped JSONL with document data
-  - `ids.txt` - List of corpus IDs
-  - `checkpoint.json` - Resume state (cursor mark, page index)
+  - `batches/batch_c01_000001.jsonl.gz` — Gzipped JSONL with document data (one per chunk)
+  - `ids.txt` — List of corpus IDs written so far
+  - `checkpoint_1.json`, `checkpoint_2.json`, … — Resume state per sub-query chunk
 
 ## Notes
 
-- Rate limited to 180 requests per second
-- 5-second timeout per individual request
-- All terms search uses 120-second timeout per page
+- Rate limited to 180 requests per second (source mode)
+- 5-second timeout per individual corpus-ID request
+- Weather/utility search uses 300-second timeout per cursor page
 - Automatically resumes from checkpoint files
 - Requires network access to `titanv.gss.anl.gov:8983`

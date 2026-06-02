@@ -11,6 +11,7 @@ from .text_quality.content_assessment import (
     _header_is_noise,
     _normalize_header,
     _normalize_text,
+    apply_synonyms,
     is_string_valid,
     needed_sections_but_skip_remaining,
     unneeded_sections_no_skip_remaining,
@@ -55,7 +56,7 @@ def _sectionize_item_v2(item):
     title = _normalize_text(_get_first(item, "title"))
     abstract = _normalize_text(_get_first(item, "abstract"))
     paragraphs = [_normalize_text(p) for p in _get_list(item, "paragraph")]
-    section_headers = [_normalize_header(h) for h in _get_list(item, "sectionheader")]
+    section_headers = [apply_synonyms(_normalize_header(h)) for h in _get_list(item, "sectionheader")]
 
     if not paragraphs or not section_headers:
         return (False, {}, "Missing paragraph/sectionheader fields required for v2")
@@ -66,7 +67,7 @@ def _sectionize_item_v2(item):
     if abstract:
         sectioned_text["abstract"] = abstract
 
-    if len(sectioned_text["abstract"]) < MIN_CONTENT_CHARS:
+    if len(abstract) < MIN_CONTENT_CHARS:
         return (False, {}, "Abstract missing or too short.")
 
     actual_headers_count = 0

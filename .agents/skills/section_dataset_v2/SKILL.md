@@ -19,12 +19,6 @@ pixi run -e araiadoc araiadoc section-dataset-v2 [OPTIONS] SOURCE
 |----------|-------------|
 | `SOURCE` | Directory containing documents to sectionize |
 
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `--dump_rejected` | Dump rejected sections to a separate file (default: False) |
-
 ## Examples
 
 - Sectionize a directory of individual JSON files:
@@ -34,12 +28,7 @@ pixi run -e araiadoc araiadoc section-dataset-v2 [OPTIONS] SOURCE
 
 - Process TitanV batch output (JSONL.GZ files):
   ```bash
-  pixi run -e araiadoc araiadoc section-dataset-v2 data/titanv_all_terms_results
-  ```
-
-- Sectionize with rejected sections dump:
-  ```bash
-  pixi run -e araiadoc araiadoc section-dataset-v2 data/documents --dump_rejected
+  pixi run -e araiadoc araiadoc section-dataset-v2 data/titanv_all_utility_results
   ```
 
 ## Input Format

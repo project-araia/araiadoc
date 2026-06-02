@@ -136,8 +136,7 @@ def _complete_all_terms_cursor(
 
     num_found = payload["response"]["numFound"]
     label = search_name.replace("_", " ").title()
-    if chunk_idx > 1 or True:  # always show chunk index for clarity
-        label = f"{label} (chunk {chunk_idx})"
+    label = f"{label} (chunk {chunk_idx})"
     progress.log(f"* Chunk {chunk_idx} Num found: {num_found}")
     task = progress.add_task(f"[white]{label}: ", total=num_found, completed=total_downloaded)
 

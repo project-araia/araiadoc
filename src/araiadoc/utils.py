@@ -40,7 +40,7 @@ def _count_local(source: str):
             for doc in directory.iterdir():
                 if doc.stem.isdigit():
                     ids.append(doc.stem)
-    ids = list(set(sorted(ids)))
+    ids = sorted(set(ids))
     with open(data_root / f"{source}_doc_ids.json", "w") as f:
         json.dump(ids, f)
     click.echo(len(ids))
@@ -52,38 +52,6 @@ def _count_local(source: str):
 def count_local(source: str):
     """Count the number of downloaded files from a given source."""
     return _count_local(source)
-
-
-def _checkpoint(
-    path,
-    search_term: str,
-    start_year: int,
-    stop_year: int,
-    result_page: int,
-    max_pages: int,
-    max_results: int,
-):
-
-    with open(path / "checkpoint.json", "w") as f:
-        json.dump(
-            {
-                "search_term": search_term,
-                "start_year": start_year,
-                "stop_year": stop_year,
-                "last_result_page": result_page,
-                "max_pages": max_pages,
-                "max_results": max_results,
-            },
-            f,
-        )
-
-
-def _get_result_links(result_page: dict, url_base: str):
-    return [i for i in result_page.links["internal"] if i["href"].startswith(url_base)]
-
-
-def _get_api_result_links(results: dict):
-    pass
 
 
 def _get_max_results(soup, counting: bool) -> tuple[int, int]:
@@ -102,16 +70,6 @@ def _get_max_results(soup, counting: bool) -> tuple[int, int]:
         click.echo("* More than 1000 results found. Due to OSTI limitations only the first 1000 are available.")
         click.echo("* Try adjusting the year range on future crawls.")
     return max_pages, max_results
-
-
-def _download_document(doc_page: dict, url_base: str, path: Path, progress, task):
-    token = doc_page["href"].split(url_base)[-1]  # https://www.osti.gov/servlets/purl/1514957
-    r = requests.get(doc_page["href"], stream=True, timeout=10)
-    r.raise_for_status()
-    path_to_doc = path / f"{token}.pdf"
-    with path_to_doc.open("wb") as f:
-        f.write(r.content)
-    progress.update(task, advance=1)
 
 
 def _get_configs(path: Path):
@@ -152,23 +110,6 @@ def _get_configs(path: Path):
     )
 
     return browser_config, run_config, metadata_config
-
-
-def _get_dispatcher(max_results: int):
-    from crawl4ai import RateLimiter
-    from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
-
-    dispatcher = MemoryAdaptiveDispatcher(
-        memory_threshold_percent=90.0,  # Pause if memory exceeds this
-        check_interval=1.0,  # How often to check memory
-        max_session_permit=1,  # Maximum concurrent tasks
-        rate_limiter=RateLimiter(base_delay=(3.0, 8.0), max_delay=45.0, max_retries=3),  # Optional rate limiting
-        # monitor=CrawlerMonitor(  # Optional monitoring
-        #     enable_ui=True,
-        #     urls_total=max_results,
-        # ),
-    )
-    return dispatcher
 
 
 def _find_project_root() -> str:

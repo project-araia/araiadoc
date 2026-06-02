@@ -8,13 +8,9 @@ from pathlib import Path
 
 import chardet
 import click
-
-# import layoutparser as lp
 import openparse
-import pymupdf
 import requests
 from bs4 import BeautifulSoup
-from PIL import Image
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from .schema import ParsedDocumentSchema
@@ -44,35 +40,6 @@ def _normalize(text):
     Normalize Unicode strings. Necessary for text which contains non-ASCII characters.
     """
     return unicodedata.normalize("NFD", text)
-
-
-def _convert_images_to_pdf(files: list, collected_files, progress):
-    progress.log("* Found " + str(len(files)) + " files that must first be converted to PDF.")
-
-    task1 = progress.add_task("[green]Converting to PDF", total=len(files))
-
-    success_count = 0
-    fail_count = 0
-    for i in files:
-        try:
-            Image.open(i).save(i.with_suffix(".pdf"), "PDF", save_all=True, resolution=100)
-            collected_files.append(i.with_suffix(".pdf"))
-            success_count += 1
-        except ValueError:
-            fail_count += 1
-        progress.update(task1, advance=1)
-
-    progress.log("\n* Conversion of files to PDF:")
-    progress.log("* Successes: " + str(success_count))
-    progress.log("* Failures: " + str(fail_count))
-
-
-def _get_images_tables_from_layoutparser(input_file: Path, output_file: Path):
-    from .scrape_images_pdf import scrape_images
-
-    length = len(pymupdf.open(input_file))
-    output_file.mkdir(parents=True, exist_ok=True)
-    scrape_images(input_file, last_pg=length, output_dir=output_file)
 
 
 def _get_text_from_openparse(input_file: Path):
@@ -199,7 +166,6 @@ def _convert_grobid_xml_to_json(input_file) -> dict:
 def _convert(
     source: Path,
     progress,
-    images_flag: bool = False,
     output_dir: str = None,
     grobid_service: str = "http://localhost:8070/api",
 ):
@@ -214,7 +180,7 @@ def _convert(
     if grobid_service:
         progress.log("* Using Grobid. Checking specified host for Grobid service.")
         try:
-            r = requests.get(grobid_service + "/api/isalive")
+            r = requests.get(grobid_service + "/isalive")
             r.raise_for_status()
             progress.log("[bright_green]Grobid service found.")
         except (requests.exceptions.RequestException, ConnectionRefusedError):
@@ -227,6 +193,10 @@ def _convert(
     )
 
     collected_input_files = [i for i in collected_input_files if i is not None and i.suffix.lower() == ".pdf"]
+
+    if not collected_input_files:
+        progress.log("[red]No PDF files found in source directory. Nothing to convert.")
+        return
 
     if not output_dir:
         output_dir = Path(str(collected_input_files[0].parent) + "_json")
@@ -241,11 +211,6 @@ def _convert(
             timeout_files = json.load(f)
     else:
         timeout_files = []
-
-    if images_flag:
-        progress.log("Images and tables: enabled.")
-    else:
-        progress.log("Images and tables: disabled.")
 
     if grobid_service:
         _get_xml_from_grobid(Path(source), grobid_service, output_dir)
@@ -262,8 +227,6 @@ def _convert(
 
         try:
             progress.log("Starting conversion for: " + str(i.name))
-            if images_flag:
-                _get_images_tables_from_layoutparser(i, output_file)
             if grobid_service:
                 raw_text = _convert_grobid_xml_to_json(i)
             else:
@@ -314,10 +277,9 @@ def _convert(
 
 @click.command()
 @click.argument("source", nargs=1)
-@click.option("--images-tables", "-i", is_flag=True)
 @click.option("--output-dir", "-o", nargs=1)
 @click.option("--grobid_service", "-g", nargs=1)
-def convert(source: Path, images_tables: bool, output_dir: str = None, grobid_service: str = ""):
+def convert(source: Path, output_dir: str = None, grobid_service: str = ""):
     """
     Convert PDFs in a given directory ``source`` to json. If the input files are of a different format,
     they'll first be converted to PDF.
@@ -328,7 +290,7 @@ def convert(source: Path, images_tables: bool, output_dir: str = None, grobid_se
         TimeElapsedColumn(),
         disable=True,
     ) as progress:
-        _convert(source, progress, images_tables, output_dir, grobid_service)
+        _convert(source, progress, output_dir, grobid_service)
 
 
 @click.command()
@@ -358,10 +320,9 @@ def epa_ocr_to_json(source: Path):
 
             pubnumber = re.findall("<pubnumber>(.*?)</pubnumber>", full_text)[0]
             title = re.findall("<title>(.*?)</title>", full_text)[0]
-            year = int(re.findall("<pubyear>(.*?)</pubyear>", full_text)[0])
+            date = int(re.findall("<pubyear>(.*?)</pubyear>", full_text)[0])
             authors = re.findall("<author>(.*?)</author>", full_text)
             abstract = re.findall("<abstract>(.*?)</abstract>", full_text)[0]
-            origin_format = re.findall("<origin>(.*?)</origin>", full_text)[0]
             publisher = re.findall("<publisher>(.*?)</publisher>", full_text)[0]
 
             ocr_soup = BeautifulSoup(full_text, "html.parser")
@@ -371,17 +332,17 @@ def epa_ocr_to_json(source: Path):
             cleaned_subsections = _clean_subsections(sub_sections)
             # remove pubnumber from first section
             cleaned_subsections[0] = cleaned_subsections[0].replace(pubnumber, "")
+            text_dict = {"body": " ".join(cleaned_subsections)}
 
             representation = ParsedDocumentSchema(
                 source="EPA",
                 title=title,
-                text=cleaned_subsections,
+                text=text_dict,
                 abstract=abstract,
                 authors=authors,
-                origin_format=origin_format,
                 publisher=publisher,
                 unique_id=pubnumber,
-                year=year,
+                date=date,
             )
 
             output_dir = Path(str(i.parent) + "_json")
