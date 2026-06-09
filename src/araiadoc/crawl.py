@@ -15,9 +15,10 @@ from semanticscholar import AsyncSemanticScholar
 
 from araiadoc.convert import convert, epa_ocr_to_json
 from araiadoc.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
+from araiadoc.s2orc import download_s2orc, get_from_local_s2orc
 from araiadoc.schema import ParsedDocumentSchema
-from araiadoc.searches import RESILIENCE_SEARCHES
-from araiadoc.sectionize import section_dataset, section_dataset_v2
+from araiadoc.searches_legacy import RESILIENCE_SEARCHES
+from araiadoc.sectionize import section_dataset, section_dataset_s2orc, section_dataset_v2
 from araiadoc.sources import source_mapping
 from araiadoc.titanv import get_from_titanv
 from araiadoc.utils import (
@@ -724,9 +725,12 @@ main.add_command(epa_ocr_to_json)
 main.add_command(count_remote_osti)
 main.add_command(section_dataset)
 main.add_command(section_dataset_v2)
+main.add_command(section_dataset_s2orc)
 main.add_command(get_metadata_from_database)
 main.add_command(get_metadata_from_semanticscholar)
 main.add_command(get_from_titanv)
+main.add_command(download_s2orc)
+main.add_command(get_from_local_s2orc)
 
 
 if __name__ == "__main__":
