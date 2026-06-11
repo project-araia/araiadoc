@@ -41,7 +41,8 @@ _DATASET_URL = "https://api.semanticscholar.org/datasets/v1/release/{release_id}
 def _download_shard(url: str, dest: Path, session: requests.Session, progress, task):
     """Stream-download *url* to *dest*, updating *task* every 10 MB."""
     MB = 1024 * 1024
-    with session.get(url, stream=True, timeout=300) as r:
+    # timeout=(connect_s, read_s): 30 s to establish, 120 s between chunks.
+    with session.get(url, stream=True, timeout=(30, 240)) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length", 0))
         if task is not None and total:
@@ -54,6 +55,8 @@ def _download_shard(url: str, dest: Path, session: requests.Session, progress, t
                     downloaded += len(chunk)
                     if task is not None:
                         progress.update(task, advance=len(chunk))
+    if total and downloaded != total:
+        raise RuntimeError(f"Incomplete download: got {downloaded:,} bytes, expected {total:,}")
 
 
 @click.command("download-s2orc")
@@ -123,9 +126,17 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
             dest = output_dir / shard_name
 
             if dest.exists():
-                progress.log(f"* Skipping {shard_name} (already present)")
-                progress.update(dl_task, advance=1)
-                continue
+                # Validate size against Content-Length before skipping.
+                head = session.head(file_url, timeout=30)
+                expected = int(head.headers.get("Content-Length", 0))
+                if expected and dest.stat().st_size == expected:
+                    progress.log(f"* Skipping {shard_name} (already complete)")
+                    progress.update(dl_task, advance=1)
+                    continue
+                progress.log(
+                    f"* Re-downloading {shard_name} " f"(size mismatch: {dest.stat().st_size:,} vs {expected:,})"
+                )
+                dest.unlink()
 
             progress.log(f"* Downloading {shard_name} …")
             shard_task = progress.add_task(f"[white]{shard_name}", total=None)
@@ -163,22 +174,6 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
 # ---------------------------------------------------------------------------
 # Helpers for get-from-local-s2orc
 # ---------------------------------------------------------------------------
-
-
-def _iter_matching_docs(gz_files, predicate):
-    """Yield raw document dicts from .gz JSONL shards where predicate returns True."""
-    for gz in gz_files:
-        with gzip.open(gz, "rt", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    doc = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if predicate(doc):
-                    yield doc
 
 
 def _write_doc(doc: dict, output_dir: Path):
