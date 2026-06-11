@@ -268,7 +268,12 @@ def _sectionize_item_v2(item):
             continue
 
         if is_english(content) and is_string_valid(content):
-            sectioned_text[header] = content
+            # If the same canonical header appears more than once, append rather
+            # than overwrite so no content is silently lost.
+            if header in sectioned_text:
+                sectioned_text[header] = sectioned_text[header] + " " + content
+            else:
+                sectioned_text[header] = content
             actual_headers_count += 1
 
         if should_stop_after:

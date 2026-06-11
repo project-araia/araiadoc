@@ -49,6 +49,14 @@ needed_sections_but_skip_remaining = ["conclusion"]
 # Organized by semantic group for readability.
 # ---------------------------------------------------------------------------
 HEADER_SYNONYMS: dict[str, str] = {
+    # -- title / abstract ----------------------------------------------------
+    # Q4: foreign-language abstracts → abstract
+    "resumo": "abstract",
+    "resumen": "abstract",
+    # -- introduction --------------------------------------------------------
+    "introduccion": "introduction",
+    # -- results (singular) --------------------------------------------------
+    "result": "results",
     # -- discussion ----------------------------------------------------------
     "discussions": "discussion",
     # -- conclusion ----------------------------------------------------------
@@ -59,6 +67,20 @@ HEADER_SYNONYMS: dict[str, str] = {
     "final remark": "conclusion",
     "final considerations": "conclusion",
     "final consideration": "conclusion",
+    # -- results and discussion ----------------------------------------------
+    "results and discussions": "results and discussion",
+    "result and discussion": "results and discussion",
+    "result and discussions": "results and discussion",
+    "results & discussion": "results and discussion",
+    "result & discussion": "results and discussion",
+    "results and analysis": "results and discussion",
+    "result and analysis": "results and discussion",
+    # -- discussion and conclusions ------------------------------------------
+    "discussion and conclusion": "discussion and conclusions",
+    "conclusions and discussion": "discussion and conclusions",
+    "conclusion and discussion": "discussion and conclusions",
+    "discussions and conclusions": "discussion and conclusions",
+    "discussions and conclusion": "discussion and conclusions",
     # -- materials and methods -----------------------------------------------
     # ampersand variants
     "materials & methods": "materials and methods",
@@ -74,35 +96,26 @@ HEADER_SYNONYMS: dict[str, str] = {
     "methods and material": "materials and methods",
     "method and materials": "materials and methods",
     "method and material": "materials and methods",
+    # methodology-shaped variants
+    "materials and methodology": "materials and methods",
+    "material and methodology": "materials and methods",
+    "methods & materials": "materials and methods",
+    "materials and methods section": "materials and methods",
     # chemistry synonyms
     "materials and reagents": "materials and methods",
     "materials and chemicals": "materials and methods",
     "reagents and materials": "materials and methods",
     "chemicals and materials": "materials and methods",
+    # -- method (singular) ---------------------------------------------------
+    "method": "methods",
     # bare "methods" variants that imply the same section
-    "methodology": "methods",
     "experimental methods": "methods",
     "experimental": "methods",
     "experimental section": "methods",
     "experimental procedures": "methods",
     "experimental procedure": "methods",
-    # -- method (singular) ---------------------------------------------------
-    "method": "methods",
-    # -- results and discussion ----------------------------------------------
-    "results and discussions": "results and discussion",
-    "result and discussion": "results and discussion",
-    "result and discussions": "results and discussion",
-    "results & discussion": "results and discussion",
-    "result & discussion": "results and discussion",
-    "results and analysis": "results and discussion",
-    "result and analysis": "results and discussion",
-    # -- discussion and conclusions ------------------------------------------
-    "discussion and conclusion": "discussion and conclusions",
-    "conclusions and discussion": "discussion and conclusions",
-    "conclusion and discussion": "discussion and conclusions",
-    "discussions and conclusions": "discussion and conclusions",
-    "discussions and conclusion": "discussion and conclusions",
     # -- methodology ---------------------------------------------------------
+    "methodology": "methodology",
     "methodologies": "methodology",
     "research methodology": "methodology",
     "research method": "methodology",
@@ -116,30 +129,55 @@ HEADER_SYNONYMS: dict[str, str] = {
     "statistical data analysis": "statistical analysis",
     "statistical data analyses": "statistical analysis",
     "statistics": "statistical analysis",
+    "statistical": "statistical analysis",
+    "analysis of variance": "statistical analysis",
     # -- data analysis -------------------------------------------------------
     "data analyses": "data analysis",
     # -- data and methods ----------------------------------------------------
     "data and method": "data and methods",
     "data and methodology": "data and methods",
     "data and methodologies": "data and methods",
+    "data & methods": "data and methods",
+    # -- data collection -----------------------------------------------------
+    "data collection and analysis": "data collection",
+    "data collection and processing": "data collection",
+    "data collection methods": "data collection",
+    # -- data processing -----------------------------------------------------
+    # (standalone canonical — no variants in the wild yet)
     # -- study area ----------------------------------------------------------
     "study areas": "study area",
     "study site": "study area",
     "study sites": "study area",
     "study region": "study area",
     "study regions": "study area",
-    "study area and data": "study area",
+    "study location": "study area",
+    "the study area": "study area",
+    "site": "study area",
     "site description": "study area",
+    "site descriptions": "study area",
+    "site characteristics": "study area",
+    "study site description": "study area",
     "description of the study area": "study area",
+    "description of study area": "study area",
+    "description of the study site": "study area",
     "overview of the study area": "study area",
     "study area description": "study area",
-    "the study area": "study area",
+    "study area and data": "study area",
+    "study area and datasets": "study area",
+    "study area and dataset": "study area",
+    "study area and sampling": "study area",
+    "study area and data collection": "study area",
+    "study area and materials": "study area",
+    "study area and data sources": "study area",
+    "area of study": "study area",
+    # -- related work --------------------------------------------------------
+    "related works": "related work",
     # -- literature review ---------------------------------------------------
     "literature search": "literature review",
     "literature survey": "literature review",
     "review of literature": "literature review",
-    # -- related work --------------------------------------------------------
-    "related works": "related work",
+    # -- background ----------------------------------------------------------
+    # (standalone canonical — no variants in the wild yet)
     # -- summary -------------------------------------------------------------
     "summary and conclusions": "summary",
     "summary and conclusion": "summary",
@@ -148,10 +186,54 @@ HEADER_SYNONYMS: dict[str, str] = {
     # (summary and conclusions was previously mapped to conclusion; summary
     # is the better canonical since these sections open with a summary before
     # any concluding statement)
+    # -- plant material ------------------------------------------------------
+    "plant materials": "plant material",
+    "plant material and growth conditions": "plant material",
+    "plant materials and growth conditions": "plant material",
+    "plant material and experimental design": "plant material",
+    "plant materials and experimental design": "plant material",
+    "plant materials and treatments": "plant material",
+    "plant material and treatments": "plant material",
+    "plant materials and stress treatments": "plant material",
+    "plant materials and growing conditions": "plant material",
+    "plant material and growing conditions": "plant material",
+    "plant growth conditions": "plant material",
     # -- experimental design -------------------------------------------------
     "experimental designs": "experimental design",
     "design of experiments": "experimental design",
     "experiment design": "experimental design",
+    "experimental design and treatments": "experimental design",
+    "experimental design and statistical analysis": "experimental design",
+    "treatments and experimental design": "experimental design",
+    # -- experimental setup --------------------------------------------------
+    "experimental set-up": "experimental setup",
+    # -- sample preparation --------------------------------------------------
+    # (standalone canonical — no variants in the wild yet)
+    # -- sample collection ---------------------------------------------------
+    # (standalone canonical — no variants in the wild yet)
+    # -- sensitivity analysis ------------------------------------------------
+    "sensitivity analyses": "sensitivity analysis",
+    # -- model ---------------------------------------------------------------
+    "model description": "model",
+    "model development": "model",
+    "model setup": "model",
+    "model structure": "model",
+    "model overview": "model",
+    # -- model validation ----------------------------------------------------
+    "model calibration": "model validation",
+    "model calibration and validation": "model validation",
+    "calibration and validation": "model validation",
+    # -- sampling ------------------------------------------------------------
+    "sampling design": "sampling",
+    "sampling procedure": "sampling",
+    "sampling procedures": "sampling",
+    "sampling methods": "sampling",
+    "sampling method": "sampling",
+    "sampling strategy": "sampling",
+    # -- study design --------------------------------------------------------
+    "study design and setting": "study design",
+    "study design and participants": "study design",
+    "study design and population": "study design",
     # -- participants --------------------------------------------------------
     "subjects": "participants",
     "patients": "participants",
@@ -165,6 +247,30 @@ HEADER_SYNONYMS: dict[str, str] = {
     "study limitations": "limitations",
     "limitation of the study": "limitations",
     "strengths and limitations": "limitations",
+    # -- case study ----------------------------------------------------------
+    "case studies": "case study",
+    # -- objectives ----------------------------------------------------------
+    "objective": "objectives",
+    "objectives of the study": "objectives",
+    "research objectives": "objectives",
+    # -- implications --------------------------------------------------------
+    "policy implications": "implications",
+    "practical implications": "implications",
+    # -- recommendations -----------------------------------------------------
+    "conclusions and recommendations": "recommendations",
+    "conclusion and recommendations": "recommendations",
+    "conclusions and recommendation": "recommendations",
+    "conclusion and recommendation": "recommendations",
+    # -- miscellaneous standalones -------------------------------------------
+    "characterizations": "characterization",
+    "chemicals and reagents": "chemicals",
+    "reagents": "chemicals",
+    "treatments": "treatment",
+    "procedures": "procedure",
+    "measures": "measurements",
+    "experiments": "experiment",
+    "datasets": "dataset",
+    "samples": "sample",
 }
 
 
@@ -359,6 +465,12 @@ def _normalize_header(header: str) -> str:
         re.IGNORECASE | re.VERBOSE,
     )
     header = roman_prefix_pattern.sub("", header)
+
+    # Step 5b: strip single-letter subsection prefix (A. Methods, B) Results, …)
+    # Only strip when it is a lone letter followed by punctuation — never bare
+    # whitespace — to avoid clipping real single-letter words like "I" or "A".
+    alpha_prefix_pattern = re.compile(r"^\s*[A-Za-z]\s*[.\-:)\]]\s*(?=[A-Za-z])")
+    header = alpha_prefix_pattern.sub("", header)
 
     # Step 6: strip digit prefix
     # Match: "1.", "2.1", "3.2.1", "(1)", "[2.1]", optionally followed by
