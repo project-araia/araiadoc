@@ -30,6 +30,7 @@ def _complete_all_terms_cursor(
     seen_ids: set | None = None,
     chunk_idx: int = 1,
     filter_queries: list[str] | None = None,
+    ids_only: bool = False,
 ):
     """
     Download matching Solr documents using cursor-based pagination and write them
@@ -48,12 +49,25 @@ def _complete_all_terms_cursor(
     block and the NOT exclusion block) are evaluated once and reused across all
     sub-queries and cursor pages.
 
-    Output layout:
+    When ``ids_only`` is True, only the ``corpus_id`` field is requested from
+    Solr (via the ``fl`` param) and no compressed JSONL batches are written —
+    only ``ids.txt`` and the per-chunk checkpoint are produced.  The caller is
+    expected to point ``output_dir`` at a distinct directory (conventionally
+    ``<search_name>_ids``) so the IDs-only checkpoint does not collide with a
+    full-document checkpoint.
+
+    Output layout (full mode):
       output_dir/
         <search_name>/
           batches/
             batch_000001.jsonl.gz
             ...
+          ids.txt
+          checkpoint_1.json  (one per chunk)
+
+    Output layout (ids_only mode):
+      output_dir/
+        <search_name>/
           ids.txt
           checkpoint_1.json  (one per chunk)
     """
@@ -65,8 +79,11 @@ def _complete_all_terms_cursor(
     subdir = output_dir / search_name
     subdir.mkdir(exist_ok=True)
 
-    batch_dir = subdir / "batches"
-    batch_dir.mkdir(exist_ok=True)
+    if not ids_only:
+        batch_dir = subdir / "batches"
+        batch_dir.mkdir(exist_ok=True)
+    else:
+        batch_dir = None
 
     ids_path = subdir / "ids.txt"
     checkpoint_path = subdir / f"checkpoint_{chunk_idx}.json"
@@ -78,16 +95,20 @@ def _complete_all_terms_cursor(
 
     # Determine starting batch_index for *this* chunk.  Each chunk uses its own
     # filename prefix (batch_c{chunk_idx}_NNNNNN) so parallel chunks never
-    # collide.
+    # collide.  In ids_only mode no batch files are written, but we still track
+    # batch_index in the checkpoint for symmetry / forward compatibility.
     chunk_prefix = f"batch_c{chunk_idx:02d}_"
-    existing_batches = sorted(batch_dir.glob(f"{chunk_prefix}*.jsonl.gz"))
-    if existing_batches:
-        # Parse the numeric part from e.g. "batch_c01_000008.jsonl.gz"
-        last_name = existing_batches[-1].stem.replace(".jsonl", "")
-        try:
-            batch_index = int(last_name.split(chunk_prefix)[1].strip())
-        except (ValueError, IndexError):
-            batch_index = len(existing_batches)
+    if batch_dir is not None:
+        existing_batches = sorted(batch_dir.glob(f"{chunk_prefix}*.jsonl.gz"))
+        if existing_batches:
+            # Parse the numeric part from e.g. "batch_c01_000008.jsonl.gz"
+            last_name = existing_batches[-1].stem.replace(".jsonl", "")
+            try:
+                batch_index = int(last_name.split(chunk_prefix)[1].strip())
+            except (ValueError, IndexError):
+                batch_index = len(existing_batches)
+        else:
+            batch_index = 0
     else:
         batch_index = 0
 
@@ -121,6 +142,9 @@ def _complete_all_terms_cursor(
     }
     if filter_queries:
         initial_params["fq"] = filter_queries
+    if ids_only:
+        # Restrict server payload to just the corpus_id field.
+        initial_params["fl"] = "corpus_id"
 
     for attempt in range(10):
         try:
@@ -137,6 +161,8 @@ def _complete_all_terms_cursor(
     num_found = payload["response"]["numFound"]
     label = search_name.replace("_", " ").title()
     label = f"{label} (chunk {chunk_idx})"
+    if ids_only:
+        label = f"{label} (ids only)"
     progress.log(f"* Chunk {chunk_idx} Num found: {num_found}")
     task = progress.add_task(f"[white]{label}: ", total=num_found, completed=total_downloaded)
 
@@ -156,6 +182,8 @@ def _complete_all_terms_cursor(
         }
         if filter_queries:
             params["fq"] = filter_queries
+        if ids_only:
+            params["fl"] = "corpus_id"
 
         try:
             r = session.post(TITANV_SELECT_URL, data=params, timeout=300)
@@ -195,13 +223,14 @@ def _complete_all_terms_cursor(
         should_flush = page_index % flush_every_pages == 0
 
         if should_flush:
-            batch_index += 1
-            batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
+            if not ids_only:
+                batch_index += 1
+                batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
 
-            with gzip.open(batch_path, "wt", encoding="utf-8") as f:
-                for doc in pending_docs:
-                    f.write(json.dumps(doc))
-                    f.write("\n")
+                with gzip.open(batch_path, "wt", encoding="utf-8") as f:
+                    for doc in pending_docs:
+                        f.write(json.dumps(doc))
+                        f.write("\n")
 
             with ids_path.open("a", encoding="utf-8") as f:
                 for corpus_id in pending_ids:
@@ -228,13 +257,14 @@ def _complete_all_terms_cursor(
 
     # Final flush
     if pending_docs:
-        batch_index += 1
-        batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
+        if not ids_only:
+            batch_index += 1
+            batch_path = batch_dir / f"{chunk_prefix}{batch_index:06d}.jsonl.gz"
 
-        with gzip.open(batch_path, "wt", encoding="utf-8") as f:
-            for doc in pending_docs:
-                f.write(json.dumps(doc))
-                f.write("\n")
+            with gzip.open(batch_path, "wt", encoding="utf-8") as f:
+                for doc in pending_docs:
+                    f.write(json.dumps(doc))
+                    f.write("\n")
 
         with ids_path.open("a", encoding="utf-8") as f:
             for corpus_id in pending_ids:
@@ -259,6 +289,16 @@ def _complete_all_terms_cursor(
 @click.option("--all-weather", "-a", is_flag=True)
 @click.option("--all-utility", "-u", is_flag=True)
 @click.option(
+    "--ids-only",
+    "-i",
+    is_flag=True,
+    help=(
+        "For --all-weather / --all-utility, only download matching corpus_ids "
+        "(written to ids.txt) instead of full documents. Output goes to a "
+        "separate <search_name>_ids/ subdirectory."
+    ),
+)
+@click.option(
     "--output-dir",
     "-o",
     nargs=1,
@@ -266,11 +306,24 @@ def _complete_all_terms_cursor(
     default=None,
     help="Optional existing or new output directory.",
 )
-def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_dir: Path | None):
+def get_from_titanv(
+    source: Path,
+    all_weather: bool,
+    all_utility: bool,
+    ids_only: bool,
+    output_dir: Path | None,
+):
     """Provide an input dataset containing corpus IDs OR perform a pre-defined search.
 
     Use one of the options, not multiple.
     """
+
+    if ids_only and source:
+        raise click.UsageError(
+            "--ids-only is only valid with --all-weather or --all-utility; " "it cannot be combined with --source."
+        )
+    if ids_only and not (all_weather or all_utility):
+        raise click.UsageError("--ids-only requires --all-weather or --all-utility.")
 
     session = _build_session()
 
@@ -312,16 +365,23 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
 
         return checkpoint_data
 
-    async def finish_main(source, all_weather, all_utility, output_dir=None):
+    async def finish_main(source, all_weather, all_utility, ids_only, output_dir=None):
         if output_dir is not None:
             path = Path(output_dir)
             path.mkdir(parents=True, exist_ok=True)
         elif all_weather:
-            path = _prep_output_dir("titanv_all_weather_results")
+            suffix = "_ids" if ids_only else ""
+            path = _prep_output_dir(f"titanv_all_weather_results{suffix}")
         elif all_utility:
-            path = _prep_output_dir("titanv_all_utility_results")
+            suffix = "_ids" if ids_only else ""
+            path = _prep_output_dir(f"titanv_all_utility_results{suffix}")
         else:
             path = _prep_output_dir("titanv_id_results_v2")
+
+        # Suffix the per-search subdirectory as well, so an --output-dir shared
+        # between full and ids-only runs does not let the ids-only checkpoint
+        # masquerade as a completed full-document run (and vice versa).
+        search_name_suffix = "_ids" if ids_only else ""
 
         checkpoint = path.parent / Path("titanv_checkpoint.json")
         if not checkpoint.exists():
@@ -375,7 +435,8 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
                 )
 
         elif all_weather or all_utility:
-            search_name = "all_weather" if all_weather else "all_utility"
+            base_name = "all_weather" if all_weather else "all_utility"
+            search_name = f"{base_name}{search_name_suffix}"
 
             if all_weather:
                 queries = [q]
@@ -422,6 +483,7 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
                             seen_ids,
                             idx,
                             filter_queries,
+                            ids_only,
                         )
 
                 results = await asyncio.gather(*[_run_chunk(idx, qt) for idx, qt in enumerate(queries, start=1)])
@@ -435,4 +497,4 @@ def get_from_titanv(source: Path, all_weather: bool, all_utility: bool, output_d
         with checkpoint.open("w") as f:
             f.write(json.dumps(output_checkpoint_data))
 
-    asyncio.run(finish_main(source, all_weather, all_utility, output_dir))
+    asyncio.run(finish_main(source, all_weather, all_utility, ids_only, output_dir))
