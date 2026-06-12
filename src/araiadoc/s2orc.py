@@ -554,7 +554,7 @@ def _query_with_duckdb(
     return written
 
 
-def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path):
+def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int = -1):
     """Look up corpus IDs in parallel using joblib.
 
     Each worker reads a subset of shards and returns matching
@@ -582,7 +582,7 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path):
 
     click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) \u2026")
 
-    results = Parallel(n_jobs=-1, verbose=10)(delayed(_search_shard)(gz) for gz in gz_files)
+    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(_search_shard)(gz) for gz in gz_files)
 
     seen: set[str] = set()
     written = 0
@@ -656,6 +656,13 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path):
         "requires duckdb to be installed."
     ),
 )
+@click.option(
+    "--jobs",
+    "-j",
+    default=-1,
+    type=int,
+    help="Number of parallel workers for shard scanning (-1 = all cores).",
+)
 def get_from_local_s2orc(
     data_dir: Path,
     output_dir: Path | None,
@@ -664,6 +671,7 @@ def get_from_local_s2orc(
     all_utility: bool,
     query: str | None,
     use_duckdb: bool,
+    jobs: int,
 ):
     """Extract documents from a local s2orc_v2 download.
 
@@ -717,7 +725,7 @@ def get_from_local_s2orc(
         if use_duckdb:
             _lookup_ids_duckdb(ids, gz_files, output_dir)
         else:
-            _lookup_ids_parallel(ids, gz_files, output_dir)
+            _lookup_ids_parallel(ids, gz_files, output_dir, n_jobs=jobs)
         return
 
     # ------------------------------------------------------------------ #
@@ -745,7 +753,7 @@ def get_from_local_s2orc(
 
         written = _query_with_duckdb(gz_files, query_text, output_dir, label)
     else:
-        written, skipped = _scan_predicate_parallel(gz_files, predicate, output_dir)
+        written, skipped = _scan_predicate_parallel(gz_files, predicate, output_dir, n_jobs=jobs)
 
     click.echo(
         f"* Done. {written} document(s) written" + (f", {skipped} duplicate(s) skipped." if not use_duckdb else ".")
