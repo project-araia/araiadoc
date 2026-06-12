@@ -17,6 +17,7 @@ Two top-level commands are provided:
 
 import gzip
 import json
+import re
 import time
 from pathlib import Path
 
@@ -227,9 +228,9 @@ def _write_doc(doc: dict, output_dir: Path):
 # matches).
 #
 # For local execution against doc["body"]["text"] we approximate each leaf
-# token as a case-insensitive substring match.  This is slightly looser than
-# Solr's tokenised matching but is good enough to reproduce the result sets
-# that the old get-from-titanv command returned.
+# token as a case-insensitive word-boundary match via regex (``\\b``).
+# This closely mirrors Solr's tokenised matching while still being
+# efficient for one-pass scanning.
 #
 # Why not a single regex?  Because the Solr queries contain hundreds of terms
 # and arbitrary nesting depth — a proper recursive-descent parser is the only
@@ -369,7 +370,7 @@ def _eval_solr_ast(node, text_lower: str) -> bool:
         term = node[1].lower().strip()
         if not term:
             return True
-        return term in text_lower
+        return bool(re.search(r"\b" + re.escape(term) + r"\b", text_lower))
     if op == "and":
         return _eval_solr_ast(node[1], text_lower) and _eval_solr_ast(node[2], text_lower)
     if op == "or":
@@ -423,15 +424,16 @@ def _solr_ast_to_sql(node) -> str:
     """Translate a Solr AST node to a DuckDB SQL WHERE clause.
 
     Operates on the ``body`` column (DuckDB STRUCT inferred from ndjson).
-    Terms are matched case-insensitively via ``CONTAINS``.
+    Terms are matched case-insensitively via ``regexp_matches`` with
+    word boundaries (``\\b``) to approximate Solr's token-level matching.
     """
     op = node[0]
     if op == "term":
         term = node[1].strip()
         if not term:
             return "TRUE"
-        escaped = term.replace("'", "''")
-        return f"CONTAINS(lower(COALESCE(body.text, '')), '{escaped.lower()}')"
+        safe = term.lower().replace("'", "''")
+        return f"regexp_matches(lower(COALESCE(body.text, '')), " f"'\\b{safe}\\b')"
     if op == "and":
         return f"({_solr_ast_to_sql(node[1])}) AND ({_solr_ast_to_sql(node[2])})"
     if op == "or":
@@ -530,9 +532,12 @@ def _query_with_duckdb(
     written = 0
     seen: set[str] = set()
     try:
-        cursor = con.execute(sql, [file_paths])
-        col_names = [desc[0] for desc in cursor.description]
-        for row in cursor:
+        con.execute(sql, [file_paths])
+        col_names = [desc[0] for desc in con.description]
+        while True:
+            row = con.fetchone()
+            if row is None:
+                break
             doc = dict(zip(col_names, row))
             cid = str(doc.get("corpusid", ""))
             if cid in seen:
@@ -618,11 +623,7 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path):
     "-s",
     default=None,
     type=click.Path(exists=True),
-    help=(
-        "File of corpus IDs to look up: either a JSON array of integer/string IDs, "
-        "or a CSV where the corpus ID is in the 7th column (index 6), matching "
-        "the layout expected by the old get-from-titanv --source option."
-    ),
+    help=("File of corpus IDs to look up: a JSON array of integers, or a .txt " "file with one integer ID per line."),
 )
 @click.option(
     "--all-weather",
@@ -705,16 +706,11 @@ def get_from_local_s2orc(
     # Corpus-ID lookup                                                     #
     # ------------------------------------------------------------------ #
     if source:
-        import csv
-
         source_path = Path(source)
         if source_path.suffix == ".json":
             ids = {str(i) for i in json.loads(source_path.read_text())}
         else:
-            with source_path.open() as f:
-                reader = csv.reader(f)
-                next(reader, None)  # skip header
-                ids = {row[6] for row in reader if len(row) > 6}
+            ids = {line.strip() for line in source_path.read_text().splitlines() if line.strip()}
 
         click.echo(f"* Looking up {len(ids)} corpus ID(s).")
 
@@ -818,9 +814,12 @@ def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
 
     written = 0
     try:
-        cursor = con.execute(query, [file_paths, ids_list])
-        col_names = [desc[0] for desc in cursor.description]
-        for row in cursor:
+        con.execute(query, [file_paths, ids_list])
+        col_names = [desc[0] for desc in con.description]
+        while True:
+            row = con.fetchone()
+            if row is None:
+                break
             doc = dict(zip(col_names, row))
             _write_doc(doc, output_dir)
             written += 1
