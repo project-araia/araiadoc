@@ -27,6 +27,8 @@ Use **one option at a time** — `--source`, `--all-weather`, or `--all-utility`
 
 `--ids-only` is a modifier for the weather/utility search modes. When set, only the `corpus_id` field is fetched from Solr (via `fl=corpus_id`), no `batches/*.jsonl.gz` files are written, and the output goes to a separate `<search_name>_ids/` subdirectory so its checkpoint cannot be confused with a full-document run.
 
+**Note**: the `_ids` suffix is appended to the inner `<search_name>` subdirectory *unconditionally* in ids-only mode — even when `--output-dir` is explicitly supplied. So `--all-weather --ids-only --output-dir data/my_run/` writes to `data/my_run/all_weather_ids/`, **not** `data/my_run/all_weather/`. This is intentional and prevents an ids-only checkpoint from being mistaken for a completed full-document run when the same `--output-dir` is reused across modes.
+
 ## Examples
 
 - Download documents using corpus IDs from a JSON file:
