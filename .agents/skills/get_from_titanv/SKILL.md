@@ -20,9 +20,12 @@ pixi run -e araiadoc araiadoc get-from-titanv [OPTIONS]
 | `--source PATH` | `-s` | Input dataset containing corpus IDs (CSV or JSON file) |
 | `--all-weather` | `-a` | Perform the pre-defined weather/climate Solr search |
 | `--all-utility` | `-u` | Perform the pre-defined utility/electricity Solr search |
+| `--ids-only` | `-i` | Only download matching `corpus_id`s (no full documents). Requires `--all-weather` or `--all-utility`; cannot be combined with `--source`. |
 | `--output-dir PATH` | `-o` | Existing or new output directory (resumes from checkpoint if directory exists) |
 
 Use **one option at a time** — `--source`, `--all-weather`, or `--all-utility`.
+
+`--ids-only` is a modifier for the weather/utility search modes. When set, only the `corpus_id` field is fetched from Solr (via `fl=corpus_id`), no `batches/*.jsonl.gz` files are written, and the output goes to a separate `<search_name>_ids/` subdirectory so its checkpoint cannot be confused with a full-document run.
 
 ## Examples
 
@@ -49,6 +52,12 @@ Use **one option at a time** — `--source`, `--all-weather`, or `--all-utility`
 - Resume a search from a specific checkpoint directory:
   ```bash
   pixi run -e araiadoc araiadoc get-from-titanv --all-weather --output-dir data/titanv_all_weather_results_2024-01-15_12:00:00/
+  ```
+
+- Fetch only the matching corpus IDs (no document bodies):
+  ```bash
+  pixi run -e araiadoc araiadoc get-from-titanv --all-weather --ids-only
+  pixi run -e araiadoc araiadoc get-from-titanv --all-utility --ids-only
   ```
 
 ## Search Coverage
@@ -96,6 +105,13 @@ Queries for documents matching electricity/utility infrastructure terms, split a
   - `batches/batch_c01_000001.jsonl.gz` — Gzipped JSONL with document data (one per chunk)
   - `ids.txt` — List of corpus IDs written so far
   - `checkpoint_1.json`, `checkpoint_2.json`, … — Resume state per sub-query chunk
+
+### Weather / Utility Search Mode (`--ids-only`)
+- **Location**: `data/titanv_all_weather_results_ids_<timestamp>/all_weather_ids/` (or `..._utility...`)
+- **Files**:
+  - `ids.txt` — List of corpus IDs written so far
+  - `checkpoint_1.json`, `checkpoint_2.json`, … — Resume state per sub-query chunk
+- No `batches/` directory is created.
 
 ## Notes
 
