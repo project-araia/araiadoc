@@ -433,7 +433,7 @@ def _solr_ast_to_sql(node) -> str:
         if not term:
             return "TRUE"
         safe = term.lower().replace("'", "''")
-        return f"regexp_matches(lower(COALESCE(body.text, '')), " f"'\\b{safe}\\b')"
+        return f"regexp_matches(lower(COALESCE(body.text, '')), '\\b{safe}\\b')"
     if op == "and":
         return f"({_solr_ast_to_sql(node[1])}) AND ({_solr_ast_to_sql(node[2])})"
     if op == "or":
@@ -567,17 +567,20 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
         """Search one shard, return [(cid, doc), ...] for matching IDs."""
         found: list[tuple[str, dict]] = []
         with gzip.open(gz, "rt", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    doc = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                cid = str(doc.get("corpusid", ""))
-                if cid in ids:
-                    found.append((cid, doc))
+            try:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        doc = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    cid = str(doc.get("corpusid", ""))
+                    if cid in ids:
+                        found.append((cid, doc))
+            except UnicodeDecodeError:
+                return []
         return found
 
     click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) \u2026")
