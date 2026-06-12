@@ -62,11 +62,7 @@ New commands live in `src/araiadoc/s2orc.py` and `src/araiadoc/sectionize.py`:
 ### download-s2orc resume semantics
 
 - Each shard downloads to `<name>.gz.part` and is atomically renamed on success.
-- The skip-if-exists check issues a `HEAD` request and compares `Content-Length` against the local file size. **Truncated files are deleted and re-downloaded automatically**, so you do not need to manually clean up partial shards.
-- `_download_shard` uses `timeout=(30, 120)` (connect, read). A stalled per-chunk read for >120 s raises and triggers the 5-attempt retry loop with exponential backoff.
+- The skip-if-exists check tries `HEAD` first to get `Content-Length`, but S3 presigned URLs from the S2 Datasets API are method-bound (signed for `GET` only) and return no `Content-Length` on `HEAD`. The code falls back to a streaming `GET` closed immediately after the response headers arrive. **Do not remove the GET fallback** — without it every existing shard is flagged as a size mismatch (`expected = 0`) and re-downloaded. Truncated files (real size mismatches) are deleted and re-downloaded automatically.
+- `_download_shard` uses `timeout=(30, 300)` (connect, read). A stalled per-chunk read for >300 s raises and triggers the 5-attempt retry loop with exponential backoff.
 - After the streaming loop, `downloaded` is checked against `Content-Length`; a mismatch raises `RuntimeError` so the `.part` file is cleaned up rather than renamed.
 - Resume is at the **shard level**, not within a shard — an interrupted shard restarts from byte 0 on retry.
-
-### Pre-commit flake8 on Python 3.13
-
-`pre-commit run flake8` reports `pyflakes[F]" failed during execution due to AttributeError("module 'ast' has no attribute 'Str'")`. This is a known incompatibility between flake8 6.0.0 / pyflakes and Python 3.13's removal of `ast.Str`. Only pycodestyle (E/W) rules run locally; F-rules silently skip. Treat a run with only that error as clean.
