@@ -19,6 +19,7 @@ import gzip
 import json
 import re
 import time
+import zlib
 from pathlib import Path
 
 import click
@@ -463,20 +464,32 @@ def _scan_predicate_parallel(
     from joblib import Parallel, delayed
 
     def _scan_one(gz: Path) -> list[str]:
-        """Process one shard, write matches, return list of corpus IDs found."""
+        """Process one shard, write matches, return list of corpus IDs found.
+
+        If the shard's gzip stream is corrupt (truncated download, bad CRC,
+        invalid DEFLATE block, etc.), warn and return whatever was successfully
+        read before the failure rather than killing the whole parallel run.
+        """
         found_ids: list[str] = []
-        with gzip.open(gz, "rt", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    doc = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if predicate(doc):
-                    _write_doc(doc, output_dir)
-                    found_ids.append(str(doc.get("corpusid", "")))
+        try:
+            with gzip.open(gz, "rt", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        doc = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if predicate(doc):
+                        _write_doc(doc, output_dir)
+                        found_ids.append(str(doc.get("corpusid", "")))
+        except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
+            click.echo(
+                f"* WARNING: shard {gz.name} is corrupt or truncated ({type(exc).__name__}: {exc}); "
+                f"keeping {len(found_ids)} match(es) read so far.",
+                err=True,
+            )
         return found_ids
 
     click.echo(
@@ -564,10 +577,15 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
     from joblib import Parallel, delayed
 
     def _search_shard(gz: Path) -> list[tuple[str, dict]]:
-        """Search one shard, return [(cid, doc), ...] for matching IDs."""
+        """Search one shard, return [(cid, doc), ...] for matching IDs.
+
+        If the shard's gzip stream is corrupt (truncated download, bad CRC,
+        invalid DEFLATE block, etc.), warn and return whatever was successfully
+        read before the failure rather than killing the whole parallel run.
+        """
         found: list[tuple[str, dict]] = []
-        with gzip.open(gz, "rt", encoding="utf-8") as f:
-            try:
+        try:
+            with gzip.open(gz, "rt", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -579,8 +597,12 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
                     cid = str(doc.get("corpusid", ""))
                     if cid in ids:
                         found.append((cid, doc))
-            except UnicodeDecodeError:
-                return []
+        except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
+            click.echo(
+                f"* WARNING: shard {gz.name} is corrupt or truncated ({type(exc).__name__}: {exc}); "
+                f"keeping {len(found)} match(es) read so far.",
+                err=True,
+            )
         return found
 
     click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) \u2026")
@@ -765,7 +787,12 @@ def get_from_local_s2orc(
 
 
 def _lookup_ids_streaming(ids: set, gz_files: list, output_dir: Path):
-    """Stream all shards and write any doc whose corpusid is in *ids*."""
+    """Stream all shards and write any doc whose corpusid is in *ids*.
+
+    Corrupt or truncated shards (zlib/gzip errors, decode errors, etc.) are
+    logged as warnings and the scan continues with the next shard rather than
+    aborting the entire run.
+    """
     remaining = set(ids)
     written = 0
 
@@ -775,20 +802,26 @@ def _lookup_ids_streaming(ids: set, gz_files: list, output_dir: Path):
         for gz in gz_files:
             if not remaining:
                 break
-            with gzip.open(gz, "rt", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        doc = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    cid = str(doc.get("corpusid", ""))
-                    if cid in remaining:
-                        _write_doc(doc, output_dir)
-                        remaining.discard(cid)
-                        written += 1
+            try:
+                with gzip.open(gz, "rt", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            doc = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        cid = str(doc.get("corpusid", ""))
+                        if cid in remaining:
+                            _write_doc(doc, output_dir)
+                            remaining.discard(cid)
+                            written += 1
+            except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
+                progress.log(
+                    f"* WARNING: shard {gz.name} is corrupt or truncated "
+                    f"({type(exc).__name__}: {exc}); skipping rest of shard."
+                )
             progress.update(task, advance=1)
 
     click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
