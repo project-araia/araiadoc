@@ -41,8 +41,8 @@ _DATASET_URL = "https://api.semanticscholar.org/datasets/v1/release/{release_id}
 def _download_shard(url: str, dest: Path, session: requests.Session, progress, task):
     """Stream-download *url* to *dest*, updating *task* every 10 MB."""
     MB = 1024 * 1024
-    # timeout=(connect_s, read_s): 30 s to establish, 120 s between chunks.
-    with session.get(url, stream=True, timeout=(30, 240)) as r:
+    # timeout=(connect_s, read_s): 30 s to establish, 300 s between chunks.
+    with session.get(url, stream=True, timeout=(30, 300)) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length", 0))
         if task is not None and total:
@@ -99,10 +99,14 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
     release_id = r.json()["release_id"]
     click.echo(f"* Release: {release_id}")
 
-    url = _DATASET_URL.format(release_id=release_id)
-    r = session.get(url, headers={"x-api-key": api_key}, timeout=60)
-    r.raise_for_status()
-    files = r.json()["files"]
+    def fetch_manifest() -> list[str]:
+        """Re-fetch the manifest to get fresh presigned URLs."""
+        url = _DATASET_URL.format(release_id=release_id)
+        resp = session.get(url, headers={"x-api-key": api_key}, timeout=60)
+        resp.raise_for_status()
+        return resp.json()["files"]
+
+    files = fetch_manifest()
 
     if shards is not None:
         files = files[:shards]
@@ -116,7 +120,7 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         dl_task = progress.add_task("[cyan]Overall", total=len(files))
 
-        for file_url in files:
+        for shard_idx, file_url in enumerate(files):
             # Derive a stable local filename from the URL.
             # S2 URLs look like:
             #   https://ai2-s2ag.s3.amazonaws.com/staging/<release>/s2orc_v2/<shard>.gz?<token>
@@ -127,10 +131,26 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
 
             if dest.exists():
                 # Validate size against Content-Length before skipping.
+                # S3 presigned URLs are method-bound (signed for GET only) and
+                # return no Content-Length on HEAD, so fall back to a streaming
+                # GET that we close immediately after reading the headers.
+                expected = 0
                 head = session.head(file_url, timeout=30)
-                expected = int(head.headers.get("Content-Length", 0))
+                if head.headers.get("Content-Length"):
+                    expected = int(head.headers["Content-Length"])
+                else:
+                    probe = session.get(file_url, stream=True, timeout=30)
+                    expected = int(probe.headers.get("Content-Length", 0))
+                    probe.close()
                 if expected and dest.stat().st_size == expected:
                     progress.log(f"* Skipping {shard_name} (already complete)")
+                    progress.update(dl_task, advance=1)
+                    continue
+                if not expected:
+                    progress.log(
+                        f"* Skipping {shard_name} "
+                        f"(server did not report size: local file is {dest.stat().st_size:,} bytes)"
+                    )
                     progress.update(dl_task, advance=1)
                     continue
                 progress.log(
@@ -146,9 +166,10 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
             # only fully-downloaded files end up at the final path.
             part_dest = dest.with_suffix(dest.suffix + ".part")
             success = False
+            current_url = file_url
             for attempt in range(5):
                 try:
-                    _download_shard(file_url, part_dest, session, progress, shard_task)
+                    _download_shard(current_url, part_dest, session, progress, shard_task)
                     part_dest.rename(dest)
                     success = True
                     break
@@ -162,6 +183,14 @@ def download_s2orc(api_key: str, output_dir: Path, shards: int | None):
                             pass
                     if attempt < 4:
                         time.sleep(5 * (attempt + 1))
+                        # Refresh the presigned URL — the previous one may have
+                        # expired mid-download, which is the most common cause
+                        # of repeated failures on a single shard.
+                        try:
+                            current_url = fetch_manifest()[shard_idx]
+                            progress.log(" * Refreshed presigned URL for retry.")
+                        except Exception as refresh_exc:
+                            progress.log(f" ! Could not refresh URL: {refresh_exc}")
 
             if not success:
                 progress.log(f" ! Giving up on {shard_name}.")
@@ -390,6 +419,180 @@ def _build_utility_predicate():
     return predicate
 
 
+def _solr_ast_to_sql(node) -> str:
+    """Translate a Solr AST node to a DuckDB SQL WHERE clause.
+
+    Operates on the ``body`` column (DuckDB STRUCT inferred from ndjson).
+    Terms are matched case-insensitively via ``CONTAINS``.
+    """
+    op = node[0]
+    if op == "term":
+        term = node[1].strip()
+        if not term:
+            return "TRUE"
+        escaped = term.replace("'", "''")
+        return f"CONTAINS(lower(COALESCE(body.text, '')), '{escaped.lower()}')"
+    if op == "and":
+        return f"({_solr_ast_to_sql(node[1])}) AND ({_solr_ast_to_sql(node[2])})"
+    if op == "or":
+        return f"({_solr_ast_to_sql(node[1])}) OR ({_solr_ast_to_sql(node[2])})"
+    if op == "not":
+        return f"NOT ({_solr_ast_to_sql(node[1])})"
+    return "FALSE"
+
+
+# ---------------------------------------------------------------------------
+# Parallel scanning & DuckDB query helpers
+# ---------------------------------------------------------------------------
+
+
+def _scan_predicate_parallel(
+    gz_files: list[Path],
+    predicate,
+    output_dir: Path,
+    n_jobs: int = -1,
+) -> tuple[int, int]:
+    """Scan gzip shards in parallel with joblib.
+
+    Each worker writes matching documents directly to *output_dir*.
+
+    Returns ``(unique_written, skipped_duplicates)``.
+    """
+    from joblib import Parallel, delayed
+
+    def _scan_one(gz: Path) -> list[str]:
+        """Process one shard, write matches, return list of corpus IDs found."""
+        found_ids: list[str] = []
+        with gzip.open(gz, "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    doc = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if predicate(doc):
+                    _write_doc(doc, output_dir)
+                    found_ids.append(str(doc.get("corpusid", "")))
+        return found_ids
+
+    click.echo(
+        f"* Scanning {len(gz_files)} shard(s) with joblib " f"({n_jobs if n_jobs != -1 else 'all'} worker(s)) \u2026"
+    )
+
+    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(_scan_one)(gz) for gz in gz_files)
+
+    seen: set[str] = set()
+    written = 0
+    skipped = 0
+    for ids in results:
+        for cid in ids:
+            if cid in seen:
+                skipped += 1
+            else:
+                seen.add(cid)
+                written += 1
+
+    return written, skipped
+
+
+def _query_with_duckdb(
+    gz_files: list[Path],
+    query_text: str,
+    output_dir: Path,
+    label: str,
+) -> int:
+    """Use DuckDB to filter shards by *query_text* (Solr syntax).
+
+    Translates the Solr AST to a DuckDB SQL WHERE clause, so the
+    filtering happens inside the database engine rather than in
+    Python.  Writes matching documents to *output_dir* and returns
+    the count of unique documents written.
+    """
+    import duckdb
+
+    click.echo(f"* DuckDB query ({label}) across {len(gz_files)} shard(s) \u2026")
+
+    # Parse the Solr query and translate to a SQL WHERE clause
+    ast = _SolrParser(_tokenize_solr(query_text)).parse()
+    where_clause = _solr_ast_to_sql(ast)
+
+    file_paths = [str(p) for p in gz_files]
+    con = duckdb.connect()
+
+    sql = f"""
+        SELECT *
+        FROM read_ndjson(?, compression='gzip', ignore_errors=true)
+        WHERE {where_clause}
+    """
+
+    written = 0
+    seen: set[str] = set()
+    try:
+        cursor = con.execute(sql, [file_paths])
+        col_names = [desc[0] for desc in cursor.description]
+        for row in cursor:
+            doc = dict(zip(col_names, row))
+            cid = str(doc.get("corpusid", ""))
+            if cid in seen:
+                continue
+            seen.add(cid)
+            _write_doc(doc, output_dir)
+            written += 1
+    except Exception as exc:
+        raise click.ClickException(f"DuckDB query failed: {exc}")
+    finally:
+        con.close()
+
+    click.echo(f"* DuckDB returned {written} unique document(s).")
+    return written
+
+
+def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path):
+    """Look up corpus IDs in parallel using joblib.
+
+    Each worker reads a subset of shards and returns matching
+    ``(corpus_id, doc)`` tuples.  The main thread deduplicates
+    and writes.
+    """
+    from joblib import Parallel, delayed
+
+    def _search_shard(gz: Path) -> list[tuple[str, dict]]:
+        """Search one shard, return [(cid, doc), ...] for matching IDs."""
+        found: list[tuple[str, dict]] = []
+        with gzip.open(gz, "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    doc = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cid = str(doc.get("corpusid", ""))
+                if cid in ids:
+                    found.append((cid, doc))
+        return found
+
+    click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) \u2026")
+
+    results = Parallel(n_jobs=-1, verbose=10)(delayed(_search_shard)(gz) for gz in gz_files)
+
+    seen: set[str] = set()
+    written = 0
+    for found_list in results:
+        for cid, doc in found_list:
+            if cid not in seen:
+                seen.add(cid)
+                _write_doc(doc, output_dir)
+                written += 1
+
+    click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
+    if written < len(ids):
+        click.echo(f"* {len(ids) - written} ID(s) missing from all shards.")
+
+
 # ---------------------------------------------------------------------------
 # get-from-local-s2orc
 # ---------------------------------------------------------------------------
@@ -448,7 +651,8 @@ def _build_utility_predicate():
     default=False,
     help=(
         "Use DuckDB to scan the shards instead of pure-Python streaming.  "
-        "Faster for corpus-ID lookups; requires duckdb to be installed."
+        "Faster for corpus-ID lookups AND keyword/weather/utility queries; "
+        "requires duckdb to be installed."
     ),
 )
 def get_from_local_s2orc(
@@ -517,7 +721,7 @@ def get_from_local_s2orc(
         if use_duckdb:
             _lookup_ids_duckdb(ids, gz_files, output_dir)
         else:
-            _lookup_ids_streaming(ids, gz_files, output_dir)
+            _lookup_ids_parallel(ids, gz_files, output_dir)
         return
 
     # ------------------------------------------------------------------ #
@@ -533,39 +737,23 @@ def get_from_local_s2orc(
         predicate = _build_solr_keyword_predicate(query)
         label = "query"
 
-    click.echo(f"* Running {label} keyword search across {len(gz_files)} shard(s) …")
+    if use_duckdb:
+        # Build the Solr query text that the DuckDB path needs.
+        if all_weather:
+            query_text = q
+        elif all_utility:
+            chunks_joined = " OR ".join(f"({c})" for c in q2_chunks)
+            query_text = f"({chunks_joined}) AND ({Q2_AND_BLOCK}) AND NOT ({Q2_NOT_BLOCK})"
+        else:
+            query_text = query
 
-    written = 0
-    skipped = 0
-    seen_ids: set[str] = set()
+        written = _query_with_duckdb(gz_files, query_text, output_dir, label)
+    else:
+        written, skipped = _scan_predicate_parallel(gz_files, predicate, output_dir)
 
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        task = progress.add_task(f"[cyan]Scanning ({label})", total=len(gz_files))  # noqa
-
-        for gz in gz_files:
-            with gzip.open(gz, "rt", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        doc = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    cid = str(doc.get("corpusid", ""))
-                    if cid in seen_ids:
-                        skipped += 1
-                        continue
-
-                    if predicate(doc):
-                        seen_ids.add(cid)
-                        _write_doc(doc, output_dir)
-                        written += 1
-
-            progress.update(task, advance=1)
-
-    click.echo(f"* Done. {written} document(s) written, {skipped} duplicate(s) skipped.")
+    click.echo(
+        f"* Done. {written} document(s) written" + (f", {skipped} duplicate(s) skipped." if not use_duckdb else ".")
+    )
     click.echo(f"* Output: {output_dir}")
 
 
@@ -628,18 +816,18 @@ def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
         WHERE CAST(corpusid AS VARCHAR) IN (SELECT UNNEST(?))
     """
 
+    written = 0
     try:
         cursor = con.execute(query, [file_paths, ids_list])
-        rows = cursor.fetchall()
         col_names = [desc[0] for desc in cursor.description]
+        for row in cursor:
+            doc = dict(zip(col_names, row))
+            _write_doc(doc, output_dir)
+            written += 1
     except Exception as exc:
         raise click.ClickException(f"DuckDB query failed: {exc}")
-
-    written = 0
-    for row in rows:
-        doc = dict(zip(col_names, row))
-        _write_doc(doc, output_dir)
-        written += 1
+    finally:
+        con.close()
 
     click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
     if written < len(ids):
