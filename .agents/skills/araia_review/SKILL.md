@@ -1,0 +1,213 @@
+---
+name: araia-review
+description: Review a single sectionized araiadoc corpus against the Solr boolean query in src/araiadoc/searches.py that was supposed to generate it. Judge topical fit, surface recurring failure modes, and feed insights back into iterating the literal query.
+---
+
+# `araia-review` Skill
+
+Iterative workflow for judging how well a literal Solr query in
+`src/araiadoc/searches.py` matches the topical *intent* of the sectionized
+corpus it produced. Each invocation appends a new dated round to
+`araia_review.md` at the repo root.
+
+If you instead want to compare **two corpora to each other** (overlap,
+cloning, divergence), use the `araia-compare` skill. The two skills are
+deliberately separate.
+
+Use this skill any time the user asks to:
+
+- "review the resilience / utility / weather corpus",
+- "compare the sectionized data to the q / Q2 / q2_chunks query",
+- "do another round of araia review", or
+- "sample N docs from `<dir>` and tell me if they fit `<query>`".
+
+## Inputs the user must supply (or infer from context)
+
+1. **One corpus directory** (under `data/`), a tree of per-paper
+   sectionized `.json` files like
+   `data/<name>_sectionized/<bucket>/<corpus_id>.json`. The schema produced
+   by `sectionize.py` is flat:
+   `{title: str, "<section_header>": "<concatenated paragraph text>", …}`.
+2. **One query identifier** from `src/araiadoc/searches.py` (e.g. `q`,
+   `q2_chunks`, `Q2_AND_BLOCK`).
+3. **Sample size N** (default 10) and whether sampling should be
+   reproducible (`random.seed(...)`) or truly random (no seed).
+4. **Comparison axis:** topical fit (the usual answer) vs literal-term fit.
+   Topical fit means: read title + section headers + first-section snippet
+   and judge whether the paper looks like the kind of paper the query was
+   *trying* to find, even if a specific term happens not to appear.
+
+## Output
+
+Append a new dated section to `araia_review.md` at the repo root with this
+structure:
+
+```
+## Round N — YYYY-MM-DD
+
+### Methodology
+- Sampling parameters (N, seed, dir, exclusions like `failures.json`)
+- Schema check note
+- Per-doc fields extracted (title, headers, snippet, hit groups)
+
+### Sample — <dir>
+| corpus_id | Title | <Query> groups hit | Context hits | Topical verdict | Notes |
+
+### Broadened coverage check (optional)
+- Larger N (e.g. 50) random sample
+- Word-boundary hit rate against a curated shortlist
+
+### Findings
+- Numbered list of conclusions
+
+### Open questions for next round
+- Followups, e.g. recompute precision after a query change, draft a tighter
+  query, etc.
+
+### Relevant files
+- searches.py line refs for the query
+- sectionize.py for the schema
+- the corpus dir
+- this SKILL.md
+```
+
+Do **not** rewrite earlier rounds — only append.
+
+## Step-by-step procedure
+
+### 1. Confirm the corpus dir exists and capture totals
+
+```bash
+find <dir> -name '*.json' -not -name 'failures.json' | wc -l
+du -sh <dir>
+```
+
+### 2. Read `searches.py` and extract the query
+
+Use `read` on `src/araiadoc/searches.py`. Distill the query into a small
+Python dict of *hazard / utility groups*, one bucket per OR-block, so the
+table in the review is readable. Example for `q`:
+
+```python
+RES_TERMS = {
+  'heat':    ['extreme heat','heat wave','heatwave','heat stress','heat index','urban heat island','high temperature'],
+  'cold':    ['cold wave','cold spell','winter storm','frost','snowstorm','ice storm','blizzard','freeze'],
+  'flood':   ['flood','flash flood','inundation','storm surge','heavy precipitation','extreme rainfall'],
+  'drought': ['drought','water scarcity'],
+  'fire':    ['wildfire','forest fire','bushfire','wildland fire','wildfire smoke','fire weather'],
+  'tc':      ['tropical cyclone','hurricane','typhoon'],
+  'severe':  ['thunderstorm','hail','tornado','downburst','microburst','extreme wind'],
+  'sea':     ['sea level rise','coastal erosion','saltwater intrusion','ocean warming','marine heatwave','ocean acidification'],
+  'cryo':    ['sea ice loss','glacial melt','permafrost thaw','arctic sea ice'],
+  'crop':    ['crop failure','crop yield','co2 fertilization','carbon dioxide fertilization'],
+}
+```
+
+Do the same for `Q2`'s 20 chunks if reviewing the utility corpus. Drop or
+down-weight `AND`-block boilerplate terms (`climate`, `weather`, `risk`,
+`infrastructure`, …) when counting hits — they fire on almost every paper
+and are not useful signal.
+
+### 3. Sample N files (file-level, truly random unless told otherwise)
+
+```python
+import random, glob, os
+random.seed()  # or fixed seed if user asked for reproducibility
+files = [f for f in glob.glob(f'{root}/*/*.json') if not f.endswith('failures.json')]
+sample = random.sample(files, N)
+```
+
+### 4. Extract fields per sampled doc
+
+For each file, load the JSON and pull:
+
+- `title`
+- list of section-header keys (everything that isn't `title`)
+- the first non-title section's text (truncated ~700 chars) as an
+  abstract-substitute, since the s2orc_v2 sectionizer promotes pre-header
+  paragraphs into an `abstract` or `introduction` key.
+
+### 5. Term-hit scoring — **use word boundaries**
+
+Substring matching produces too many false positives (`iso` inside
+*isolate*, `feeder` inside *nematode feeder*, `frost` inside the surname
+*Robert Frost*, `MWh`/`kWh` inside chemistry papers' units). Always:
+
+```python
+import re
+def hit_groups_wb(text, groups):
+    text = text.lower()
+    found = {}
+    for g, terms in groups.items():
+        hits = [t for t in terms if re.search(r'\b' + re.escape(t) + r'\b', text)]
+        if hits:
+            found[g] = hits[:5]
+    return found
+```
+
+For unit/acronym tokens (`SAIDI`, `kWh`, `NERC`) prefer **case-sensitive**
+matching against the original (not lowercased) text.
+
+### 6. Optional: broadened coverage check
+
+If the per-doc hits are surprisingly sparse, draw a larger (e.g. N=50)
+random sample and report the rate of docs with ≥1 query-shortlist hit in
+the dir. This separates "the query intent is wrong" from "this dir just
+doesn't contain that intent at all".
+
+### 7. Topical verdict (the actual answer)
+
+For each doc, assign one of: `ON-TOPIC`, `BORDERLINE`, `OFF-TOPIC`, judged
+on title + headers + snippet against the *intent* of the query (not just
+which literal terms hit). Note in the table when a hit is clearly a false
+positive (e.g. "chip flooding" in a petroleum-recovery paper).
+
+### 8. Roll up findings
+
+Per-dir summary line of the form `n ON-TOPIC, n BORDERLINE, n OFF-TOPIC`
+out of N. State an estimated precision.
+
+Note recurring failure modes you saw (boilerplate `AND` terms, unit
+substring hits, false-positive technical jargon clashes) — these become
+inputs for the next iteration of the literal query.
+
+### 9. Open questions
+
+End each round with concrete next-iteration questions, e.g.:
+
+- "should `q` drop its AND-block entirely and rely on the hazard-OR plus
+  a `NOT`-block?"
+- "should `Q2` require ≥2 distinct chunks to fire?"
+
+### 10. Append to `araia_review.md`
+
+Use `edit` to append the new round below the last round. Do **not**
+overwrite the file. Increment the round number. Date is today.
+
+## Notes and lessons learned (carry these into every round)
+
+These lessons are intentionally duplicated in `araia-compare`/SKILL.md
+because both workflows need them.
+
+- **Word boundaries always**, lowercased for case-insensitive terms,
+  case-sensitive for acronyms. Substring matching falsely scored hits on
+  `iso` (inside *isolate*, *isotope*), `feeder` (nematode feeder guilds),
+  `frost` (the surname), and `MWh`/`kWh` units in chemistry papers.
+- **The sectionized JSON schema is flat** (`title` + one key per section
+  header). There is no nested `sections` dict, no separate `abstract`
+  field guaranteed — the abstract is just whatever section sorts first
+  (often `introduction` or `abstract`).
+- **The `q` AND-block is near-vacuous** as a filter — `risk`, `recovery`,
+  `disaster`, `infrastructure`, `response` are in nearly every paper.
+- **`Q2_NOT_BLOCK`** is the existing template for query-side exclusion of
+  off-topic clusters (genomics, particle physics, perovskite cells,
+  clinical trials, etc.). When proposing a `NOT`-block for `q`, start
+  from `Q2_NOT_BLOCK` plus any recurring false-positive clusters that
+  Round 1/2 surfaced (e.g. petroleum / enhanced oil recovery,
+  metallurgical leaching).
+- **Always check whether the dir you are reviewing is the one you think
+  it is.** Earlier rounds discovered that `utility_06-15_sectionized/`
+  was actually a clone of `resilience_06-15_sectionized/`, not a `Q2`
+  result set. Before drawing conclusions about a query's precision,
+  spot-check that the directory's IDs are actually a subset of the
+  query's expected ID list (see `araia-compare` for the procedure).
