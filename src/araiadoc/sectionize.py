@@ -90,17 +90,37 @@ def _normalize_to_v2(doc: dict) -> dict:
     normalized = dict(doc)
     normalized["body"] = {"text": content.get("text") or "", "annotations": ann}
 
-    # v1 has no top-level ``title``; the title lives as one or more spans in
-    # content.annotations.title.  Promote the first non-empty span text to a
-    # top-level ``title`` field so the v2 sectionizer can pick it up.
-    if not normalized.get("title") and isinstance(ann, dict) and ann.get("title"):
+    # v1 has no top-level ``title``.  Try, in order:
+    #   1. Any known annotation key whose span(s) point into content.text
+    #      ("title", "papertitle", "paper_title", "doctitle").
+    #   2. The first non-empty line of content.text (Grobid-style PDFs put the
+    #      paper title on the first line of the body).
+    if not normalized.get("title"):
         text = content.get("text") or ""
-        title_spans = _parse_spans(ann.get("title"))
-        for span in title_spans:
-            candidate = text[span["start"] : span["end"]].strip()  # noqa
-            if candidate:
-                normalized["title"] = candidate
-                break
+        title_text = ""
+
+        if isinstance(ann, dict):
+            for key in ("title", "papertitle", "paper_title", "doctitle"):
+                raw = ann.get(key)
+                if not raw:
+                    continue
+                for span in _parse_spans(raw):
+                    candidate = text[span["start"] : span["end"]].strip()  # noqa
+                    if candidate:
+                        title_text = candidate
+                        break
+                if title_text:
+                    break
+
+        if not title_text and text:
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    title_text = stripped
+                    break
+
+        if title_text:
+            normalized["title"] = title_text
 
     return normalized
 
