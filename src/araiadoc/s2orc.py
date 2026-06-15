@@ -570,20 +570,20 @@ def _query_with_duckdb(
 def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int = -1):
     """Look up corpus IDs in parallel using joblib.
 
-    Each worker reads a subset of shards and returns matching
-    ``(corpus_id, doc)`` tuples.  The main thread deduplicates
-    and writes.
+    Each worker reads one shard and writes matching documents immediately.  The
+    worker returns matched corpus IDs so the main thread can report unique
+    counts without transferring every document back through joblib.
     """
     from joblib import Parallel, delayed
 
-    def _search_shard(gz: Path) -> list[tuple[str, dict]]:
-        """Search one shard, return [(cid, doc), ...] for matching IDs.
+    def _search_shard(gz: Path) -> list[str]:
+        """Search one shard, write matching docs, return matched corpus IDs.
 
         If the shard's gzip stream is corrupt (truncated download, bad CRC,
         invalid DEFLATE block, etc.), warn and return whatever was successfully
         read before the failure rather than killing the whole parallel run.
         """
-        found: list[tuple[str, dict]] = []
+        found: list[str] = []
         try:
             with gzip.open(gz, "rt", encoding="utf-8") as f:
                 for line in f:
@@ -596,7 +596,8 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
                         continue
                     cid = str(doc.get("corpusid", ""))
                     if cid in ids:
-                        found.append((cid, doc))
+                        _write_doc(doc, output_dir)
+                        found.append(cid)
         except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
             click.echo(
                 f"* WARNING: shard {gz.name} is corrupt or truncated ({type(exc).__name__}: {exc}); "
@@ -605,19 +606,15 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
             )
         return found
 
-    click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) \u2026")
+    click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) …")
 
     results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(_search_shard)(gz) for gz in gz_files)
 
     seen: set[str] = set()
-    written = 0
     for found_list in results:
-        for cid, doc in found_list:
-            if cid not in seen:
-                seen.add(cid)
-                _write_doc(doc, output_dir)
-                written += 1
+        seen.update(found_list)
 
+    written = len(seen)
     click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
     if written < len(ids):
         click.echo(f"* {len(ids) - written} ID(s) missing from all shards.")
