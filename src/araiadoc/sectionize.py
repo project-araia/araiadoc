@@ -50,6 +50,30 @@ def _parse_spans(annotation_json: str | None) -> list[dict]:
     return sorted(spans, key=lambda s: s.get("start", 0))
 
 
+def _normalize_to_v2(doc: dict) -> dict:
+    """Coerce legacy s2orc v1 records into the v2 shape this sectionizer expects.
+
+    v1 records nest text + annotations under ``content`` rather than ``body``,
+    and use the key ``sectionheader`` (no underscore) instead of
+    ``section_header``.  Annotation values themselves are JSON-encoded strings
+    in both versions, so no further span-level conversion is needed.
+
+    Records that are already v2 (have a dict ``body`` field) are returned
+    unchanged.
+    """
+    if isinstance(doc.get("body"), dict):
+        return doc
+    content = doc.get("content")
+    if not isinstance(content, dict):
+        return doc
+    ann = content.get("annotations") or {}
+    if isinstance(ann, dict) and "sectionheader" in ann and "section_header" not in ann:
+        ann = {**ann, "section_header": ann["sectionheader"]}
+    normalized = dict(doc)
+    normalized["body"] = {"text": content.get("text") or "", "annotations": ann}
+    return normalized
+
+
 def _sectionize_item_s2orc_v2(doc: dict):
     """Sectionize one s2orc_v2 document using span annotations.
 
@@ -623,6 +647,7 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
         if output_file.exists():
             return (True, corpus_id, None, "skipped_existing")
 
+        doc = _normalize_to_v2(doc)
         success, sectioned_text, error = _sectionize_item_s2orc_v2(doc)
         if not success:
             return (False, corpus_id, error, "failed")
@@ -656,6 +681,7 @@ def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path):
                     skipped_existing += 1
                     continue
 
+                doc = _normalize_to_v2(doc)
                 success, sectioned_text, error = _sectionize_item_s2orc_v2(doc)
                 if not success:
                     batch_failures.append(
