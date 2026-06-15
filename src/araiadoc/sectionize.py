@@ -89,6 +89,19 @@ def _normalize_to_v2(doc: dict) -> dict:
         ann = {**ann, "section_header": ann["sectionheader"]}
     normalized = dict(doc)
     normalized["body"] = {"text": content.get("text") or "", "annotations": ann}
+
+    # v1 has no top-level ``title``; the title lives as one or more spans in
+    # content.annotations.title.  Promote the first non-empty span text to a
+    # top-level ``title`` field so the v2 sectionizer can pick it up.
+    if not normalized.get("title") and isinstance(ann, dict) and ann.get("title"):
+        text = content.get("text") or ""
+        title_spans = _parse_spans(ann.get("title"))
+        for span in title_spans:
+            candidate = text[span["start"] : span["end"]].strip()  # noqa
+            if candidate:
+                normalized["title"] = candidate
+                break
+
     return normalized
 
 
