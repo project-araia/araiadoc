@@ -40,14 +40,32 @@ from .utils import _collect_from_path
 
 
 def _parse_spans(annotation_json: str | None) -> list[dict]:
-    """Decode an annotation JSON string into a sorted list of span dicts."""
+    """Decode an annotation JSON string into a sorted list of span dicts.
+
+    Some legacy s2orc v1 variants encode ``start``/``end`` as strings (e.g.
+    ``"2675"``) rather than integers.  Coerce them here so downstream slicing
+    of ``body.text`` always sees ints.  Spans whose offsets cannot be coerced
+    are dropped rather than crashing the whole document.
+    """
     if not annotation_json:
         return []
     try:
         spans = json.loads(annotation_json)
     except (json.JSONDecodeError, TypeError):
         return []
-    return sorted(spans, key=lambda s: s.get("start", 0))
+    if not isinstance(spans, list):
+        return []
+    normalized: list[dict] = []
+    for s in spans:
+        if not isinstance(s, dict):
+            continue
+        try:
+            s["start"] = int(s.get("start", 0))
+            s["end"] = int(s.get("end", 0))
+        except (TypeError, ValueError):
+            continue
+        normalized.append(s)
+    return sorted(normalized, key=lambda s: s["start"])
 
 
 def _normalize_to_v2(doc: dict) -> dict:
