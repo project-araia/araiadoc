@@ -496,18 +496,20 @@ def _scan_predicate_parallel(
         f"* Scanning {len(gz_files)} shard(s) with joblib " f"({n_jobs if n_jobs != -1 else 'all'} worker(s)) \u2026"
     )
 
-    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(_scan_one)(gz) for gz in gz_files)
-
     seen: set[str] = set()
     written = 0
     skipped = 0
-    for ids in results:
-        for cid in ids:
-            if cid in seen:
-                skipped += 1
-            else:
-                seen.add(cid)
-                written += 1
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        task = progress.add_task("[cyan]Scanning shards", total=len(gz_files))
+        results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(delayed(_scan_one)(gz) for gz in gz_files)
+        for ids in results:
+            for cid in ids:
+                if cid in seen:
+                    skipped += 1
+                else:
+                    seen.add(cid)
+                    written += 1
+            progress.update(task, advance=1)
 
     return written, skipped
 
@@ -608,11 +610,15 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
 
     click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) …")
 
-    results = Parallel(n_jobs=n_jobs, verbose=10)(delayed(_search_shard)(gz) for gz in gz_files)
-
     seen: set[str] = set()
-    for found_list in results:
-        seen.update(found_list)
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        task = progress.add_task("[cyan]Scanning shards", total=len(gz_files))
+        results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
+            delayed(_search_shard)(gz) for gz in gz_files
+        )
+        for found_list in results:
+            seen.update(found_list)
+            progress.update(task, advance=1)
 
     written = len(seen)
     click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
