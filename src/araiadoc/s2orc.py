@@ -367,12 +367,15 @@ class _SolrParser:
         return self._parse_atom()
 
 
-def _solr_ast_to_sql(node) -> str:
+def _solr_ast_to_sql(node, text_expr: str = "body.text") -> str:
     """Translate a Solr AST node to a DuckDB SQL WHERE clause.
 
-    Operates on the ``body`` column (DuckDB STRUCT inferred from ndjson).
-    Terms are matched case-insensitively via ``regexp_matches`` with
-    word boundaries (``\\b``) to approximate Solr's token-level matching.
+    *text_expr* is the SQL expression that yields the document body text.
+    For s2orc_v2 shards pass ``"body.text"``; for legacy s2orc_v1 shards
+    pass ``"content.text"`` — see :func:`_detect_body_column`.
+
+    Terms are matched case-insensitively via ``regexp_matches`` with word
+    boundaries (``\\b``) to approximate Solr's token-level matching.
     """
     op = node[0]
     if op == "term":
@@ -380,14 +383,36 @@ def _solr_ast_to_sql(node) -> str:
         if not term:
             return "TRUE"
         safe = term.lower().replace("'", "''")
-        return f"regexp_matches(lower(COALESCE(body.text, '')), '\\b{safe}\\b')"
+        return f"regexp_matches(lower(COALESCE({text_expr}, '')), '\\b{safe}\\b')"
     if op == "and":
-        return f"({_solr_ast_to_sql(node[1])}) AND ({_solr_ast_to_sql(node[2])})"
+        return f"({_solr_ast_to_sql(node[1], text_expr)}) AND ({_solr_ast_to_sql(node[2], text_expr)})"
     if op == "or":
-        return f"({_solr_ast_to_sql(node[1])}) OR ({_solr_ast_to_sql(node[2])})"
+        return f"({_solr_ast_to_sql(node[1], text_expr)}) OR ({_solr_ast_to_sql(node[2], text_expr)})"
     if op == "not":
-        return f"NOT ({_solr_ast_to_sql(node[1])})"
+        return f"NOT ({_solr_ast_to_sql(node[1], text_expr)})"
     return "FALSE"
+
+
+def _detect_body_column(con, shard: Path) -> str | None:
+    """Probe *shard*'s top-level schema and return the body-text SQL expression.
+
+    Returns ``"body.text"`` for s2orc_v2 shards, ``"content.text"`` for
+    legacy s2orc_v1 shards, or ``None`` if neither column is present (caller
+    should skip the shard).
+    """
+    try:
+        rows = con.execute(
+            "DESCRIBE SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true)",
+            [[str(shard)]],
+        ).fetchall()
+    except Exception:
+        return None
+    cols = {r[0] for r in rows}
+    if "body" in cols:
+        return "body.text"
+    if "content" in cols:
+        return "content.text"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -444,9 +469,10 @@ def _query_with_duckdb(
     """
     import duckdb
 
-    # Parse the Solr query and translate to a SQL WHERE clause
+    # Parse the Solr query once; the SQL WHERE clause is rebuilt per shard
+    # because the body-text column name depends on the shard schema
+    # (s2orc_v2 uses ``body.text``; legacy s2orc_v1 uses ``content.text``).
     ast = _SolrParser(_tokenize_solr(query_text)).parse()
-    where_clause = _solr_ast_to_sql(ast)
 
     checkpoint = _load_checkpoint(output_dir)
     completed: set[str] = checkpoint["completed_shards"]
@@ -465,11 +491,6 @@ def _query_with_duckdb(
         return written
 
     con = duckdb.connect()
-    sql = f"""
-        SELECT *
-        FROM read_ndjson(?, compression='gzip', ignore_errors=true)
-        WHERE {where_clause}
-    """
 
     # Dedup within this run only; cross-run dedup is implicit because
     # _write_doc overwrites by corpusid.json filename.
@@ -481,6 +502,15 @@ def _query_with_duckdb(
             progress.update(task, advance=len(completed))
 
             for gz in pending:
+                text_expr = _detect_body_column(con, gz)
+                if text_expr is None:
+                    progress.log(
+                        f"* WARNING: shard {gz.name} has neither 'body' nor 'content' " f"top-level column; skipping."
+                    )
+                    progress.update(task, advance=1)
+                    continue
+                where_clause = _solr_ast_to_sql(ast, text_expr)
+                sql = "SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true) " f"WHERE {where_clause}"
                 try:
                     con.execute(sql, [[str(gz)]])
                     col_names = [desc[0] for desc in con.description]

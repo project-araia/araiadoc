@@ -55,6 +55,17 @@ New commands live in `src/araiadoc/s2orc.py` and `src/araiadoc/sectionize.py`:
 - There is **no** `abstract` annotation key. Paragraphs that appear before the first `section_header` span are promoted to a top-level `abstract` field by `_sectionize_item_s2orc_v2`.
 - Correct header→paragraph mapping: for each paragraph span, the owning section is the most recent `section_header` whose `end ≤ paragraph["start"]`. Duplicate headers append rather than overwrite.
 
+### s2orc_v1 vs s2orc_v2 schema compatibility
+
+Older s2orc_v1 shards use a different top-level shape than v2:
+
+- **v2:** `body.text` (string), `body.annotations.{paragraph,section_header}` (JSON-encoded span lists).
+- **v1:** `content.text` (string), `content.annotations.{paragraph,sectionheader,…}` (same JSON-encoded span format; note `sectionheader` without underscore).
+
+`get-from-local-s2orc` probes each shard's top-level columns via `DESCRIBE SELECT * FROM read_ndjson(...)` (see `_detect_body_column` in `s2orc.py`) and rebuilds the SQL WHERE clause per shard against either `body.text` or `content.text`. **Do not assume `body.text` is always present** — hardcoding it breaks v1 shards with `Binder Error: Referenced table "body" not found`. `corpusid` is present in both schemas, so `_lookup_ids_duckdb` needs no probe.
+
+Downstream, `sectionize.py` already normalises v1 → v2 (see `_sectionize_item_s2orc_v2` and the `content` → `body` / `sectionheader` → `section_header` shim around line 92), so docs extracted by `get-from-local-s2orc` from a v1 source feed straight into `section-dataset-s2orc` without further conversion.
+
 ### Solr boolean query parser
 
 `get-from-local-s2orc --query "…"` uses a recursive-descent parser (`_tokenize_solr` / `_SolrParser` in `s2orc.py`) supporting `AND`, `OR`, implicit AND, `NOT`/`-`, parens, and quoted phrases. The parsed AST is translated to a DuckDB SQL `WHERE` clause via `_solr_ast_to_sql` (terms compile to `regexp_matches(lower(body.text), '\bterm\b')`), so all filtering happens inside DuckDB's vectorized engine rather than in Python. **Do not replace the parser with flat-AND-over-all-terms** — the real `q` in `searches.py` is `(hazard terms OR …) AND (impact terms OR …)`, which a flat AND would never match.
