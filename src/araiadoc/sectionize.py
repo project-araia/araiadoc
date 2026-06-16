@@ -1,11 +1,21 @@
 import gzip
 import json
+import os
 from pathlib import Path
 
 import click
 from joblib import Parallel, delayed
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
+from .sectionize_report import (
+    CorpusReport,
+    CorpusReportPartial,
+    DocReport,
+    append_gz_file,
+    open_per_doc_writer,
+    write_doc_row,
+    write_summary_json,
+)
 from .text_quality.content_assessment import (
     _content_is_substantive,
     _header_is_noise,
@@ -136,9 +146,10 @@ def _sectionize_item_s2orc_v2(doc: dict):
 
     Returns
     -------
-    (success: bool, sectioned_text: dict, error: str | None)
+    (success: bool, sectioned_text: dict, error: str | None, report: DocReport)
         *sectioned_text* maps canonical header strings to paragraph text, plus
-        optional "title" and "abstract" keys.
+        optional "title" and "abstract" keys. *report* tracks per-section
+        accounting (kept/dropped chars, paragraphs, sections, with drop reasons).
     """
     # Sentinel used internally for paragraphs that precede the first
     # section_header span.  These are later promoted to the "abstract" field
@@ -146,6 +157,7 @@ def _sectionize_item_s2orc_v2(doc: dict):
     _PRE_HEADER_KEY = "__pre_header__"
 
     corpus_id = str(doc.get("corpusid", "unknown"))
+    report = DocReport(corpus_id=corpus_id, outcome="structural_failure")
 
     # ---- title ----
     title = _normalize_text(doc.get("title") or "")
@@ -156,13 +168,21 @@ def _sectionize_item_s2orc_v2(doc: dict):
     annotations: dict = body.get("annotations") or {}
 
     if not text:
-        return (False, {}, f"[{corpus_id}] Empty body text")
+        report.error = f"[{corpus_id}] Empty body text"
+        report.finalize()
+        return (False, {}, report.error, report)
+
+    # total_chars: count all paragraph-span content the document offered (not
+    # body text length, which can include arbitrary inter-paragraph noise).
+    # We populate it during the span walk below.
 
     paragraph_spans = _parse_spans(annotations.get("paragraph"))
     header_spans = _parse_spans(annotations.get("section_header"))
 
     if not paragraph_spans:
-        return (False, {}, f"[{corpus_id}] No paragraph annotations")
+        report.error = f"[{corpus_id}] No paragraph annotations"
+        report.finalize()
+        return (False, {}, report.error, report)
 
     # ---- map each paragraph to its nearest preceding header ----
     # header_spans are already sorted by start; we walk them alongside
@@ -205,6 +225,7 @@ def _sectionize_item_s2orc_v2(doc: dict):
 
     # ---- promote pre-header paragraphs to "abstract" ----
     abstract = ""
+    abstract_para_count = 0
     remaining_sections: list[tuple[str, list[str]]] = []
     for hdr, paras in sections:
         if hdr == _PRE_HEADER_KEY:
@@ -214,6 +235,7 @@ def _sectionize_item_s2orc_v2(doc: dict):
                 # text (shouldn't happen in practice — there is only ever one
                 # pre-header region), append rather than overwrite.
                 abstract = (abstract + " " + joined).strip() if abstract else joined
+                abstract_para_count += len(paras)
         else:
             remaining_sections.append((hdr, paras))
 
@@ -223,22 +245,51 @@ def _sectionize_item_s2orc_v2(doc: dict):
         sectioned_text["title"] = title
     if abstract:
         sectioned_text["abstract"] = abstract
+        # The abstract counts as kept content, but it isn't subject to the
+        # per-section filter loop, so record it directly.
+        report.record_kept(chars=len(abstract), paragraphs=abstract_para_count)
 
     actual_headers_count = 0
 
-    for header, para_list in remaining_sections:
+    def _content_chars_for(para_list: list[str]) -> int:
+        # Mirror how `content` would be assembled below so the accounting
+        # matches what would have been written.
+        return len(" ".join(para_list))
+
+    def _record_truncated_tail(start_idx: int) -> None:
+        """Bucket every section the loop would have visited after a break."""
+        for hdr, paras in remaining_sections[start_idx:]:
+            report.record_dropped(
+                "post_break_truncated",
+                chars=_content_chars_for(paras),
+                paragraphs=len(paras),
+            )
+
+    for i, (header, para_list) in enumerate(remaining_sections):
+        section_chars = _content_chars_for(para_list)
+        section_paras = len(para_list)
+
         if _header_is_noise(header):
+            report.record_dropped("noise_header", chars=section_chars, paragraphs=section_paras)
             continue
 
         compare_header = "".join(header.split()).lower()
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
+            report.record_dropped(
+                "unneeded_skip_truncation",
+                chars=section_chars,
+                paragraphs=section_paras,
+            )
+            _record_truncated_tail(i + 1)
             break
 
         should_stop_after = any(j in compare_header for j in needed_sections_but_skip_remaining)
 
         if any(j in compare_header for j in unneeded_sections_no_skip_remaining):
+            report.record_dropped("unneeded_no_skip", chars=section_chars, paragraphs=section_paras)
             if should_stop_after:
+                _record_truncated_tail(i + 1)
                 break
             continue
 
@@ -246,7 +297,9 @@ def _sectionize_item_s2orc_v2(doc: dict):
         content = " ".join(para_list)
 
         if not _content_is_substantive(content):
+            report.record_dropped("non_substantive", chars=section_chars, paragraphs=section_paras)
             if should_stop_after:
+                _record_truncated_tail(i + 1)
                 break
             continue
 
@@ -258,15 +311,46 @@ def _sectionize_item_s2orc_v2(doc: dict):
             else:
                 sectioned_text[header] = content
             actual_headers_count += 1
+            report.record_kept(chars=section_chars, paragraphs=section_paras)
+        else:
+            report.record_dropped(
+                "non_english_or_invalid",
+                chars=section_chars,
+                paragraphs=section_paras,
+            )
 
         if should_stop_after:
+            # The conclusion-style section we just processed is genuinely
+            # kept; everything past it gets bucketed as conclusion-driven
+            # truncation so it's distinguishable from the unneeded-skip case.
+            for hdr, paras in remaining_sections[i + 1 :]:  # noqa
+                report.record_dropped(
+                    "conclusion_truncation",
+                    chars=_content_chars_for(paras),
+                    paragraphs=len(paras),
+                )
             break
+
+    # Total chars seen = kept + dropped + (anything not in either bucket).
+    # In this pipeline, every section that enters the loop is bucketed, so the
+    # default `finalize()` behavior (kept+dropped) is correct.
+    report.finalize()
 
     content_keys = [k for k in sectioned_text if k not in ("title", "abstract")]
     if not content_keys and actual_headers_count == 0:
-        return (False, sectioned_text, f"[{corpus_id}] No valid content sections found")
+        # Distinguish "all sections were filtered out" from "no sections to
+        # begin with" — the latter would have been caught above as a
+        # structural_failure. Here, we know at least one section reached the
+        # loop, so this is a fully-filtered outcome.
+        if report.total_sections > 0:
+            report.outcome = "fully_filtered"
+        else:
+            report.outcome = "structural_failure"
+        report.error = f"[{corpus_id}] No valid content sections found"
+        return (False, sectioned_text, report.error, report)
 
-    return (True, sectioned_text, None)
+    report.outcome = "unfiltered" if report.dropped_sections == 0 else "partially_filtered"
+    return (True, sectioned_text, None, report)
 
 
 def _extract_item_from_doc(doc):
@@ -300,7 +384,16 @@ def _get_corpus_id(item, fallback_stem=None):
     return fallback_stem if fallback_stem is not None else "unknown"
 
 
-def _sectionize_item_v2(item):
+def _sectionize_item_v2(item, corpus_id: str | None = None):
+    """Legacy v2 (TitanV/Solr) sectionizer.
+
+    Returns (success, sectioned_text, error, report). `corpus_id` is taken
+    from the caller; if not supplied, falls back to "unknown" for the
+    accounting record.
+    """
+    cid = corpus_id if corpus_id is not None else _get_corpus_id(item)
+    report = DocReport(corpus_id=cid, outcome="structural_failure")
+
     title = _normalize_text(_get_first(item, "title"))
     abstract = _normalize_text(_get_first(item, "abstract"))
     paragraphs = [_normalize_text(p) for p in _get_list(item, "paragraph")]
@@ -309,7 +402,9 @@ def _sectionize_item_v2(item):
     section_headers = [apply_synonyms(_normalize_header(h)) for h in _get_list(item, "sectionheader")]
 
     if not paragraphs or not section_headers:
-        return (False, {}, "Missing paragraph/sectionheader fields required for v2")
+        report.error = "Missing paragraph/sectionheader fields required for v2"
+        report.finalize()
+        return (False, {}, report.error, report)
 
     sectioned_text = {}
     if title:
@@ -319,26 +414,46 @@ def _sectionize_item_v2(item):
 
     # 6/1
     if len(abstract) < MIN_CONTENT_CHARS:
-        return (False, {}, "Abstract missing or too short.")
+        report.error = "Abstract missing or too short."
+        report.finalize()
+        return (False, {}, report.error, report)
+
+    # Abstract counts as kept content (it bypasses the per-section filter loop).
+    if abstract:
+        report.record_kept(chars=len(abstract), paragraphs=1)
 
     actual_headers_count = 0
+    paired = list(zip(section_headers, paragraphs))
 
-    for header, content in zip(section_headers, paragraphs):
+    def _record_tail(start_idx: int) -> None:
+        for hdr, content in paired[start_idx:]:
+            report.record_dropped("post_break_truncated", chars=len(content), paragraphs=1)
+
+    for i, (header, content) in enumerate(paired):
+        chars = len(content)
+        paras = 1  # legacy schema is 1 paragraph per (header, content) pair
+
         if _header_is_noise(header):
+            report.record_dropped("noise_header", chars=chars, paragraphs=paras)
             continue
 
         compare_header = "".join(header.split()).lower()
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
+            report.record_dropped("unneeded_skip_truncation", chars=chars, paragraphs=paras)
+            _record_tail(i + 1)
             break
 
         should_stop_after = any(j in compare_header for j in needed_sections_but_skip_remaining)
 
         if any(j in compare_header for j in unneeded_sections_no_skip_remaining):
+            report.record_dropped("unneeded_no_skip", chars=chars, paragraphs=paras)
             continue
 
         if not _content_is_substantive(content):
-            if should_stop_after:
+            report.record_dropped("non_substantive", chars=chars, paragraphs=paras)
+            if should_stop_after:  # noqa
+                _record_tail(i + 1)
                 break
             continue
 
@@ -350,15 +465,28 @@ def _sectionize_item_v2(item):
             else:
                 sectioned_text[header] = content
             actual_headers_count += 1
+            report.record_kept(chars=chars, paragraphs=paras)
+        else:
+            report.record_dropped("non_english_or_invalid", chars=chars, paragraphs=paras)
 
         if should_stop_after:
+            for hdr, c in paired[i + 1 :]:  # noqa
+                report.record_dropped("conclusion_truncation", chars=len(c), paragraphs=1)
             break
+
+    report.finalize()
 
     content_keys = [k for k in sectioned_text.keys() if k not in ["title", "abstract"]]
     if not content_keys and actual_headers_count == 0:
-        return (False, sectioned_text, "No valid content sections found")
+        if report.total_sections > 0:
+            report.outcome = "fully_filtered"
+        else:
+            report.outcome = "structural_failure"
+        report.error = "No valid content sections found"
+        return (False, sectioned_text, report.error, report)
 
-    return (True, sectioned_text, None)
+    report.outcome = "unfiltered" if report.dropped_sections == 0 else "partially_filtered"
+    return (True, sectioned_text, None, report)
 
 
 def _sharded_output_file(output_dir: Path, corpus_id: str) -> Path:
@@ -375,6 +503,12 @@ def _sharded_output_file(output_dir: Path, corpus_id: str) -> Path:
 
 
 def _sectionize_one_file(input_path: Path, output_dir: Path):
+    """Sectionize one legacy v2 per-document JSON file.
+
+    Returns (success, corpus_id, error, status, report). `report` is None
+    for `skipped_existing` and for hard exceptions where we never got to run
+    the sectionizer.
+    """
     try:
         with open(input_path, "r") as f:
             doc = json.load(f)
@@ -384,19 +518,23 @@ def _sectionize_one_file(input_path: Path, output_dir: Path):
         output_file = _sharded_output_file(output_dir, corpus_id)
 
         if output_file.exists():
-            return (True, corpus_id, None, "skipped_existing")
+            return (True, corpus_id, None, "skipped_existing", None)
 
-        success, sectioned_text, error = _sectionize_item_v2(item)
+        success, sectioned_text, error, report = _sectionize_item_v2(item, corpus_id=corpus_id)
         if not success:
-            return (False, corpus_id, error, "failed")
+            return (False, corpus_id, error, "failed", report)
 
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
-        return (True, corpus_id, None, "written")
+        return (True, corpus_id, None, "written", report)
 
     except Exception as e:
-        return (False, input_path.stem, str(e), "failed")
+        # Exception before the sectionizer ran: synthesize a structural_failure
+        # report so the corpus stats still see this document.
+        report = DocReport(corpus_id=input_path.stem, outcome="structural_failure", error=str(e))
+        report.finalize()
+        return (False, input_path.stem, str(e), "failed", report)
 
 
 def _discover_batch_files(source: Path):
@@ -437,65 +575,106 @@ def _sectionize_batch_file(batch_file: Path, output_dir: Path):
     batch_successes = 0
     batch_failures = []
     skipped_existing = 0
+    partial = CorpusReportPartial()
 
-    with gzip.open(batch_file, "rt", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
+    # Per-doc rows stream to a per-batch temp gz file inside output_dir so the
+    # worker never holds more than one DocReport in memory at a time. The
+    # parent process concatenates these temp files into the corpus-wide
+    # sectionization_report.jsonl.gz after each batch.
+    tmp_report_path = output_dir / f".report_{batch_file.stem}.{os.getpid()}.jsonl.gz"
+    tmp_handle = open_per_doc_writer(tmp_report_path, append=False)
 
-            try:
-                doc = json.loads(line)
-                item = _extract_item_from_doc(doc)
-                corpus_id = _get_corpus_id(item, fallback_stem=f"{batch_file.stem}_line_{line_number}")
-                output_file = _sharded_output_file(output_dir, corpus_id)
+    def _add_report(report: DocReport) -> None:
+        partial.add(report)
+        write_doc_row(tmp_handle, report)
 
-                if output_file.exists():
-                    skipped_existing += 1
+    try:
+        with gzip.open(batch_file, "rt", encoding="utf-8") as f:
+            for line_number, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
                     continue
 
-                success, sectioned_text, error = _sectionize_item_v2(item)
-                if not success:
+                try:
+                    doc = json.loads(line)
+                    item = _extract_item_from_doc(doc)
+                    corpus_id = _get_corpus_id(item, fallback_stem=f"{batch_file.stem}_line_{line_number}")
+                    output_file = _sharded_output_file(output_dir, corpus_id)
+
+                    if output_file.exists():
+                        skipped_existing += 1
+                        continue
+
+                    success, sectioned_text, error, report = _sectionize_item_v2(item, corpus_id=corpus_id)
+                    _add_report(report)
+                    if not success:
+                        batch_failures.append(
+                            {
+                                "corpus_id": corpus_id,
+                                "batch_file": str(batch_file),
+                                "line_number": line_number,
+                                "error": error,
+                            }
+                        )
+                        continue
+
+                    with open(output_file, "w") as out_f:
+                        json.dump(sectioned_text, out_f, indent=4)
+
+                    batch_successes += 1
+
+                except Exception as e:
+                    corpus_id = f"{batch_file.stem}_line_{line_number}"
                     batch_failures.append(
                         {
                             "corpus_id": corpus_id,
                             "batch_file": str(batch_file),
                             "line_number": line_number,
-                            "error": error,
+                            "error": str(e),
                         }
                     )
-                    continue
-
-                with open(output_file, "w") as out_f:
-                    json.dump(sectioned_text, out_f, indent=4)
-
-                batch_successes += 1
-
-            except Exception as e:
-                corpus_id = f"{batch_file.stem}_line_{line_number}"
-                batch_failures.append(
-                    {
-                        "corpus_id": corpus_id,
-                        "batch_file": str(batch_file),
-                        "line_number": line_number,
-                        "error": str(e),
-                    }
-                )
+                    exc_report = DocReport(corpus_id=corpus_id, outcome="structural_failure", error=str(e))
+                    exc_report.finalize()
+                    _add_report(exc_report)
+    finally:
+        tmp_handle.close()
 
     return {
         "batch_file": str(batch_file),
         "successes": batch_successes,
         "failures": batch_failures,
         "skipped_existing": skipped_existing,
+        "partial": partial,
+        "report_tmp": str(tmp_report_path),
     }
 
 
-def _sectionize_batches_parallel(batch_files, output_dir: Path, progress: Progress):
+def _sectionize_batches_parallel(
+    batch_files,
+    output_dir: Path,
+    progress: Progress,
+    source: Path,
+    pipeline: str,
+    batch_fn,
+):
+    """Drive sectionization of a list of batch files in parallel.
+
+    `batch_fn` is the per-batch worker (e.g. `_sectionize_batch_file_s2orc_v2`).
+    Each worker streams its per-doc report rows into a per-batch temp gz file
+    under `output_dir`; this driver concatenates each completed temp file
+    onto the corpus-wide `sectionization_report.jsonl.gz` and folds the
+    worker's aggregate counts into the corpus `CorpusReport`. This keeps
+    both worker memory and parent memory bounded to one DocReport at a time.
+    """
     checkpoint_path = output_dir / "batch_checkpoint.json"
     checkpoint_data = _load_batch_checkpoint(checkpoint_path)
     completed_batches = set(checkpoint_data.get("completed_batches", []))
 
     files_to_process = [bf for bf in batch_files if str(bf) not in completed_batches]
+
+    summary_path = output_dir / "sectionization_report.json"
+    per_doc_path = output_dir / "sectionization_report.jsonl.gz"
+    corpus_report = CorpusReport(pipeline=pipeline, source=str(source))
 
     task = progress.add_task("[green]Sectionizing batches", total=len(batch_files))
     already_completed = len(batch_files) - len(files_to_process)
@@ -503,15 +682,18 @@ def _sectionize_batches_parallel(batch_files, output_dir: Path, progress: Progre
         progress.update(task, advance=already_completed)
 
     if not files_to_process:
+        # Nothing to do — preserve whatever the previous run produced.
         progress.log("\n* Sectionization:")
         progress.log("* Batch files completed: " + str(len(completed_batches)))
         progress.log("* Documents written: 0")
         progress.log("* Existing outputs skipped: 0")
         progress.log("* Failures: " + str(len(checkpoint_data.get("failures", []))))
+        if summary_path.exists():
+            progress.log(f"* Existing summary preserved at {summary_path.name}.")
         return
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_batch_file)(batch_file, output_dir) for batch_file in files_to_process
+        delayed(batch_fn)(batch_file, output_dir) for batch_file in files_to_process
     )
 
     success_count = 0
@@ -529,8 +711,27 @@ def _sectionize_batches_parallel(batch_files, output_dir: Path, progress: Progre
                 f"{failure['error']}"
             )
 
+        # Merge worker aggregate into corpus report, then concat the per-batch
+        # JSONL.GZ onto the corpus-wide one and remove the temp.
+        partial = result.get("partial")
+        if partial is not None:
+            corpus_report.merge_partial(partial)
+        tmp_str = result.get("report_tmp")
+        if tmp_str:
+            tmp_path = Path(tmp_str)
+            if tmp_path.exists():
+                try:
+                    append_gz_file(per_doc_path, tmp_path)
+                finally:
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+        corpus_report.previously_written += result["skipped_existing"]
+
         checkpoint_data["completed_batches"].append(result["batch_file"])
         _write_batch_checkpoint(checkpoint_path, checkpoint_data)
+        write_summary_json(summary_path, corpus_report)
         progress.update(task, advance=1)
 
     progress.log("\n* Sectionization:")
@@ -538,11 +739,21 @@ def _sectionize_batches_parallel(batch_files, output_dir: Path, progress: Progre
     progress.log("* Documents written: " + str(success_count))
     progress.log("* Existing outputs skipped: " + str(skipped_existing_count))
     progress.log("* Failures: " + str(len(checkpoint_data["failures"])))
+    _render_report_tables(progress, corpus_report)
+
+
+def _render_report_tables(progress: Progress, corpus_report: CorpusReport) -> None:
+    """Print the corpus_report tables to the rich console attached to `progress`."""
+    progress.log("")  # blank line for separation
+    for table in corpus_report.render_tables():
+        progress.console.print(table)
 
 
 def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
     output_dir = Path(str(source) + "_sectionized")
     output_dir.mkdir(exist_ok=True, parents=True)
+
+    pipeline = "v2" if v2 else "v1"
 
     if v2:
         batch_files = _discover_batch_files(Path(source))
@@ -552,7 +763,14 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
     if v2 and batch_files:
         progress.log("* Detected batch input format (.jsonl.gz).")
         progress.log("* Found " + str(len(batch_files)) + " batch files.")
-        _sectionize_batches_parallel(batch_files, output_dir, progress)
+        _sectionize_batches_parallel(
+            batch_files,
+            output_dir,
+            progress,
+            source=Path(source),
+            pipeline=pipeline,
+            batch_fn=_sectionize_batch_file,
+        )
         return
 
     collected_input_files = _collect_from_path(Path(source))
@@ -604,6 +822,20 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
 
         files_to_process.append(i)
 
+    # Report setup. Append onto an existing JSONL only if one is actually
+    # present on disk (i.e. this is a resume). For a fresh run, truncate so
+    # the JSONL starts empty.
+    #
+    # Caveat: if the user partially deletes existing outputs and reruns, the
+    # JSONL will gain new rows for the re-done docs in addition to the prior
+    # complete-corpus rows — i.e. duplicates by corpus_id are possible. The
+    # summary JSON, by contrast, reflects only the current run's work.
+    summary_path = output_dir / "sectionization_report.json"
+    per_doc_path = output_dir / "sectionization_report.jsonl.gz"
+    corpus_report = CorpusReport(pipeline=pipeline, source=str(source))
+    corpus_report.previously_written = skipped_existing_count
+    per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
+
     results = Parallel(n_jobs=-1, return_as="generator")(
         delayed(_sectionize_one_file)(i, output_dir) for i in files_to_process
     )
@@ -611,32 +843,41 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
     success_count = 0
     fail_count = 0
 
-    for success, corpus_id, error, status in results:
-        progress.update(task, advance=1)
-        if success and status == "written":
-            success_count += 1
-        elif success and status == "skipped_existing":
-            skipped_existing_count += 1
-        else:
-            fail_count += 1
-            failure_record = {
-                "corpus_id": corpus_id,
-                "batch_file": None,
-                "line_number": None,
-                "error": error,
-            }
-            failures.append(failure_record)
-            progress.log(f"* Error on: {corpus_id}: {error}")
+    try:
+        for success, corpus_id, error, status, report in results:
+            progress.update(task, advance=1)
+            if report is not None:
+                corpus_report.add(report)
+                write_doc_row(per_doc_handle, report)
+            if success and status == "written":
+                success_count += 1
+            elif success and status == "skipped_existing":
+                skipped_existing_count += 1
+            else:
+                fail_count += 1
+                failure_record = {
+                    "corpus_id": corpus_id,
+                    "batch_file": None,
+                    "line_number": None,
+                    "error": error,
+                }
+                failures.append(failure_record)
+                progress.log(f"* Error on: {corpus_id}: {error}")
+    finally:
+        per_doc_handle.close()
 
     if failures:
         with open(failures_json, "w") as f:
             json.dump(failures, f, indent=2)
+
+    write_summary_json(summary_path, corpus_report)
 
     progress.log("\n* Sectionization:")
     progress.log("* Documents written: " + str(success_count))
     progress.log("* Existing outputs skipped: " + str(skipped_existing_count))
     progress.log("* Previously failed inputs skipped: " + str(skipped_previous_failures))
     progress.log("* Failures: " + str(fail_count))
+    _render_report_tables(progress, corpus_report)
 
 
 @click.command()
@@ -688,7 +929,11 @@ def section_dataset_v2(source: Path):
 
 
 def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
-    """Sectionize a single per-document JSON file in s2orc_v2 format."""
+    """Sectionize a single per-document JSON file in s2orc_v2 format.
+
+    Returns (success, corpus_id, error, status, report). `report` is None
+    only when the output file already existed (skipped_existing).
+    """
     try:
         with open(input_path) as f:
             doc = json.load(f)
@@ -696,75 +941,99 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
         corpus_id = str(doc.get("corpusid", input_path.stem))
         output_file = _sharded_output_file(output_dir, corpus_id)
         if output_file.exists():
-            return (True, corpus_id, None, "skipped_existing")
+            return (True, corpus_id, None, "skipped_existing", None)
 
         doc = _normalize_to_v2(doc)
-        success, sectioned_text, error = _sectionize_item_s2orc_v2(doc)
+        success, sectioned_text, error, report = _sectionize_item_s2orc_v2(doc)
         if not success:
-            return (False, corpus_id, error, "failed")
+            return (False, corpus_id, error, "failed", report)
 
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
-        return (True, corpus_id, None, "written")
+        return (True, corpus_id, None, "written", report)
     except Exception as e:
-        return (False, input_path.stem, str(e), "failed")
+        report = DocReport(corpus_id=input_path.stem, outcome="structural_failure", error=str(e))
+        report.finalize()
+        return (False, input_path.stem, str(e), "failed", report)
 
 
 def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path):
-    """Stream one .gz JSONL shard and sectionize each document."""
+    """Stream one .gz JSONL shard and sectionize each document.
+
+    Per-doc rows are streamed to a per-batch temp gz file (concatenated by
+    the parent) so memory stays bounded even on huge shards.
+    """
     batch_successes = 0
     batch_failures = []
     skipped_existing = 0
+    partial = CorpusReportPartial()
+
+    tmp_report_path = output_dir / f".report_{batch_file.stem}.{os.getpid()}.jsonl.gz"
+    tmp_handle = open_per_doc_writer(tmp_report_path, append=False)
+
+    def _add_report(report: DocReport) -> None:
+        partial.add(report)
+        write_doc_row(tmp_handle, report)
 
     opener = gzip.open if batch_file.suffix == ".gz" else open
-    with opener(batch_file, "rt", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                doc = json.loads(line)
-                corpus_id = str(doc.get("corpusid", f"{batch_file.stem}_line_{line_number}"))
-                output_file = _sharded_output_file(output_dir, corpus_id)
-
-                if output_file.exists():
-                    skipped_existing += 1
+    try:
+        with opener(batch_file, "rt", encoding="utf-8") as f:
+            for line_number, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
                     continue
+                try:
+                    doc = json.loads(line)
+                    corpus_id = str(doc.get("corpusid", f"{batch_file.stem}_line_{line_number}"))
+                    output_file = _sharded_output_file(output_dir, corpus_id)
 
-                doc = _normalize_to_v2(doc)
-                success, sectioned_text, error = _sectionize_item_s2orc_v2(doc)
-                if not success:
+                    if output_file.exists():
+                        skipped_existing += 1
+                        continue
+
+                    doc = _normalize_to_v2(doc)
+                    success, sectioned_text, error, report = _sectionize_item_s2orc_v2(doc)
+                    _add_report(report)
+                    if not success:
+                        batch_failures.append(
+                            {
+                                "corpus_id": corpus_id,
+                                "batch_file": str(batch_file),
+                                "line_number": line_number,
+                                "error": error,
+                            }
+                        )
+                        continue
+
+                    with open(output_file, "w") as out_f:
+                        json.dump(sectioned_text, out_f, indent=4)
+
+                    batch_successes += 1
+
+                except Exception as e:
+                    corpus_id = f"{batch_file.stem}_line_{line_number}"
                     batch_failures.append(
                         {
                             "corpus_id": corpus_id,
                             "batch_file": str(batch_file),
                             "line_number": line_number,
-                            "error": error,
+                            "error": str(e),
                         }
                     )
-                    continue
-
-                with open(output_file, "w") as out_f:
-                    json.dump(sectioned_text, out_f, indent=4)
-
-                batch_successes += 1
-
-            except Exception as e:
-                batch_failures.append(
-                    {
-                        "corpus_id": f"{batch_file.stem}_line_{line_number}",
-                        "batch_file": str(batch_file),
-                        "line_number": line_number,
-                        "error": str(e),
-                    }
-                )
+                    exc_report = DocReport(corpus_id=corpus_id, outcome="structural_failure", error=str(e))
+                    exc_report.finalize()
+                    _add_report(exc_report)
+    finally:
+        tmp_handle.close()
 
     return {
         "batch_file": str(batch_file),
         "successes": batch_successes,
         "failures": batch_failures,
         "skipped_existing": skipped_existing,
+        "partial": partial,
+        "report_tmp": str(tmp_report_path),
     }
 
 
@@ -785,35 +1054,14 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
 
     if gz_files:
         progress.log(f"* Found {len(gz_files)} .gz shard file(s) — streaming mode.")
-        checkpoint_path = output_dir / "batch_checkpoint.json"
-        checkpoint_data = _load_batch_checkpoint(checkpoint_path)
-        completed = set(checkpoint_data.get("completed_batches", []))
-        to_process = [f for f in gz_files if str(f) not in completed]
-
-        task = progress.add_task("[green]Sectionizing shards", total=len(gz_files))
-        if len(gz_files) - len(to_process):
-            progress.update(task, advance=len(gz_files) - len(to_process))
-
-        results = Parallel(n_jobs=-1, return_as="generator")(
-            delayed(_sectionize_batch_file_s2orc_v2)(bf, output_dir) for bf in to_process
+        _sectionize_batches_parallel(
+            gz_files,
+            output_dir,
+            progress,
+            source=source,
+            pipeline="s2orc_v2",
+            batch_fn=_sectionize_batch_file_s2orc_v2,
         )
-
-        success_count = 0
-        skipped_count = 0
-        for result in results:
-            success_count += result["successes"]
-            skipped_count += result["skipped_existing"]
-            for failure in result["failures"]:
-                checkpoint_data["failures"].append(failure)
-                progress.log(f"* Error corpus_id={failure['corpus_id']}: {failure['error']}")
-            checkpoint_data["completed_batches"].append(result["batch_file"])
-            _write_batch_checkpoint(checkpoint_path, checkpoint_data)
-            progress.update(task, advance=1)
-
-        progress.log("\n* Sectionization complete.")
-        progress.log(f"* Documents written: {success_count}")
-        progress.log(f"* Existing skipped: {skipped_count}")
-        progress.log(f"* Failures: {len(checkpoint_data['failures'])}")
         return
 
     # Fall back to per-document JSON files.
@@ -821,22 +1069,37 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
     progress.log(f"* Found {len(json_files)} per-document JSON file(s).")
     task = progress.add_task("[green]Sectionizing", total=len(json_files))
 
+    summary_path = output_dir / "sectionization_report.json"
+    per_doc_path = output_dir / "sectionization_report.jsonl.gz"
+    corpus_report = CorpusReport(pipeline="s2orc_v2", source=str(source))
+    # Append on resume (per-doc JSONL exists from a prior run), truncate fresh.
+    per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
+
     results = Parallel(n_jobs=-1, return_as="generator")(
         delayed(_sectionize_one_file_s2orc_v2)(p, output_dir) for p in json_files
     )
 
     success_count = fail_count = skipped_count = 0
     failures = []
-    for success, corpus_id, error, status in results:
-        progress.update(task, advance=1)
-        if success and status == "written":
-            success_count += 1
-        elif status == "skipped_existing":
-            skipped_count += 1
-        else:
-            fail_count += 1
-            failures.append({"corpus_id": corpus_id, "error": error})
-            progress.log(f"* Error {corpus_id}: {error}")
+    try:
+        for success, corpus_id, error, status, report in results:
+            progress.update(task, advance=1)
+            if report is not None:
+                corpus_report.add(report)
+                write_doc_row(per_doc_handle, report)
+            if success and status == "written":
+                success_count += 1
+            elif status == "skipped_existing":
+                skipped_count += 1
+            else:
+                fail_count += 1
+                failures.append({"corpus_id": corpus_id, "error": error})
+                progress.log(f"* Error {corpus_id}: {error}")
+    finally:
+        per_doc_handle.close()
+
+    corpus_report.previously_written = skipped_count
+    write_summary_json(summary_path, corpus_report)
 
     if failures:
         (output_dir / "failures.json").write_text(json.dumps(failures, indent=2))
@@ -845,6 +1108,7 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
     progress.log(f"* Documents written: {success_count}")
     progress.log(f"* Existing skipped: {skipped_count}")
     progress.log(f"* Failures: {fail_count}")
+    _render_report_tables(progress, corpus_report)
 
 
 @click.command("section-dataset-s2orc")
