@@ -514,6 +514,36 @@ def _scan_predicate_parallel(
     return written, skipped
 
 
+def _load_checkpoint(output_dir: Path) -> dict:
+    """Load (or initialize) the per-shard DuckDB checkpoint for *output_dir*.
+
+    The checkpoint records which shard filenames have been fully scanned, so a
+    re-run with the same --output-dir resumes where the previous run left off.
+    """
+    cp_path = output_dir / "duckdb_checkpoint.json"
+    if cp_path.exists():
+        try:
+            data = json.loads(cp_path.read_text())
+            if isinstance(data, dict) and "completed_shards" in data:
+                data["completed_shards"] = set(data["completed_shards"])
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"completed_shards": set(), "written": 0}
+
+
+def _save_checkpoint(output_dir: Path, data: dict) -> None:
+    """Atomically write the DuckDB checkpoint to *output_dir*."""
+    cp_path = output_dir / "duckdb_checkpoint.json"
+    tmp = cp_path.with_suffix(".json.tmp")
+    serialisable = {
+        "completed_shards": sorted(data["completed_shards"]),
+        "written": data.get("written", 0),
+    }
+    tmp.write_text(json.dumps(serialisable, indent=2))
+    tmp.replace(cp_path)
+
+
 def _query_with_duckdb(
     gz_files: list[Path],
     query_text: str,
@@ -526,42 +556,74 @@ def _query_with_duckdb(
     filtering happens inside the database engine rather than in
     Python.  Writes matching documents to *output_dir* and returns
     the count of unique documents written.
+
+    Processes one shard per query so a `rich` progress bar can advance and so
+    that progress is checkpointed (``duckdb_checkpoint.json``) — re-running
+    against the same *output_dir* resumes from the next unscanned shard.
     """
     import duckdb
-
-    click.echo(f"* DuckDB query ({label}) across {len(gz_files)} shard(s) \u2026")
 
     # Parse the Solr query and translate to a SQL WHERE clause
     ast = _SolrParser(_tokenize_solr(query_text)).parse()
     where_clause = _solr_ast_to_sql(ast)
 
-    file_paths = [str(p) for p in gz_files]
-    con = duckdb.connect()
+    checkpoint = _load_checkpoint(output_dir)
+    completed: set[str] = checkpoint["completed_shards"]
+    written: int = checkpoint.get("written", 0)
 
+    pending = [gz for gz in gz_files if gz.name not in completed]
+    if completed:
+        click.echo(
+            f"* Resuming DuckDB query ({label}): {len(completed)}/{len(gz_files)} shard(s) "
+            f"already complete, {written} doc(s) previously written."
+        )
+    click.echo(f"* DuckDB query ({label}) across {len(pending)} remaining shard(s) \u2026")
+
+    if not pending:
+        click.echo("* Nothing to do — all shards already scanned.")
+        return written
+
+    con = duckdb.connect()
     sql = f"""
         SELECT *
         FROM read_ndjson(?, compression='gzip', ignore_errors=true)
         WHERE {where_clause}
     """
 
-    written = 0
+    # Dedup within this run only; cross-run dedup is implicit because
+    # _write_doc overwrites by corpusid.json filename.
     seen: set[str] = set()
+
     try:
-        con.execute(sql, [file_paths])
-        col_names = [desc[0] for desc in con.description]
-        while True:
-            row = con.fetchone()
-            if row is None:
-                break
-            doc = dict(zip(col_names, row))
-            cid = str(doc.get("corpusid", ""))
-            if cid in seen:
-                continue
-            seen.add(cid)
-            _write_doc(doc, output_dir)
-            written += 1
-    except Exception as exc:
-        raise click.ClickException(f"DuckDB query failed: {exc}")
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            task = progress.add_task(f"[cyan]DuckDB scan ({label})", total=len(gz_files))
+            progress.update(task, advance=len(completed))
+
+            for gz in pending:
+                try:
+                    con.execute(sql, [[str(gz)]])
+                    col_names = [desc[0] for desc in con.description]
+                    while True:
+                        row = con.fetchone()
+                        if row is None:
+                            break
+                        doc = dict(zip(col_names, row))
+                        cid = str(doc.get("corpusid", ""))
+                        if cid in seen:
+                            continue
+                        seen.add(cid)
+                        _write_doc(doc, output_dir)
+                        written += 1
+                except Exception as exc:
+                    progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
+                    progress.update(task, advance=1)
+                    continue
+
+                completed.add(gz.name)
+                checkpoint["completed_shards"] = completed
+                checkpoint["written"] = written
+                _save_checkpoint(output_dir, checkpoint)
+                progress.update(task, advance=1)
     finally:
         con.close()
 
@@ -837,41 +899,68 @@ def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
 
     Reads only the *exact* shard files supplied in ``gz_files`` (not the
     surrounding directory) so callers can safely pass a filtered subset.
+
+    Processes one shard per query so a `rich` progress bar can advance and so
+    that progress is checkpointed (``duckdb_checkpoint.json``) — re-running
+    against the same *output_dir* resumes from the next unscanned shard.
     """
     try:
         import duckdb
     except ImportError:
         raise click.ClickException("duckdb is not installed.  Run: pixi install  or  pip install duckdb")
 
-    click.echo(f"* Using DuckDB to query {len(gz_files)} shard(s) …")
+    checkpoint = _load_checkpoint(output_dir)
+    completed: set[str] = checkpoint["completed_shards"]
+    written: int = checkpoint.get("written", 0)
+
+    pending = [gz for gz in gz_files if gz.name not in completed]
+    if completed:
+        click.echo(
+            f"* Resuming DuckDB ID lookup: {len(completed)}/{len(gz_files)} shard(s) "
+            f"already complete, {written} doc(s) previously written."
+        )
+    click.echo(f"* Using DuckDB to query {len(pending)} remaining shard(s) …")
+
+    if not pending:
+        click.echo("* Nothing to do — all shards already scanned.")
+        click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
+        return
 
     ids_list = [str(i) for i in ids]
-    file_paths = [str(p) for p in gz_files]
-
     con = duckdb.connect()
 
-    # Pass the explicit file list and ID list as bound parameters.  DuckDB's
-    # read_ndjson accepts either a single path or a LIST of paths; binding the
-    # list as a parameter avoids any glob-vs-explicit-files ambiguity.
     query = """
         SELECT *
         FROM read_ndjson(?, compression='gzip', ignore_errors=true)
         WHERE CAST(corpusid AS VARCHAR) IN (SELECT UNNEST(?))
     """
 
-    written = 0
     try:
-        con.execute(query, [file_paths, ids_list])
-        col_names = [desc[0] for desc in con.description]
-        while True:
-            row = con.fetchone()
-            if row is None:
-                break
-            doc = dict(zip(col_names, row))
-            _write_doc(doc, output_dir)
-            written += 1
-    except Exception as exc:
-        raise click.ClickException(f"DuckDB query failed: {exc}")
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            task = progress.add_task("[cyan]DuckDB ID lookup", total=len(gz_files))
+            progress.update(task, advance=len(completed))
+
+            for gz in pending:
+                try:
+                    con.execute(query, [[str(gz)], ids_list])
+                    col_names = [desc[0] for desc in con.description]
+                    while True:
+                        row = con.fetchone()
+                        if row is None:
+                            break
+                        doc = dict(zip(col_names, row))
+                        _write_doc(doc, output_dir)
+                        written += 1
+                except Exception as exc:
+                    progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
+                    progress.update(task, advance=1)
+                    continue
+
+                completed.add(gz.name)
+                checkpoint["completed_shards"] = completed
+                checkpoint["written"] = written
+                _save_checkpoint(output_dir, checkpoint)
+                progress.update(task, advance=1)
     finally:
         con.close()
 
