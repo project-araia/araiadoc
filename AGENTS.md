@@ -57,7 +57,18 @@ New commands live in `src/araiadoc/s2orc.py` and `src/araiadoc/sectionize.py`:
 
 ### Solr boolean query parser
 
-`get-from-local-s2orc --query "…"` uses a recursive-descent parser (`_tokenize_solr` / `_SolrParser` / `_eval_solr_ast` in `s2orc.py`) supporting `AND`, `OR`, implicit AND, `NOT`/`-`, parens, and quoted phrases. **Do not replace it with flat-AND-over-all-terms** — the real `q` in `searches.py` is `(hazard terms OR …) AND (impact terms OR …)`, which a flat AND would never match.
+`get-from-local-s2orc --query "…"` uses a recursive-descent parser (`_tokenize_solr` / `_SolrParser` in `s2orc.py`) supporting `AND`, `OR`, implicit AND, `NOT`/`-`, parens, and quoted phrases. The parsed AST is translated to a DuckDB SQL `WHERE` clause via `_solr_ast_to_sql` (terms compile to `regexp_matches(lower(body.text), '\bterm\b')`), so all filtering happens inside DuckDB's vectorized engine rather than in Python. **Do not replace the parser with flat-AND-over-all-terms** — the real `q` in `searches.py` is `(hazard terms OR …) AND (impact terms OR …)`, which a flat AND would never match.
+
+### get-from-local-s2orc is DuckDB-only
+
+There is no pure-Python fallback path. The previous Python-predicate scanner (`_eval_solr_ast`, `_scan_predicate_parallel`, `_lookup_ids_parallel`, `_lookup_ids_streaming`) was ~50× slower for the weather/utility queries (~24 ms/doc vs. ~0.5 ms/doc) because it re-ran each of 100+ regex terms separately per document. It was removed along with the `--use-duckdb` flag (`duckdb` is a required dep). If a future use case genuinely needs a Python-side predicate (e.g. structural matches on annotation spans that DuckDB can't express in SQL), restore it as a separate code path — don't graft it back onto `_query_with_duckdb`.
+
+### get-from-local-s2orc resume semantics
+
+- Shards are processed one per `read_ndjson(?, …)` query so a `rich.Progress` bar advances per shard.
+- After each successful shard, the shard filename is appended to `<output_dir>/duckdb_checkpoint.json` (atomic write via `.tmp` + replace). On startup, completed shards are filtered out of the pending list and the progress bar is pre-advanced.
+- Mid-shard failures leave the shard *unmarked*, so a re-run retries it from the start. `_write_doc` overwrites by `corpusid.json`, so resume is safe and idempotent.
+- Resume is keyed by `--output-dir`. Reusing the same `-o` against a *different* `--data-dir` is undefined behavior; use a fresh output dir if you change shard sources.
 
 ### download-s2orc resume semantics
 
