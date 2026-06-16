@@ -5,21 +5,23 @@ Two top-level commands are provided:
   download-s2orc   -- Download all shards of s2orc_v2 from the S2 Datasets API
                       with resume support (already-present shards are skipped).
 
-  get-from-local-s2orc -- Query a local s2orc_v2 download using DuckDB, producing
-                           per-document JSON files in the same layout that
-                           section-dataset-s2orc expects as input.  Supports:
-                             * lookup by corpus ID (--source CSV/JSON of IDs)
-                             * full-text keyword search (--query SQL ILIKE pattern)
-                             * pre-defined weather/utility searches (--all-weather /
-                               --all-utility) whose terms mirror the Solr queries
-                               used by the old get-from-titanv command.
+  get-from-local-s2orc -- Query a local s2orc_v2 download using DuckDB,
+                           producing per-document JSON files in the same layout
+                           that section-dataset-s2orc expects as input.
+                           Shards are processed one at a time so progress is
+                           checkpointed (``duckdb_checkpoint.json``); re-running
+                           with the same --output-dir resumes from the next
+                           unscanned shard.  Supports:
+                             * lookup by corpus ID (--source JSON/TXT of IDs)
+                             * ad-hoc Solr-style query (--query)
+                             * pre-defined weather/utility searches
+                               (--all-weather / --all-utility) whose terms
+                               mirror the Solr queries used by the old
+                               get-from-titanv command.
 """
 
-import gzip
 import json
-import re
 import time
-import zlib
 from pathlib import Path
 
 import click
@@ -365,62 +367,6 @@ class _SolrParser:
         return self._parse_atom()
 
 
-def _eval_solr_ast(node, text_lower: str) -> bool:
-    op = node[0]
-    if op == "term":
-        term = node[1].lower().strip()
-        if not term:
-            return True
-        return bool(re.search(r"\b" + re.escape(term) + r"\b", text_lower))
-    if op == "and":
-        return _eval_solr_ast(node[1], text_lower) and _eval_solr_ast(node[2], text_lower)
-    if op == "or":
-        return _eval_solr_ast(node[1], text_lower) or _eval_solr_ast(node[2], text_lower)
-    if op == "not":
-        return not _eval_solr_ast(node[1], text_lower)
-    return False
-
-
-def _compile_solr_query(query_text: str):
-    """Parse a Solr query once and return a predicate over s2orc_v2 docs."""
-    ast = _SolrParser(_tokenize_solr(query_text)).parse()
-
-    def predicate(doc):
-        body = doc.get("body") or {}
-        text_lower = (body.get("text") or "").lower()
-        if not text_lower:
-            return False
-        return _eval_solr_ast(ast, text_lower)
-
-    return predicate
-
-
-def _build_solr_keyword_predicate(query_text: str):
-    """Backward-compatible wrapper: compile a Solr query into a doc predicate."""
-    return _compile_solr_query(query_text)
-
-
-def _build_weather_predicate():
-    """Predicate that mirrors the --all-weather Solr query (uses `q` from searches.py)."""
-    return _compile_solr_query(q)
-
-
-def _build_utility_predicate():
-    """Predicate that mirrors the --all-utility Solr query.
-
-    The Solr-side composition is:
-      ANY(q2_chunks)  AND  Q2_AND_BLOCK  AND  NOT (Q2_NOT_BLOCK)
-    """
-    main_pred = _compile_solr_query(" OR ".join(f"({chunk})" for chunk in q2_chunks))
-    and_pred = _compile_solr_query(Q2_AND_BLOCK)
-    not_pred = _compile_solr_query(Q2_NOT_BLOCK)
-
-    def predicate(doc):
-        return main_pred(doc) and and_pred(doc) and not not_pred(doc)
-
-    return predicate
-
-
 def _solr_ast_to_sql(node) -> str:
     """Translate a Solr AST node to a DuckDB SQL WHERE clause.
 
@@ -445,73 +391,8 @@ def _solr_ast_to_sql(node) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Parallel scanning & DuckDB query helpers
+# DuckDB query helpers (per-shard loop with checkpointing)
 # ---------------------------------------------------------------------------
-
-
-def _scan_predicate_parallel(
-    gz_files: list[Path],
-    predicate,
-    output_dir: Path,
-    n_jobs: int = -1,
-) -> tuple[int, int]:
-    """Scan gzip shards in parallel with joblib.
-
-    Each worker writes matching documents directly to *output_dir*.
-
-    Returns ``(unique_written, skipped_duplicates)``.
-    """
-    from joblib import Parallel, delayed
-
-    def _scan_one(gz: Path) -> list[str]:
-        """Process one shard, write matches, return list of corpus IDs found.
-
-        If the shard's gzip stream is corrupt (truncated download, bad CRC,
-        invalid DEFLATE block, etc.), warn and return whatever was successfully
-        read before the failure rather than killing the whole parallel run.
-        """
-        found_ids: list[str] = []
-        try:
-            with gzip.open(gz, "rt", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        doc = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if predicate(doc):
-                        _write_doc(doc, output_dir)
-                        found_ids.append(str(doc.get("corpusid", "")))
-        except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
-            click.echo(
-                f"* WARNING: shard {gz.name} is corrupt or truncated ({type(exc).__name__}: {exc}); "
-                f"keeping {len(found_ids)} match(es) read so far.",
-                err=True,
-            )
-        return found_ids
-
-    click.echo(
-        f"* Scanning {len(gz_files)} shard(s) with joblib " f"({n_jobs if n_jobs != -1 else 'all'} worker(s)) \u2026"
-    )
-
-    seen: set[str] = set()
-    written = 0
-    skipped = 0
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        task = progress.add_task("[cyan]Scanning shards", total=len(gz_files))
-        results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(delayed(_scan_one)(gz) for gz in gz_files)
-        for ids in results:
-            for cid in ids:
-                if cid in seen:
-                    skipped += 1
-                else:
-                    seen.add(cid)
-                    written += 1
-            progress.update(task, advance=1)
-
-    return written, skipped
 
 
 def _load_checkpoint(output_dir: Path) -> dict:
@@ -631,63 +512,6 @@ def _query_with_duckdb(
     return written
 
 
-def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int = -1):
-    """Look up corpus IDs in parallel using joblib.
-
-    Each worker reads one shard and writes matching documents immediately.  The
-    worker returns matched corpus IDs so the main thread can report unique
-    counts without transferring every document back through joblib.
-    """
-    from joblib import Parallel, delayed
-
-    def _search_shard(gz: Path) -> list[str]:
-        """Search one shard, write matching docs, return matched corpus IDs.
-
-        If the shard's gzip stream is corrupt (truncated download, bad CRC,
-        invalid DEFLATE block, etc.), warn and return whatever was successfully
-        read before the failure rather than killing the whole parallel run.
-        """
-        found: list[str] = []
-        try:
-            with gzip.open(gz, "rt", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        doc = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    cid = str(doc.get("corpusid", ""))
-                    if cid in ids:
-                        _write_doc(doc, output_dir)
-                        found.append(cid)
-        except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
-            click.echo(
-                f"* WARNING: shard {gz.name} is corrupt or truncated ({type(exc).__name__}: {exc}); "
-                f"keeping {len(found)} match(es) read so far.",
-                err=True,
-            )
-        return found
-
-    click.echo(f"* Scanning {len(gz_files)} shard(s) with joblib (ID lookup) …")
-
-    seen: set[str] = set()
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        task = progress.add_task("[cyan]Scanning shards", total=len(gz_files))
-        results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
-            delayed(_search_shard)(gz) for gz in gz_files
-        )
-        for found_list in results:
-            seen.update(found_list)
-            progress.update(task, advance=1)
-
-    written = len(seen)
-    click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
-    if written < len(ids):
-        click.echo(f"* {len(ids) - written} ID(s) missing from all shards.")
-
-
 # ---------------------------------------------------------------------------
 # get-from-local-s2orc
 # ---------------------------------------------------------------------------
@@ -731,27 +555,7 @@ def _lookup_ids_parallel(ids: set, gz_files: list, output_dir: Path, n_jobs: int
     "--query",
     "-q",
     default=None,
-    help=(
-        "Ad-hoc Solr-style query string.  Quoted phrases and bare words are all "
-        "required to appear in the document body (AND semantics)."
-    ),
-)
-@click.option(
-    "--use-duckdb",
-    is_flag=True,
-    default=False,
-    help=(
-        "Use DuckDB to scan the shards instead of pure-Python streaming.  "
-        "Faster for corpus-ID lookups AND keyword/weather/utility queries; "
-        "requires duckdb to be installed."
-    ),
-)
-@click.option(
-    "--jobs",
-    "-j",
-    default=-1,
-    type=int,
-    help="Number of parallel workers for shard scanning (-1 = all cores).",
+    help=("Ad-hoc Solr-style query string.  Supports AND, OR, NOT, parens, " "and quoted phrases."),
 )
 def get_from_local_s2orc(
     data_dir: Path,
@@ -760,15 +564,17 @@ def get_from_local_s2orc(
     all_weather: bool,
     all_utility: bool,
     query: str | None,
-    use_duckdb: bool,
-    jobs: int,
 ):
-    """Extract documents from a local s2orc_v2 download.
+    """Extract documents from a local s2orc_v2 download using DuckDB.
 
     Use one of --source, --all-weather, --all-utility, or --query.
 
     Produces one JSON file per matching document, sharded by the last two
     digits of the corpus ID — the same layout consumed by section-dataset-s2orc.
+
+    Shards are scanned one at a time so a progress bar can advance and so
+    progress is checkpointed (``duckdb_checkpoint.json``) — re-running with
+    the same --output-dir resumes from the next unscanned shard.
 
     \b
     Examples:
@@ -801,7 +607,7 @@ def get_from_local_s2orc(
     click.echo(f"* Found {len(gz_files)} shard file(s).")
 
     # ------------------------------------------------------------------ #
-    # Corpus-ID lookup                                                     #
+    # Corpus-ID lookup                                                   #
     # ------------------------------------------------------------------ #
     if source:
         source_path = Path(source)
@@ -811,87 +617,27 @@ def get_from_local_s2orc(
             ids = {line.strip() for line in source_path.read_text().splitlines() if line.strip()}
 
         click.echo(f"* Looking up {len(ids)} corpus ID(s).")
-
-        if use_duckdb:
-            _lookup_ids_duckdb(ids, gz_files, output_dir)
-        else:
-            _lookup_ids_parallel(ids, gz_files, output_dir, n_jobs=jobs)
+        _lookup_ids_duckdb(ids, gz_files, output_dir)
         return
 
     # ------------------------------------------------------------------ #
-    # Keyword / predicate search                                          #
+    # Keyword search                                                     #
     # ------------------------------------------------------------------ #
     if all_weather:
-        predicate = _build_weather_predicate()
+        query_text = q
         label = "weather"
     elif all_utility:
-        predicate = _build_utility_predicate()
+        chunks_joined = " OR ".join(f"({c})" for c in q2_chunks)
+        query_text = f"({chunks_joined}) AND ({Q2_AND_BLOCK}) AND NOT ({Q2_NOT_BLOCK})"
         label = "utility"
     else:
-        predicate = _build_solr_keyword_predicate(query)
+        query_text = query
         label = "query"
 
-    if use_duckdb:
-        # Build the Solr query text that the DuckDB path needs.
-        if all_weather:
-            query_text = q
-        elif all_utility:
-            chunks_joined = " OR ".join(f"({c})" for c in q2_chunks)
-            query_text = f"({chunks_joined}) AND ({Q2_AND_BLOCK}) AND NOT ({Q2_NOT_BLOCK})"
-        else:
-            query_text = query
+    written = _query_with_duckdb(gz_files, query_text, output_dir, label)
 
-        written = _query_with_duckdb(gz_files, query_text, output_dir, label)
-    else:
-        written, skipped = _scan_predicate_parallel(gz_files, predicate, output_dir, n_jobs=jobs)
-
-    click.echo(
-        f"* Done. {written} document(s) written" + (f", {skipped} duplicate(s) skipped." if not use_duckdb else ".")
-    )
+    click.echo(f"* Done. {written} document(s) written.")
     click.echo(f"* Output: {output_dir}")
-
-
-def _lookup_ids_streaming(ids: set, gz_files: list, output_dir: Path):
-    """Stream all shards and write any doc whose corpusid is in *ids*.
-
-    Corrupt or truncated shards (zlib/gzip errors, decode errors, etc.) are
-    logged as warnings and the scan continues with the next shard rather than
-    aborting the entire run.
-    """
-    remaining = set(ids)
-    written = 0
-
-    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        task = progress.add_task("[cyan]Scanning shards", total=len(gz_files))
-
-        for gz in gz_files:
-            if not remaining:
-                break
-            try:
-                with gzip.open(gz, "rt", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            doc = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        cid = str(doc.get("corpusid", ""))
-                        if cid in remaining:
-                            _write_doc(doc, output_dir)
-                            remaining.discard(cid)
-                            written += 1
-            except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile, EOFError) as exc:
-                progress.log(
-                    f"* WARNING: shard {gz.name} is corrupt or truncated "
-                    f"({type(exc).__name__}: {exc}); skipping rest of shard."
-                )
-            progress.update(task, advance=1)
-
-    click.echo(f"* Done. {written}/{len(ids)} document(s) written.")
-    if remaining:
-        click.echo(f"* {len(remaining)} ID(s) missing from all shards.")
 
 
 def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
