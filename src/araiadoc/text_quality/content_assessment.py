@@ -287,7 +287,8 @@ def apply_synonyms(header: str) -> str:
 unneeded_sections_skip_remaining = [
     "acknowledgment",
     "acknowledgement",
-    "reference",
+    "references",
+    "workscited",
     "bibliography",
     "dataavailability",
     "codeavailability",

@@ -244,7 +244,7 @@ Options:
   -n, --sample INTEGER         Sample size; 0 = all docs.  [default: 1000]
   --seed INTEGER               RNG seed for reproducible sampling.  [default: 0]
   --report-json PATH           Write a JSON audit report to this path.
-  --include-docs               Include per-document detail in --report-json output.
+  --include-docs               Include per-document detail (including title) in --report-json output.
   --fail-threshold FLOAT       Exit nonzero if corpus content loss % exceeds this.
 ```
 
