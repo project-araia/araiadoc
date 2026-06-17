@@ -212,12 +212,19 @@ Preprocesses full-text files in s2orc/Grobid format into headers and subsections
 Usage: araiadoc section-dataset-v2 [OPTIONS] SOURCE
 
 Options:
-  --detailed-report   Capture per-section detail in sectionization_report.jsonl.gz.
+  --detailed-report       Capture per-section detail in sectionization_report.jsonl.gz.
+  --exclude-patterns TEXT  Comma-separated regex patterns. Documents matching ANY pattern
+                          in title, abstract, or body text are excluded before sectionization.
+  --exclude-file PATH     Path to .txt file with one regex pattern per line. Empty lines
+                          and lines starting with # are ignored.
 ```
 
 Preprocesses full-text files into header:paragraph JSON dictionaries. Supports both legacy per-document JSON files and batched JSONL.GZ output. Built for the TitanV/Solr schema — for new work prefer `section-dataset-s2orc`.
 
+When `--exclude-patterns` or `--exclude-file` is used, the `sectionization_report.jsonl.gz` includes which specific pattern(s) matched in the `error` field of excluded documents (e.g. `"Excluded by pattern(s): nanoparticle synthesis, quantum dot"`).
+
 ```araiadoc section-dataset-v2 data/all_terms/batches```
+```araiadoc section-dataset-v2 data/all_terms/batches --exclude-file data/filter.txt```
 
 ### Sectionize dataset s2orc
 
@@ -225,15 +232,22 @@ Preprocesses full-text files into header:paragraph JSON dictionaries. Supports b
 Usage: araiadoc section-dataset-s2orc [OPTIONS] SOURCE
 
 Options:
-  --detailed-report   Capture per-section detail in sectionization_report.jsonl.gz.
+  --detailed-report       Capture per-section detail in sectionization_report.jsonl.gz.
+  --exclude-patterns TEXT  Comma-separated regex patterns. Documents matching ANY pattern
+                          in title or body text are excluded before sectionization.
+  --exclude-file PATH     Path to .txt file with one regex pattern per line. Empty lines
+                          and lines starting with # are ignored.
 ```
 
 Sectionizes s2orc_v2 documents using span-annotation offsets in `body.text`. `SOURCE` may be a directory of `.gz` JSONL shards (from `download-s2orc`) or a directory of per-document `.json` files (from `get-from-local-s2orc`). v1-shape records (with `content.text` and `sectionheader`) are normalized to v2 transparently. Resumable via `batch_checkpoint.json`.
 
 Every run writes `sectionization_report.json` (corpus aggregates) and `sectionization_report.jsonl.gz` (per-doc rows). With `--detailed-report`, each per-doc row also carries a `sections` array (header, chars, paragraphs, outcome) — roughly doubles row size, off by default.
 
+With `--exclude-patterns` or `--exclude-file`, excluded documents report which pattern(s) matched in their `error` field.
+
 ```araiadoc section-dataset-s2orc data/s2orc_v2_shards```
 ```araiadoc section-dataset-s2orc data/all_weather --detailed-report```
+```araiadoc section-dataset-s2orc data/s2orc_v2_shards --exclude-file data/filter.txt```
 
 ### Verify sectionization
 
@@ -246,12 +260,17 @@ Options:
   --report-json PATH           Write a JSON audit report to this path.
   --include-docs               Include per-document detail (including title) in --report-json output.
   --fail-threshold FLOAT       Exit nonzero if corpus content loss % exceeds this.
+  --exclude-patterns TEXT      Comma-separated regex patterns used during sectionization.
+  --exclude-file PATH          Path to .txt file with one regex pattern per line.
 ```
 
 Round-trip audit that reads written sectionized JSON back from disk, reconstructs ground-truth section bounds directly from raw span annotations, and verifies each section's first-paragraph 50-char probe survived to disk. Missing sections are attributed to the same drop reasons the production sectionizer would have used. Catches a class of bugs the internal `sectionization_report.json` cannot — silent overwrites on duplicate canonical headers, output truncation, encoding mangling.
 
+When `--exclude-patterns` or `--exclude-file` is supplied and a document has no sectionized output file, the verifier re-applies the patterns against the raw document's title and body text. Documents that match any pattern are attributed to `excluded_by_pattern` (separate from `skipped_missing_sect`) and each matching pattern is tallied individually. The summary table includes an `Excluded by pattern` row, and an `Excluded-by-pattern breakdown` table lists which patterns excluded how many documents. This information also appears in the JSON report under `excluded_by_pattern` (count) and `excluded_by_pattern_reasons` (pattern → count dict).
+
 ```araiadoc verify-sectionization data/s2orc_v2_shards data/s2orc_v2_shards_sectionized```
 ```araiadoc verify-sectionization raw/ sectionized/ -n 5000 --report-json audit.json --fail-threshold 5.0```
+```araiadoc verify-sectionization raw/ sectionized/ --exclude-file data/filter.txt```
 
 ### Agent Skills
 

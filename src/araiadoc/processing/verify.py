@@ -39,7 +39,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich.table import Table
 
-from araiadoc.sectionize import _normalize_to_v2, _parse_spans
+from araiadoc.sectionize import _compile_exclude_patterns, _normalize_to_v2, _parse_spans
 from araiadoc.text_quality.content_assessment import (
     _content_is_substantive,
     _header_is_noise,
@@ -274,6 +274,8 @@ class CorpusAudit:
     sampled: int = 0
     audited: int = 0
     skipped_missing_sect: int = 0
+    excluded_by_pattern: int = 0
+    excluded_by_pattern_reasons: dict[str, int] = field(default_factory=dict)
     errors: int = 0
     sections_total: int = 0
     sections_present: int = 0
@@ -316,6 +318,7 @@ class CorpusAudit:
             "sampled": self.sampled,
             "audited": self.audited,
             "skipped_missing_sect": self.skipped_missing_sect,
+            "excluded_by_pattern": self.excluded_by_pattern,
             "errors": self.errors,
             "sections_total": self.sections_total,
             "sections_present": self.sections_present,
@@ -325,6 +328,7 @@ class CorpusAudit:
             "loss_pct": self.loss_pct,
             "section_loss_pct": self.section_loss_pct,
             "missing_by_reason": self.missing_by_reason,
+            "excluded_by_pattern_reasons": dict(sorted(self.excluded_by_pattern_reasons.items(), key=lambda x: -x[1])),
         }
         if include_docs:
             out["docs"] = [asdict(d) for d in self.docs]
@@ -395,6 +399,7 @@ def _render_summary_table(audit: CorpusAudit) -> Table:
     t.add_row("Sampled docs", f"{audit.sampled:,}")
     t.add_row("Audited (sect file found)", f"{audit.audited:,}")
     t.add_row("Skipped (no sect file)", f"{audit.skipped_missing_sect:,}")
+    t.add_row("Excluded by pattern", f"{audit.excluded_by_pattern:,}")
     t.add_row("Errors", f"{audit.errors:,}")
     t.add_section()
     t.add_row("Sections (raw)", f"{audit.sections_total:,}")
@@ -421,6 +426,28 @@ def _render_reasons_table(audit: CorpusAudit) -> Table:
     if not audit.missing_by_reason:
         t.add_row("(none)", "0", "0.00")
     return t
+
+
+def _render_exclude_table(audit: CorpusAudit) -> Table | None:
+    if not audit.excluded_by_pattern_reasons:
+        return None
+    t = Table(title="Excluded-by-pattern breakdown")
+    t.add_column("Pattern", style="bold")
+    t.add_column("Docs excluded", justify="right")
+    for pattern, count in audit.excluded_by_pattern_reasons.items():
+        t.add_row(pattern, f"{count:,}")
+    return t
+
+
+def _doc_full_text(raw: dict) -> str:
+    """Build the same combined text the sectionizer uses for pattern matching."""
+    title = raw.get("title") or ""
+    body = raw.get("body") or {}
+    text = body.get("text") or ""
+    if not text:
+        content = raw.get("content") or {}
+        text = content.get("text") or ""
+    return " ".join(filter(None, [title, text]))
 
 
 @click.command("verify-sectionization")
@@ -459,6 +486,17 @@ def _render_reasons_table(audit: CorpusAudit) -> Table:
     default=None,
     help=("If set, exit nonzero when corpus-wide content loss % exceeds this " "threshold. Useful in CI."),
 )
+@click.option(
+    "--exclude-patterns",
+    default="",
+    help="Comma-separated regex patterns that were used to exclude documents.",
+)
+@click.option(
+    "--exclude-file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to .txt file with one regex pattern per line.",
+)
 def verify_sectionization(
     raw_dir: Path,
     sect_dir: Path,
@@ -467,6 +505,8 @@ def verify_sectionization(
     report_json: Path | None,
     include_docs: bool,
     fail_threshold: float | None,
+    exclude_patterns: str,
+    exclude_file: Path | None,
 ):
     """Audit a sectionized corpus against its raw input.
 
@@ -492,6 +532,7 @@ def verify_sectionization(
         raise click.exceptions.Exit(code=2)
 
     audit = CorpusAudit(raw_dir=str(raw_dir), sect_dir=str(sect_dir))
+    compiled_patterns = _compile_exclude_patterns(exclude_patterns or None, exclude_file)
 
     if gz_files:
         if sample > 0:
@@ -503,6 +544,17 @@ def verify_sectionization(
                 for raw_doc, raw_label, corpus_id in sampled_docs:
                     sect_path = _sharded_path(sect_dir, corpus_id)
                     if not sect_path.exists():
+                        if compiled_patterns:
+                            ft = _doc_full_text(raw_doc)
+                            matched = [p.pattern for p in compiled_patterns if p.search(ft)]
+                            if matched:
+                                audit.excluded_by_pattern += 1
+                                for p in matched:
+                                    audit.excluded_by_pattern_reasons[p] = (
+                                        audit.excluded_by_pattern_reasons.get(p, 0) + 1
+                                    )
+                                progress.update(task, advance=1)
+                                continue
                         audit.skipped_missing_sect += 1
                         progress.update(task, advance=1)
                         continue
@@ -515,6 +567,17 @@ def verify_sectionization(
                     audit.sampled += 1
                     sect_path = _sharded_path(sect_dir, corpus_id)
                     if not sect_path.exists():
+                        if compiled_patterns:
+                            ft = _doc_full_text(raw_doc)
+                            matched = [p.pattern for p in compiled_patterns if p.search(ft)]
+                            if matched:
+                                audit.excluded_by_pattern += 1
+                                for p in matched:
+                                    audit.excluded_by_pattern_reasons[p] = (
+                                        audit.excluded_by_pattern_reasons.get(p, 0) + 1
+                                    )
+                                progress.update(task, advance=1)
+                                continue
                         audit.skipped_missing_sect += 1
                         progress.update(task, advance=1)
                         continue
@@ -535,6 +598,22 @@ def verify_sectionization(
                 corpus_id = raw_path.stem
                 sect_path = _sharded_path(sect_dir, corpus_id)
                 if not sect_path.exists():
+                    if compiled_patterns:
+                        try:
+                            with open(raw_path) as f:
+                                raw_doc = json.load(f)
+                            ft = _doc_full_text(raw_doc)
+                            matched = [p.pattern for p in compiled_patterns if p.search(ft)]
+                            if matched:
+                                audit.excluded_by_pattern += 1
+                                for p in matched:
+                                    audit.excluded_by_pattern_reasons[p] = (
+                                        audit.excluded_by_pattern_reasons.get(p, 0) + 1
+                                    )
+                                progress.update(task, advance=1)
+                                continue
+                        except Exception:
+                            pass
                     audit.skipped_missing_sect += 1
                     progress.update(task, advance=1)
                     continue
@@ -544,6 +623,9 @@ def verify_sectionization(
     console.print()
     console.print(_render_summary_table(audit))
     console.print(_render_reasons_table(audit))
+    exclude_table = _render_exclude_table(audit)
+    if exclude_table:
+        console.print(exclude_table)
 
     if report_json is not None:
         report_json.parent.mkdir(parents=True, exist_ok=True)
