@@ -211,9 +211,10 @@ def _sectionize_item_s2orc_v2(
     # ---- exclude-pattern filter ----
     if exclude_patterns:
         full_text = " ".join(filter(None, [title, text]))
-        if any(p.search(full_text) for p in exclude_patterns):
+        matched = [p.pattern for p in exclude_patterns if p.search(full_text)]
+        if matched:
             report.outcome = "excluded_by_pattern"
-            report.error = f"[{corpus_id}] Excluded by pattern match"
+            report.error = f"[{corpus_id}] Excluded by pattern(s): {', '.join(matched)}"
             report.finalize()
             return (False, {}, report.error, report)
 
@@ -510,9 +511,10 @@ def _sectionize_item_v2(
     if exclude_patterns:
         body_text = " ".join(paragraphs)
         full_text = " ".join(filter(None, [title, abstract, body_text]))
-        if any(p.search(full_text) for p in exclude_patterns):
+        matched = [p.pattern for p in exclude_patterns if p.search(full_text)]
+        if matched:
             report.outcome = "excluded_by_pattern"
-            report.error = f"[{cid}] Excluded by pattern match"
+            report.error = f"[{cid}] Excluded by pattern(s): {', '.join(matched)}"
             report.finalize()
             return (False, {}, report.error, report)
 
