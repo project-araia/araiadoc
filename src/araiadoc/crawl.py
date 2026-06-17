@@ -29,6 +29,7 @@ from araiadoc.utils import (
     _prep_output_dir,
     count_local,
 )
+from araiadoc.verify import verify_sectionization
 
 
 def timeout_handler(signum, frame):
@@ -726,6 +727,7 @@ main.add_command(count_remote_osti)
 main.add_command(section_dataset)
 main.add_command(section_dataset_v2)
 main.add_command(section_dataset_s2orc)
+main.add_command(verify_sectionization)
 main.add_command(get_metadata_from_database)
 main.add_command(get_metadata_from_semanticscholar)
 main.add_command(get_from_titanv)

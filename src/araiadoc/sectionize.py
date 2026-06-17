@@ -135,7 +135,7 @@ def _normalize_to_v2(doc: dict) -> dict:
     return normalized
 
 
-def _sectionize_item_s2orc_v2(doc: dict):
+def _sectionize_item_s2orc_v2(doc: dict, capture_section_detail: bool = False):
     """Sectionize one s2orc_v2 document using span annotations.
 
     Parameters
@@ -143,6 +143,11 @@ def _sectionize_item_s2orc_v2(doc: dict):
     doc:
         A single record from an s2orc_v2 JSONL shard (or a JSON file written
         by get-from-local-s2orc).
+    capture_section_detail:
+        When True, populate `DocReport.sections` with one `SectionDetail` row
+        per section observed (canonical header, char/paragraph counts, and
+        per-section outcome: "kept" or one of `DROP_REASONS`). Default False
+        keeps the per-doc memory profile unchanged for production runs.
 
     Returns
     -------
@@ -158,6 +163,11 @@ def _sectionize_item_s2orc_v2(doc: dict):
 
     corpus_id = str(doc.get("corpusid", "unknown"))
     report = DocReport(corpus_id=corpus_id, outcome="structural_failure")
+
+    def _hdr(name: str) -> str | None:
+        # Only pass header= into record_kept/record_dropped when detail capture
+        # is on; otherwise the report skips appending a SectionDetail row.
+        return name if capture_section_detail else None
 
     # ---- title ----
     title = _normalize_text(doc.get("title") or "")
@@ -247,7 +257,11 @@ def _sectionize_item_s2orc_v2(doc: dict):
         sectioned_text["abstract"] = abstract
         # The abstract counts as kept content, but it isn't subject to the
         # per-section filter loop, so record it directly.
-        report.record_kept(chars=len(abstract), paragraphs=abstract_para_count)
+        report.record_kept(
+            chars=len(abstract),
+            paragraphs=abstract_para_count,
+            header=_hdr("abstract"),
+        )
 
     actual_headers_count = 0
 
@@ -263,6 +277,7 @@ def _sectionize_item_s2orc_v2(doc: dict):
                 "post_break_truncated",
                 chars=_content_chars_for(paras),
                 paragraphs=len(paras),
+                header=_hdr(hdr),
             )
 
     for i, (header, para_list) in enumerate(remaining_sections):
@@ -270,7 +285,12 @@ def _sectionize_item_s2orc_v2(doc: dict):
         section_paras = len(para_list)
 
         if _header_is_noise(header):
-            report.record_dropped("noise_header", chars=section_chars, paragraphs=section_paras)
+            report.record_dropped(
+                "noise_header",
+                chars=section_chars,
+                paragraphs=section_paras,
+                header=_hdr(header),
+            )
             continue
 
         compare_header = "".join(header.split()).lower()
@@ -280,6 +300,7 @@ def _sectionize_item_s2orc_v2(doc: dict):
                 "unneeded_skip_truncation",
                 chars=section_chars,
                 paragraphs=section_paras,
+                header=_hdr(header),
             )
             _record_truncated_tail(i + 1)
             break
@@ -287,7 +308,12 @@ def _sectionize_item_s2orc_v2(doc: dict):
         should_stop_after = any(j in compare_header for j in needed_sections_but_skip_remaining)
 
         if any(j in compare_header for j in unneeded_sections_no_skip_remaining):
-            report.record_dropped("unneeded_no_skip", chars=section_chars, paragraphs=section_paras)
+            report.record_dropped(
+                "unneeded_no_skip",
+                chars=section_chars,
+                paragraphs=section_paras,
+                header=_hdr(header),
+            )
             if should_stop_after:
                 _record_truncated_tail(i + 1)
                 break
@@ -297,7 +323,12 @@ def _sectionize_item_s2orc_v2(doc: dict):
         content = " ".join(para_list)
 
         if not _content_is_substantive(content):
-            report.record_dropped("non_substantive", chars=section_chars, paragraphs=section_paras)
+            report.record_dropped(
+                "non_substantive",
+                chars=section_chars,
+                paragraphs=section_paras,
+                header=_hdr(header),
+            )
             if should_stop_after:
                 _record_truncated_tail(i + 1)
                 break
@@ -311,12 +342,17 @@ def _sectionize_item_s2orc_v2(doc: dict):
             else:
                 sectioned_text[header] = content
             actual_headers_count += 1
-            report.record_kept(chars=section_chars, paragraphs=section_paras)
+            report.record_kept(
+                chars=section_chars,
+                paragraphs=section_paras,
+                header=_hdr(header),
+            )
         else:
             report.record_dropped(
                 "non_english_or_invalid",
                 chars=section_chars,
                 paragraphs=section_paras,
+                header=_hdr(header),
             )
 
         if should_stop_after:
@@ -325,9 +361,10 @@ def _sectionize_item_s2orc_v2(doc: dict):
             # truncation so it's distinguishable from the unneeded-skip case.
             for hdr, paras in remaining_sections[i + 1 :]:  # noqa
                 report.record_dropped(
-                    "conclusion_truncation",
+                    "post_conclusion_truncation",
                     chars=_content_chars_for(paras),
                     paragraphs=len(paras),
+                    header=_hdr(hdr),
                 )
             break
 
@@ -384,15 +421,22 @@ def _get_corpus_id(item, fallback_stem=None):
     return fallback_stem if fallback_stem is not None else "unknown"
 
 
-def _sectionize_item_v2(item, corpus_id: str | None = None):
+def _sectionize_item_v2(item, corpus_id: str | None = None, capture_section_detail: bool = False):
     """Legacy v2 (TitanV/Solr) sectionizer.
 
     Returns (success, sectioned_text, error, report). `corpus_id` is taken
     from the caller; if not supplied, falls back to "unknown" for the
     accounting record.
+
+    `capture_section_detail`, when True, populates `DocReport.sections` with
+    one `SectionDetail` row per (header, paragraph) pair observed. See
+    `_sectionize_item_s2orc_v2` for the same flag.
     """
     cid = corpus_id if corpus_id is not None else _get_corpus_id(item)
     report = DocReport(corpus_id=cid, outcome="structural_failure")
+
+    def _hdr(name: str) -> str | None:
+        return name if capture_section_detail else None
 
     title = _normalize_text(_get_first(item, "title"))
     abstract = _normalize_text(_get_first(item, "abstract"))
@@ -420,38 +464,58 @@ def _sectionize_item_v2(item, corpus_id: str | None = None):
 
     # Abstract counts as kept content (it bypasses the per-section filter loop).
     if abstract:
-        report.record_kept(chars=len(abstract), paragraphs=1)
+        report.record_kept(chars=len(abstract), paragraphs=1, header=_hdr("abstract"))
 
     actual_headers_count = 0
     paired = list(zip(section_headers, paragraphs))
 
     def _record_tail(start_idx: int) -> None:
         for hdr, content in paired[start_idx:]:
-            report.record_dropped("post_break_truncated", chars=len(content), paragraphs=1)
+            report.record_dropped(
+                "post_break_truncated",
+                chars=len(content),
+                paragraphs=1,
+                header=_hdr(hdr),
+            )
 
     for i, (header, content) in enumerate(paired):
         chars = len(content)
         paras = 1  # legacy schema is 1 paragraph per (header, content) pair
 
         if _header_is_noise(header):
-            report.record_dropped("noise_header", chars=chars, paragraphs=paras)
+            report.record_dropped("noise_header", chars=chars, paragraphs=paras, header=_hdr(header))
             continue
 
         compare_header = "".join(header.split()).lower()
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
-            report.record_dropped("unneeded_skip_truncation", chars=chars, paragraphs=paras)
+            report.record_dropped(
+                "unneeded_skip_truncation",
+                chars=chars,
+                paragraphs=paras,
+                header=_hdr(header),
+            )
             _record_tail(i + 1)
             break
 
         should_stop_after = any(j in compare_header for j in needed_sections_but_skip_remaining)
 
         if any(j in compare_header for j in unneeded_sections_no_skip_remaining):
-            report.record_dropped("unneeded_no_skip", chars=chars, paragraphs=paras)
+            report.record_dropped(
+                "unneeded_no_skip",
+                chars=chars,
+                paragraphs=paras,
+                header=_hdr(header),
+            )
             continue
 
         if not _content_is_substantive(content):
-            report.record_dropped("non_substantive", chars=chars, paragraphs=paras)
+            report.record_dropped(
+                "non_substantive",
+                chars=chars,
+                paragraphs=paras,
+                header=_hdr(header),
+            )
             if should_stop_after:  # noqa
                 _record_tail(i + 1)
                 break
@@ -465,13 +529,23 @@ def _sectionize_item_v2(item, corpus_id: str | None = None):
             else:
                 sectioned_text[header] = content
             actual_headers_count += 1
-            report.record_kept(chars=chars, paragraphs=paras)
+            report.record_kept(chars=chars, paragraphs=paras, header=_hdr(header))
         else:
-            report.record_dropped("non_english_or_invalid", chars=chars, paragraphs=paras)
+            report.record_dropped(
+                "non_english_or_invalid",
+                chars=chars,
+                paragraphs=paras,
+                header=_hdr(header),
+            )
 
         if should_stop_after:
             for hdr, c in paired[i + 1 :]:  # noqa
-                report.record_dropped("conclusion_truncation", chars=len(c), paragraphs=1)
+                report.record_dropped(
+                    "post_conclusion_truncation",
+                    chars=len(c),
+                    paragraphs=1,
+                    header=_hdr(hdr),
+                )
             break
 
     report.finalize()
@@ -502,7 +576,7 @@ def _sharded_output_file(output_dir: Path, corpus_id: str) -> Path:
     return shard_dir / f"{corpus_id}.json"
 
 
-def _sectionize_one_file(input_path: Path, output_dir: Path):
+def _sectionize_one_file(input_path: Path, output_dir: Path, capture_section_detail: bool = False):
     """Sectionize one legacy v2 per-document JSON file.
 
     Returns (success, corpus_id, error, status, report). `report` is None
@@ -520,7 +594,9 @@ def _sectionize_one_file(input_path: Path, output_dir: Path):
         if output_file.exists():
             return (True, corpus_id, None, "skipped_existing", None)
 
-        success, sectioned_text, error, report = _sectionize_item_v2(item, corpus_id=corpus_id)
+        success, sectioned_text, error, report = _sectionize_item_v2(
+            item, corpus_id=corpus_id, capture_section_detail=capture_section_detail
+        )
         if not success:
             return (False, corpus_id, error, "failed", report)
 
@@ -571,7 +647,7 @@ def _write_batch_checkpoint(checkpoint_path: Path, checkpoint_data: dict):
     checkpoint_path.write_text(json.dumps(checkpoint_data, indent=2))
 
 
-def _sectionize_batch_file(batch_file: Path, output_dir: Path):
+def _sectionize_batch_file(batch_file: Path, output_dir: Path, capture_section_detail: bool = False):
     batch_successes = 0
     batch_failures = []
     skipped_existing = 0
@@ -605,7 +681,11 @@ def _sectionize_batch_file(batch_file: Path, output_dir: Path):
                         skipped_existing += 1
                         continue
 
-                    success, sectioned_text, error, report = _sectionize_item_v2(item, corpus_id=corpus_id)
+                    success, sectioned_text, error, report = _sectionize_item_v2(
+                        item,
+                        corpus_id=corpus_id,
+                        capture_section_detail=capture_section_detail,
+                    )
                     _add_report(report)
                     if not success:
                         batch_failures.append(
@@ -656,6 +736,7 @@ def _sectionize_batches_parallel(
     source: Path,
     pipeline: str,
     batch_fn,
+    capture_section_detail: bool = False,
 ):
     """Drive sectionization of a list of batch files in parallel.
 
@@ -665,6 +746,11 @@ def _sectionize_batches_parallel(
     onto the corpus-wide `sectionization_report.jsonl.gz` and folds the
     worker's aggregate counts into the corpus `CorpusReport`. This keeps
     both worker memory and parent memory bounded to one DocReport at a time.
+
+    When ``capture_section_detail`` is True, each per-doc report row in the
+    JSONL.GZ also carries a `sections` array with one entry per section
+    observed (header, chars, paragraphs, outcome). This roughly doubles the
+    per-doc row size and is opt-in.
     """
     checkpoint_path = output_dir / "batch_checkpoint.json"
     checkpoint_data = _load_batch_checkpoint(checkpoint_path)
@@ -693,7 +779,7 @@ def _sectionize_batches_parallel(
         return
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(batch_fn)(batch_file, output_dir) for batch_file in files_to_process
+        delayed(batch_fn)(batch_file, output_dir, capture_section_detail) for batch_file in files_to_process
     )
 
     success_count = 0
@@ -749,7 +835,12 @@ def _render_report_tables(progress: Progress, corpus_report: CorpusReport) -> No
         progress.console.print(table)
 
 
-def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
+def _sectionize_workflow(
+    source: Path,
+    progress: Progress,
+    v2: bool = False,
+    capture_section_detail: bool = False,
+):
     output_dir = Path(str(source) + "_sectionized")
     output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -770,6 +861,7 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
             source=Path(source),
             pipeline=pipeline,
             batch_fn=_sectionize_batch_file,
+            capture_section_detail=capture_section_detail,
         )
         return
 
@@ -837,7 +929,7 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
     per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file)(i, output_dir) for i in files_to_process
+        delayed(_sectionize_one_file)(i, output_dir, capture_section_detail) for i in files_to_process
     )
 
     success_count = 0
@@ -882,18 +974,38 @@ def _sectionize_workflow(source: Path, progress: Progress, v2: bool = False):
 
 @click.command()
 @click.argument("source", nargs=1)
-def section_dataset(source: Path):
+@click.option(
+    "--detailed-report",
+    is_flag=True,
+    default=False,
+    help=(
+        "Capture per-section detail (header, chars, paragraphs, outcome) in "
+        "every row of sectionization_report.jsonl.gz. Default off — adds ~2x "
+        "to the per-doc row size."
+    ),
+)
+def section_dataset(source: Path, detailed_report: bool):
     """Preprocess full-text files in s2orc/pes2o format into headers and subsections.
 
     NOTE: Each file is assumed to contain one result.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow(source, progress, False)
+        _sectionize_workflow(source, progress, False, capture_section_detail=detailed_report)
 
 
 @click.command()
 @click.argument("source", nargs=1)
-def section_dataset_v2(source: Path):
+@click.option(
+    "--detailed-report",
+    is_flag=True,
+    default=False,
+    help=(
+        "Capture per-section detail (header, chars, paragraphs, outcome) in "
+        "every row of sectionization_report.jsonl.gz. Default off — adds ~2x "
+        "to the per-doc row size."
+    ),
+)
+def section_dataset_v2(source: Path, detailed_report: bool):
     """Preprocess full-text files into header:paragraph JSON dictionaries.
 
     Supports both:
@@ -920,7 +1032,7 @@ def section_dataset_v2(source: Path):
     NOTE: Each file or JSONL line is assumed to contain one result.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow(source, progress, True)
+        _sectionize_workflow(source, progress, True, capture_section_detail=detailed_report)
 
 
 # ---------------------------------------------------------------------------
@@ -928,7 +1040,7 @@ def section_dataset_v2(source: Path):
 # ---------------------------------------------------------------------------
 
 
-def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
+def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path, capture_section_detail: bool = False):
     """Sectionize a single per-document JSON file in s2orc_v2 format.
 
     Returns (success, corpus_id, error, status, report). `report` is None
@@ -944,7 +1056,9 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
             return (True, corpus_id, None, "skipped_existing", None)
 
         doc = _normalize_to_v2(doc)
-        success, sectioned_text, error, report = _sectionize_item_s2orc_v2(doc)
+        success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
+            doc, capture_section_detail=capture_section_detail
+        )
         if not success:
             return (False, corpus_id, error, "failed", report)
 
@@ -958,7 +1072,7 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path):
         return (False, input_path.stem, str(e), "failed", report)
 
 
-def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path):
+def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path, capture_section_detail: bool = False):
     """Stream one .gz JSONL shard and sectionize each document.
 
     Per-doc rows are streamed to a per-batch temp gz file (concatenated by
@@ -993,7 +1107,9 @@ def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path):
                         continue
 
                     doc = _normalize_to_v2(doc)
-                    success, sectioned_text, error, report = _sectionize_item_s2orc_v2(doc)
+                    success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
+                        doc, capture_section_detail=capture_section_detail
+                    )
                     _add_report(report)
                     if not success:
                         batch_failures.append(
@@ -1037,7 +1153,11 @@ def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path):
     }
 
 
-def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
+def _sectionize_workflow_s2orc_v2(
+    source: Path,
+    progress: Progress,
+    capture_section_detail: bool = False,
+):
     """Orchestrate sectionization of s2orc_v2 data.
 
     *source* may be:
@@ -1061,6 +1181,7 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
             source=source,
             pipeline="s2orc_v2",
             batch_fn=_sectionize_batch_file_s2orc_v2,
+            capture_section_detail=capture_section_detail,
         )
         return
 
@@ -1076,7 +1197,7 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
     per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file_s2orc_v2)(p, output_dir) for p in json_files
+        delayed(_sectionize_one_file_s2orc_v2)(p, output_dir, capture_section_detail) for p in json_files
     )
 
     success_count = fail_count = skipped_count = 0
@@ -1113,7 +1234,17 @@ def _sectionize_workflow_s2orc_v2(source: Path, progress: Progress):
 
 @click.command("section-dataset-s2orc")
 @click.argument("source", type=click.Path(exists=True, path_type=Path))
-def section_dataset_s2orc(source: Path):
+@click.option(
+    "--detailed-report",
+    is_flag=True,
+    default=False,
+    help=(
+        "Capture per-section detail (header, chars, paragraphs, outcome) in "
+        "every row of sectionization_report.jsonl.gz. Default off — adds ~2x "
+        "to the per-doc row size."
+    ),
+)
+def section_dataset_s2orc(source: Path, detailed_report: bool):
     """Sectionize s2orc_v2 documents using span-annotation offsets.
 
     SOURCE may be:
@@ -1132,4 +1263,4 @@ def section_dataset_s2orc(source: Path):
     (one per corpus ID), resumable via batch_checkpoint.json.
     """
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow_s2orc_v2(source, progress)
+        _sectionize_workflow_s2orc_v2(source, progress, capture_section_detail=detailed_report)
