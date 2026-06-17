@@ -48,6 +48,7 @@ New commands live in `src/araiadoc/s2orc.py` and `src/araiadoc/sectionize.py`:
 - `download-s2orc -k <S2_API_KEY> -o <DIR> [-n N]` — downloads the Semantic Scholar `s2orc_v2` bulk dataset (~30 shards × ~1.07 GB compressed). `S2_API_KEY` env var works as an alternative to `-k`.
 - `get-from-local-s2orc` — query a local download by corpus-ID list, full-text keyword, or pre-defined `--all-weather` / `--all-utility` Solr-style queries.
 - `section-dataset-s2orc` — sectionize raw `.gz` shards or per-document `.json` directories. Resumable via `batch_checkpoint.json`.
+- `verify-sectionization` — round-trip audit of a sectionized corpus against its raw input. See "Sectionization reporting vs. verification" below.
 
 ### s2orc_v2 schema gotchas
 
@@ -88,3 +89,25 @@ There is no pure-Python fallback path. The previous Python-predicate scanner (`_
 - `_download_shard` uses `timeout=(30, 300)` (connect, read). A stalled per-chunk read for >300 s raises and triggers the 5-attempt retry loop with exponential backoff.
 - After the streaming loop, `downloaded` is checked against `Content-Length`; a mismatch raises `RuntimeError` so the `.part` file is cleaned up rather than renamed.
 - Resume is at the **shard level**, not within a shard — an interrupted shard restarts from byte 0 on retry.
+
+---
+
+## Sectionization reporting vs. verification
+
+Two distinct accounting systems live in `src/araiadoc/sectionize_report.py` and `src/araiadoc/verify.py`. They answer different questions and are **not interchangeable**.
+
+### `sectionization_report.{json,jsonl.gz}` (internal accounting)
+
+Produced by every `section-dataset-*` run. Records what the item-level sectionizers (`_sectionize_item_s2orc_v2`, `_sectionize_item_v2`) *decided* for each document — kept/dropped chars, paragraphs, sections, bucketed by `DROP_REASONS`. This is fast (zero extra IO over what the run already does) and corpus-complete, but it is **internal-only**: it cannot detect bugs where the sectionizer thinks it kept a section but the bytes never reached disk (silent overwrites on duplicate canonical headers, `_normalize_text` over-stripping, output truncation, encoding mangling).
+
+### `verify-sectionization` (round-trip audit)
+
+Standalone CLI. Reads a sample of written sectionized files back from disk, reconstructs ground-truth section bounds *directly from the raw header/paragraph span annotations* (independent of the production walking logic), and verifies that each ground-truth section's first-paragraph 50-char probe substring-matches into the joined output values. Missing sections are attributed to the same `DROP_REASONS` by replaying the production filter helpers; anything that doesn't match a known filter is bucketed as `unknown_after_break`.
+
+Use `verify-sectionization` whenever you're investigating "where did the content go" or before trusting a new sectionizer change. Reach for the report JSON for cheap corpus-wide stats during/after every run.
+
+### `--detailed-report` flag (opt-in per-section rows)
+
+All three `section-dataset-*` commands accept `--detailed-report`. When set, every row in `sectionization_report.jsonl.gz` carries a `sections: [{header, chars, paragraphs, outcome}, …]` array — one entry per section the sectionizer observed for that doc. The outcome is either `"kept"` or one of `DROP_REASONS`. **This roughly doubles per-doc row size**; default is off so production runs are unaffected.
+
+Implementation detail: `DocReport.record_kept` / `record_dropped` accept an optional `header=` kwarg. Inside `_sectionize_item_s2orc_v2` / `_sectionize_item_v2` we thread it via a local `_hdr(name)` helper that returns the header string when `capture_section_detail=True` and `None` otherwise — so the row append is completely free when the flag is off. **If you add a new `record_kept`/`record_dropped` call site, you must pass `header=_hdr(...)` or that section will silently miss the detail rows even with the flag on.**

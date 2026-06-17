@@ -35,7 +35,7 @@ DROP_REASONS: tuple[str, ...] = (
     "noise_header",
     "unneeded_no_skip",
     "unneeded_skip_truncation",
-    "conclusion_truncation",
+    "post_conclusion_truncation",
     "non_substantive",
     "non_english_or_invalid",
     "post_break_truncated",
@@ -48,6 +48,31 @@ OUTCOMES: tuple[str, ...] = (
     "fully_filtered",  # failed because every section was dropped
     "structural_failure",  # failed for non-filter reasons (empty body, etc.)
 )
+
+
+# ---------------------------------------------------------------------------
+# Per-section detail (opt-in)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SectionDetail:
+    """One row per section observed by the sectionizer for a single document.
+
+    Populated only when the caller passes ``capture_section_detail=True`` to
+    the item-level sectionizers. Default behavior is to leave `DocReport.sections`
+    empty so the memory profile of a large run is unchanged.
+
+    `outcome` is either the literal string ``"kept"`` or one of the values in
+    `DROP_REASONS`. `header` is the normalized canonical header string at the
+    point it would have entered the filter loop (after `_normalize_header` and
+    `apply_synonyms`).
+    """
+
+    header: str
+    chars: int
+    paragraphs: int
+    outcome: str  # "kept" or one of DROP_REASONS
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +112,26 @@ class DocReport:
     # Per-reason breakdowns. Each value is a {sections, paragraphs, chars} dict.
     dropped_sections_by_reason: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def record_kept(self, *, chars: int, paragraphs: int) -> None:
+    # Optional per-section detail rows. Populated only when the sectionizer is
+    # invoked with `capture_section_detail=True`. Default empty list keeps the
+    # default memory profile unchanged.
+    sections: list[SectionDetail] = field(default_factory=list)
+
+    def record_kept(self, *, chars: int, paragraphs: int, header: str | None = None) -> None:
         self.kept_sections += 1
         self.kept_chars += chars
         self.kept_paragraphs += paragraphs
+        if header is not None:
+            self.sections.append(SectionDetail(header=header, chars=chars, paragraphs=paragraphs, outcome="kept"))
 
-    def record_dropped(self, reason: str, *, chars: int, paragraphs: int) -> None:
+    def record_dropped(
+        self,
+        reason: str,
+        *,
+        chars: int,
+        paragraphs: int,
+        header: str | None = None,
+    ) -> None:
         # Caller is responsible for passing a known reason; unknown values
         # land in dropped_sections_by_reason as-is but will NOT show in the
         # rendered Rich table (which iterates DROP_REASONS), so they're
@@ -105,6 +144,8 @@ class DocReport:
         self.dropped_sections += 1
         self.dropped_paragraphs += paragraphs
         self.dropped_chars += chars
+        if header is not None:
+            self.sections.append(SectionDetail(header=header, chars=chars, paragraphs=paragraphs, outcome=reason))
 
     def finalize(self) -> None:
         """Compute denominators from the kept/dropped sides."""
@@ -395,7 +436,10 @@ def open_per_doc_writer(path: Path, append: bool) -> IO[str]:
 
 
 def write_doc_row(handle: IO[str], doc: DocReport) -> None:
-    handle.write(json.dumps(asdict(doc), separators=(",", ":")))
+    row = asdict(doc)
+    if not doc.sections:
+        row.pop("sections", None)
+    handle.write(json.dumps(row, separators=(",", ":")))
     handle.write("\n")
 
 
