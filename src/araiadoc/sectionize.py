@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import re
 from pathlib import Path
 
 import click
@@ -29,6 +30,23 @@ from .text_quality.content_assessment import (
 )
 from .text_quality.text_validation import MIN_CONTENT_CHARS, is_english
 from .utils import _collect_from_path
+
+
+def _compile_exclude_patterns(patterns_str: str | None = None, pattern_file: Path | None = None) -> list[re.Pattern]:
+    """Parse comma-separated string and/or pattern file into compiled regexes (IGNORECASE)."""
+    patterns: list[str] = []
+    if patterns_str:
+        patterns.extend([p.strip() for p in patterns_str.split(",") if p.strip()])
+    if pattern_file:
+        patterns.extend(
+            [
+                line.strip()
+                for line in pattern_file.read_text().splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        )
+    return [re.compile(p, re.IGNORECASE) for p in patterns]
+
 
 # ---------------------------------------------------------------------------
 # s2orc_v2 span-annotation sectionizer
@@ -135,7 +153,11 @@ def _normalize_to_v2(doc: dict) -> dict:
     return normalized
 
 
-def _sectionize_item_s2orc_v2(doc: dict, capture_section_detail: bool = False):
+def _sectionize_item_s2orc_v2(
+    doc: dict,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     """Sectionize one s2orc_v2 document using span annotations.
 
     Parameters
@@ -148,6 +170,10 @@ def _sectionize_item_s2orc_v2(doc: dict, capture_section_detail: bool = False):
         per section observed (canonical header, char/paragraph counts, and
         per-section outcome: "kept" or one of `DROP_REASONS`). Default False
         keeps the per-doc memory profile unchanged for production runs.
+    exclude_patterns:
+        Optional list of compiled regex patterns. If any pattern matches the
+        document's title or body text, the document is excluded before
+        sectionization.
 
     Returns
     -------
@@ -181,6 +207,15 @@ def _sectionize_item_s2orc_v2(doc: dict, capture_section_detail: bool = False):
         report.error = f"[{corpus_id}] Empty body text"
         report.finalize()
         return (False, {}, report.error, report)
+
+    # ---- exclude-pattern filter ----
+    if exclude_patterns:
+        full_text = " ".join(filter(None, [title, text]))
+        if any(p.search(full_text) for p in exclude_patterns):
+            report.outcome = "excluded_by_pattern"
+            report.error = f"[{corpus_id}] Excluded by pattern match"
+            report.finalize()
+            return (False, {}, report.error, report)
 
     # total_chars: count all paragraph-span content the document offered (not
     # body text length, which can include arbitrary inter-paragraph noise).
@@ -421,7 +456,12 @@ def _get_corpus_id(item, fallback_stem=None):
     return fallback_stem if fallback_stem is not None else "unknown"
 
 
-def _sectionize_item_v2(item, corpus_id: str | None = None, capture_section_detail: bool = False):
+def _sectionize_item_v2(
+    item,
+    corpus_id: str | None = None,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     """Legacy v2 (TitanV/Solr) sectionizer.
 
     Returns (success, sectioned_text, error, report). `corpus_id` is taken
@@ -431,6 +471,10 @@ def _sectionize_item_v2(item, corpus_id: str | None = None, capture_section_deta
     `capture_section_detail`, when True, populates `DocReport.sections` with
     one `SectionDetail` row per (header, paragraph) pair observed. See
     `_sectionize_item_s2orc_v2` for the same flag.
+
+    `exclude_patterns`: Optional list of compiled regex patterns. If any pattern
+    matches the document's title, abstract, or body text, the document is
+    excluded before sectionization.
     """
     cid = corpus_id if corpus_id is not None else _get_corpus_id(item)
     report = DocReport(corpus_id=cid, outcome="structural_failure")
@@ -461,6 +505,16 @@ def _sectionize_item_v2(item, corpus_id: str | None = None, capture_section_deta
         report.error = "Abstract missing or too short."
         report.finalize()
         return (False, {}, report.error, report)
+
+    # ---- exclude-pattern filter ----
+    if exclude_patterns:
+        body_text = " ".join(paragraphs)
+        full_text = " ".join(filter(None, [title, abstract, body_text]))
+        if any(p.search(full_text) for p in exclude_patterns):
+            report.outcome = "excluded_by_pattern"
+            report.error = f"[{cid}] Excluded by pattern match"
+            report.finalize()
+            return (False, {}, report.error, report)
 
     # Abstract counts as kept content (it bypasses the per-section filter loop).
     if abstract:
@@ -576,7 +630,12 @@ def _sharded_output_file(output_dir: Path, corpus_id: str) -> Path:
     return shard_dir / f"{corpus_id}.json"
 
 
-def _sectionize_one_file(input_path: Path, output_dir: Path, capture_section_detail: bool = False):
+def _sectionize_one_file(
+    input_path: Path,
+    output_dir: Path,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     """Sectionize one legacy v2 per-document JSON file.
 
     Returns (success, corpus_id, error, status, report). `report` is None
@@ -595,7 +654,10 @@ def _sectionize_one_file(input_path: Path, output_dir: Path, capture_section_det
             return (True, corpus_id, None, "skipped_existing", None)
 
         success, sectioned_text, error, report = _sectionize_item_v2(
-            item, corpus_id=corpus_id, capture_section_detail=capture_section_detail
+            item,
+            corpus_id=corpus_id,
+            capture_section_detail=capture_section_detail,
+            exclude_patterns=exclude_patterns,
         )
         if not success:
             return (False, corpus_id, error, "failed", report)
@@ -647,7 +709,12 @@ def _write_batch_checkpoint(checkpoint_path: Path, checkpoint_data: dict):
     checkpoint_path.write_text(json.dumps(checkpoint_data, indent=2))
 
 
-def _sectionize_batch_file(batch_file: Path, output_dir: Path, capture_section_detail: bool = False):
+def _sectionize_batch_file(
+    batch_file: Path,
+    output_dir: Path,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     batch_successes = 0
     batch_failures = []
     skipped_existing = 0
@@ -685,6 +752,7 @@ def _sectionize_batch_file(batch_file: Path, output_dir: Path, capture_section_d
                         item,
                         corpus_id=corpus_id,
                         capture_section_detail=capture_section_detail,
+                        exclude_patterns=exclude_patterns,
                     )
                     _add_report(report)
                     if not success:
@@ -737,6 +805,7 @@ def _sectionize_batches_parallel(
     pipeline: str,
     batch_fn,
     capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
 ):
     """Drive sectionization of a list of batch files in parallel.
 
@@ -779,7 +848,8 @@ def _sectionize_batches_parallel(
         return
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(batch_fn)(batch_file, output_dir, capture_section_detail) for batch_file in files_to_process
+        delayed(batch_fn)(batch_file, output_dir, capture_section_detail, exclude_patterns)
+        for batch_file in files_to_process
     )
 
     success_count = 0
@@ -840,6 +910,7 @@ def _sectionize_workflow(
     progress: Progress,
     v2: bool = False,
     capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
 ):
     output_dir = Path(str(source) + "_sectionized")
     output_dir.mkdir(exist_ok=True, parents=True)
@@ -862,6 +933,7 @@ def _sectionize_workflow(
             pipeline=pipeline,
             batch_fn=_sectionize_batch_file,
             capture_section_detail=capture_section_detail,
+            exclude_patterns=exclude_patterns,
         )
         return
 
@@ -929,7 +1001,7 @@ def _sectionize_workflow(
     per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file)(i, output_dir, capture_section_detail) for i in files_to_process
+        delayed(_sectionize_one_file)(i, output_dir, capture_section_detail, exclude_patterns) for i in files_to_process
     )
 
     success_count = 0
@@ -1005,7 +1077,20 @@ def section_dataset(source: Path, detailed_report: bool):
         "to the per-doc row size."
     ),
 )
-def section_dataset_v2(source: Path, detailed_report: bool):
+@click.option(
+    "--exclude-patterns",
+    default="",
+    help=(
+        "Comma-separated regex patterns. Documents matching ANY pattern in "
+        "title, abstract, or body text are excluded before sectionization."
+    ),
+)
+@click.option(
+    "--exclude-file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to .txt file with one regex pattern per line. Empty lines and lines starting with # are ignored.",
+)
+def section_dataset_v2(source: Path, detailed_report: bool, exclude_patterns: str, exclude_file: Path | None):
     """Preprocess full-text files into header:paragraph JSON dictionaries.
 
     Supports both:
@@ -1031,8 +1116,11 @@ def section_dataset_v2(source: Path, detailed_report: bool):
 
     NOTE: Each file or JSONL line is assumed to contain one result.
     """
+    exclude_patterns_compiled = _compile_exclude_patterns(exclude_patterns or None, exclude_file)
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow(source, progress, True, capture_section_detail=detailed_report)
+        _sectionize_workflow(
+            source, progress, True, capture_section_detail=detailed_report, exclude_patterns=exclude_patterns_compiled
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1040,7 +1128,12 @@ def section_dataset_v2(source: Path, detailed_report: bool):
 # ---------------------------------------------------------------------------
 
 
-def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path, capture_section_detail: bool = False):
+def _sectionize_one_file_s2orc_v2(
+    input_path: Path,
+    output_dir: Path,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     """Sectionize a single per-document JSON file in s2orc_v2 format.
 
     Returns (success, corpus_id, error, status, report). `report` is None
@@ -1057,7 +1150,7 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path, capture_se
 
         doc = _normalize_to_v2(doc)
         success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
-            doc, capture_section_detail=capture_section_detail
+            doc, capture_section_detail=capture_section_detail, exclude_patterns=exclude_patterns
         )
         if not success:
             return (False, corpus_id, error, "failed", report)
@@ -1072,7 +1165,12 @@ def _sectionize_one_file_s2orc_v2(input_path: Path, output_dir: Path, capture_se
         return (False, input_path.stem, str(e), "failed", report)
 
 
-def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path, capture_section_detail: bool = False):
+def _sectionize_batch_file_s2orc_v2(
+    batch_file: Path,
+    output_dir: Path,
+    capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
+):
     """Stream one .gz JSONL shard and sectionize each document.
 
     Per-doc rows are streamed to a per-batch temp gz file (concatenated by
@@ -1108,7 +1206,9 @@ def _sectionize_batch_file_s2orc_v2(batch_file: Path, output_dir: Path, capture_
 
                     doc = _normalize_to_v2(doc)
                     success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
-                        doc, capture_section_detail=capture_section_detail
+                        doc,
+                        capture_section_detail=capture_section_detail,
+                        exclude_patterns=exclude_patterns,
                     )
                     _add_report(report)
                     if not success:
@@ -1157,6 +1257,7 @@ def _sectionize_workflow_s2orc_v2(
     source: Path,
     progress: Progress,
     capture_section_detail: bool = False,
+    exclude_patterns: list[re.Pattern] | None = None,
 ):
     """Orchestrate sectionization of s2orc_v2 data.
 
@@ -1182,6 +1283,7 @@ def _sectionize_workflow_s2orc_v2(
             pipeline="s2orc_v2",
             batch_fn=_sectionize_batch_file_s2orc_v2,
             capture_section_detail=capture_section_detail,
+            exclude_patterns=exclude_patterns,
         )
         return
 
@@ -1197,7 +1299,8 @@ def _sectionize_workflow_s2orc_v2(
     per_doc_handle = open_per_doc_writer(per_doc_path, append=per_doc_path.exists())
 
     results = Parallel(n_jobs=-1, return_as="generator")(
-        delayed(_sectionize_one_file_s2orc_v2)(p, output_dir, capture_section_detail) for p in json_files
+        delayed(_sectionize_one_file_s2orc_v2)(p, output_dir, capture_section_detail, exclude_patterns)
+        for p in json_files
     )
 
     success_count = fail_count = skipped_count = 0
@@ -1244,7 +1347,20 @@ def _sectionize_workflow_s2orc_v2(
         "to the per-doc row size."
     ),
 )
-def section_dataset_s2orc(source: Path, detailed_report: bool):
+@click.option(
+    "--exclude-patterns",
+    default="",
+    help=(
+        "Comma-separated regex patterns. Documents matching ANY pattern in "
+        "title or body text are excluded before sectionization."
+    ),
+)
+@click.option(
+    "--exclude-file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to .txt file with one regex pattern per line. Empty lines and lines starting with # are ignored.",
+)
+def section_dataset_s2orc(source: Path, detailed_report: bool, exclude_patterns: str, exclude_file: Path | None):
     """Sectionize s2orc_v2 documents using span-annotation offsets.
 
     SOURCE may be:
@@ -1262,5 +1378,8 @@ def section_dataset_s2orc(source: Path, detailed_report: bool):
     Output is written to SOURCE_sectionized/ as sharded JSON files
     (one per corpus ID), resumable via batch_checkpoint.json.
     """
+    exclude_patterns_compiled = _compile_exclude_patterns(exclude_patterns or None, exclude_file)
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-        _sectionize_workflow_s2orc_v2(source, progress, capture_section_detail=detailed_report)
+        _sectionize_workflow_s2orc_v2(
+            source, progress, capture_section_detail=detailed_report, exclude_patterns=exclude_patterns_compiled
+        )

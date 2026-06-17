@@ -47,6 +47,7 @@ OUTCOMES: tuple[str, ...] = (
     "partially_filtered",  # kept, ≥1 section dropped
     "fully_filtered",  # failed because every section was dropped
     "structural_failure",  # failed for non-filter reasons (empty body, etc.)
+    "excluded_by_pattern",  # excluded by --exclude-patterns/--exclude-file
 )
 
 

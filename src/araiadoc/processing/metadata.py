@@ -7,8 +7,9 @@ from joblib import Parallel, delayed
 from psycopg2 import sql
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
+from araiadoc.utils import _collect_from_path
+
 from .schema import ParsedDocumentSchema
-from .utils import _collect_from_path
 
 
 def _metadata_one_file_db(input_path, output_dir, dbname, user, password, host, port, table_name):

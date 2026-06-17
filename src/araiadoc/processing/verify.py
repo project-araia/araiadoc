@@ -39,8 +39,8 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich.table import Table
 
-from .sectionize import _normalize_to_v2, _parse_spans
-from .text_quality.content_assessment import (
+from araiadoc.sectionize import _normalize_to_v2, _parse_spans
+from araiadoc.text_quality.content_assessment import (
     _content_is_substantive,
     _header_is_noise,
     _normalize_header,
@@ -51,7 +51,7 @@ from .text_quality.content_assessment import (
     unneeded_sections_no_skip_remaining,
     unneeded_sections_skip_remaining,
 )
-from .text_quality.text_validation import is_english
+from araiadoc.text_quality.text_validation import is_english
 
 # Substring length used to test whether a ground-truth section's first
 # paragraph survived into the written output. 50 chars is enough to avoid
@@ -82,6 +82,7 @@ class DocAudit:
     corpus_id: str
     raw_path: str
     sect_path: str
+    title: str = ""
     sections_total: int = 0
     sections_present: int = 0
     sections_missing: int = 0
@@ -197,6 +198,8 @@ def _audit_loaded_doc(raw: dict, raw_label: str, sect_path: Path, fallback_corpu
 
     raw = _normalize_to_v2(raw)
     audit.corpus_id = str(raw.get("corpusid", fallback_corpus_id))
+    title = raw.get("title") or ""
+    audit.title = title if isinstance(title, str) else str(title)
 
     try:
         gt_sections = _build_ground_truth_sections(raw)

@@ -213,7 +213,6 @@ Q2_NOT_BLOCK = """(
   "foodborne pathogen" OR
   "foodborne disease" OR
 
-
   "chemical reactor" OR
   "distillation column" OR
   "catalytic cracking" OR
