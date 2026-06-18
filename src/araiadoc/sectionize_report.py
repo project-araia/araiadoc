@@ -34,7 +34,7 @@ from rich.table import Table
 DROP_REASONS: tuple[str, ...] = (
     "noise_header",
     "unneeded_no_skip",
-    "unneeded_skip_truncation",
+    "unneeded_skip_remaining",
     "post_conclusion_truncation",
     "non_substantive",
     "non_english_or_invalid",
