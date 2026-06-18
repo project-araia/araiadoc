@@ -94,7 +94,7 @@ There is no pure-Python fallback path. The previous Python-predicate scanner (`_
 
 ## Sectionization reporting vs. verification
 
-Two distinct accounting systems live in `src/araiadoc/sectionize_report.py` and `src/araiadoc/verify.py`. They answer different questions and are **not interchangeable**.
+Two distinct accounting systems live in `src/araiadoc/sectionize_report.py` and `src/araiadoc/processing/verify.py`. They answer different questions and are **not interchangeable**.
 
 ### `sectionization_report.{json,jsonl.gz}` (internal accounting)
 
@@ -111,3 +111,20 @@ Use `verify-sectionization` whenever you're investigating "where did the content
 All three `section-dataset-*` commands accept `--detailed-report`. When set, every row in `sectionization_report.jsonl.gz` carries a `sections: [{header, chars, paragraphs, outcome}, …]` array — one entry per section the sectionizer observed for that doc. The outcome is either `"kept"` or one of `DROP_REASONS`. **This roughly doubles per-doc row size**; default is off so production runs are unaffected.
 
 Implementation detail: `DocReport.record_kept` / `record_dropped` accept an optional `header=` kwarg. Inside `_sectionize_item_s2orc_v2` / `_sectionize_item_v2` we thread it via a local `_hdr(name)` helper that returns the header string when `capture_section_detail=True` and `None` otherwise — so the row append is completely free when the flag is off. **If you add a new `record_kept`/`record_dropped` call site, you must pass `header=_hdr(...)` or that section will silently miss the detail rows even with the flag on.**
+
+### `DROP_REASONS` vocabulary is the on-disk contract
+
+`DROP_REASONS` in `sectionize_report.py` is rendered verbatim into the CLI "Drops by reason" table *and* persisted as keys inside `drops_by_reason` in every `sectionization_report.json` / `.jsonl.gz`. Renames are therefore breaking changes for historical reports — old files keep the old keys, new runs write the new ones, and any downstream tooling that aggregates across both needs to rename on read.
+
+Historical rename: `unneeded_skip_truncation` → `unneeded_skip_remaining` (parallel to its sibling `unneeded_no_skip`; both reflect the source list names `unneeded_sections_skip_remaining` / `unneeded_sections_no_skip_remaining` in `text_quality/content_assessment.py`). The bucket counts only the trigger section itself — the discarded tail that follows lives in `post_break_truncated`.
+
+## `failures.json` title recovery
+
+`failures.json` (written by `_sectionize_workflow` and `_sectionize_workflow_s2orc_v2`) records one entry per failed document with `corpus_id`, `title`, `external_ids`, and `error`. Title recovery is non-trivial because **s2orc_v2 records have no top-level `title` field** and v1 records only expose it via annotation spans.
+
+Two helpers in `sectionize.py` handle this:
+
+- `_best_effort_title(doc)` — tries (1) a populated top-level `title`, (2) `title`/`papertitle`/`paper_title`/`doctitle` annotation spans projected onto `body.text` (v2) or `content.text` (v1), and (3) the first non-empty line of body text. Wrapped in `try/except` end-to-end so it's safe to call from exception handlers with a partially-parsed or `None` doc.
+- `_best_effort_external_ids(doc)` — pulls `externalids`/`external_ids`/`externalIds` (strips `None` values) so failure rows carry a DOI/ARXIV identifier even when no title can be recovered.
+
+**When adding a new failure-record call site** (in either the per-doc workers `_sectionize_one_file*` or the batch workers `_sectionize_batch_file*`), call `_best_effort_title(doc)` rather than `doc.get("title") or ""` — including (especially!) inside `except` arms. Hold the raw `doc` / `item` in a variable initialized to `None` *outside* the `try` so the `except` can still see whatever was parsed before the failure. Normalize-then-lookup is also fine for the success path; `_normalize_to_v2` is idempotent on already-v2 records.
