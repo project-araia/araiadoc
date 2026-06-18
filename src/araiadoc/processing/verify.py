@@ -72,7 +72,7 @@ class AuditedSection:
     paragraphs: int
     present: bool
     # Drop reason if not present. One of: noise_header, unneeded_no_skip,
-    # unneeded_skip_truncation, post_conclusion_truncation, non_substantive,
+    # unneeded_skip_remaining, post_conclusion_truncation, non_substantive,
     # non_english_or_invalid, unknown_after_break, or "" if present.
     reason: str = ""
 
@@ -164,7 +164,7 @@ def _diagnose_missing(raw_header: str, norm_header: str, content: str) -> str:
     compare = "".join(norm_header.split()).lower()
 
     if any(j in compare for j in unneeded_sections_skip_remaining):
-        return "unneeded_skip_truncation"
+        return "unneeded_skip_remaining"
     if any(j in compare for j in needed_sections_but_skip_remaining):
         # The needed-but-skip-after header itself is kept; if it's missing,
         # the most plausible cause is an upstream issue (output overwrite or

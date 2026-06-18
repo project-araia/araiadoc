@@ -96,6 +96,90 @@ def _parse_spans(annotation_json: str | None) -> list[dict]:
     return sorted(normalized, key=lambda s: s["start"])
 
 
+def _best_effort_title(doc: dict | None) -> str:
+    """Recover a human-readable title from a raw s2orc v1/v2 record.
+
+    s2orc_v2 records have no top-level ``title`` field, and v1 records only
+    expose one via annotation spans into ``content.text``.  This helper tries,
+    in order:
+
+      1. A populated top-level ``title`` (e.g. a doc that was already
+         normalized, or a non-s2orc input that happens to carry one).
+      2. ``title``/``papertitle``/``paper_title``/``doctitle`` annotation
+         spans projected onto ``body.text`` (v2) or ``content.text`` (v1).
+      3. The first non-empty line of ``body.text`` / ``content.text``
+         (Grobid-style PDFs put the paper title on the first line).
+
+    Returns "" on any failure.  Safe to call from exception handlers — every
+    branch is wrapped so a malformed doc can never raise out of here.
+    """
+    try:
+        if not isinstance(doc, dict):
+            return ""
+
+        existing = doc.get("title")
+        if isinstance(existing, str) and existing.strip():
+            return existing.strip()
+
+        # Figure out which container holds the body text + annotations.
+        text = ""
+        ann: dict = {}
+        body = doc.get("body")
+        if isinstance(body, dict):
+            text = body.get("text") or ""
+            ann = body.get("annotations") or {}
+        if not text:
+            content = doc.get("content")
+            if isinstance(content, dict):
+                text = content.get("text") or ""
+                if not ann:
+                    ann = content.get("annotations") or {}
+
+        if isinstance(ann, dict) and text:
+            for key in ("title", "papertitle", "paper_title", "doctitle"):
+                raw = ann.get(key)
+                if not raw:
+                    continue
+                try:
+                    for span in _parse_spans(raw):
+                        candidate = text[span["start"] : span["end"]].strip()  # noqa
+                        if candidate:
+                            return candidate
+                except Exception:
+                    continue
+
+        if text:
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    return stripped
+    except Exception:
+        pass
+    return ""
+
+
+def _best_effort_external_ids(doc: dict | None) -> dict:
+    """Return a small dict of identifier fallbacks for failure records.
+
+    s2orc records expose ``externalids`` (DOI/ARXIV/PUBMED/…).  Pick that up
+    if present so failures.json carries *some* identifier even when the title
+    can't be recovered.  Always returns a dict; never raises.
+    """
+    try:
+        if not isinstance(doc, dict):
+            return {}
+        for key in ("externalids", "external_ids", "externalIds"):
+            val = doc.get(key)
+            if isinstance(val, dict) and val:
+                # Drop empty values to keep failures.json tidy.
+                cleaned = {k: v for k, v in val.items() if v}
+                if cleaned:
+                    return cleaned
+    except Exception:
+        pass
+    return {}
+
+
 def _normalize_to_v2(doc: dict) -> dict:
     """Coerce legacy s2orc v1 records into the v2 shape this sectionizer expects.
 
@@ -333,7 +417,7 @@ def _sectionize_item_s2orc_v2(
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
             report.record_dropped(
-                "unneeded_skip_truncation",
+                "unneeded_skip_remaining",
                 chars=section_chars,
                 paragraphs=section_paras,
                 header=_hdr(header),
@@ -546,7 +630,7 @@ def _sectionize_item_v2(
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
             report.record_dropped(
-                "unneeded_skip_truncation",
+                "unneeded_skip_remaining",
                 chars=chars,
                 paragraphs=paras,
                 header=_hdr(header),
@@ -640,20 +724,22 @@ def _sectionize_one_file(
 ):
     """Sectionize one legacy v2 per-document JSON file.
 
-    Returns (success, corpus_id, error, status, report). `report` is None
+    Returns (success, corpus_id, error, status, report, title). `report` is None
     for `skipped_existing` and for hard exceptions where we never got to run
-    the sectionizer.
+    the sectionizer. `title` is the document title string (may be empty).
     """
+    item: dict | None = None
     try:
         with open(input_path, "r") as f:
             doc = json.load(f)
 
         item = _extract_item_from_doc(doc)
         corpus_id = _get_corpus_id(item, fallback_stem=input_path.stem)
+        title = _get_first(item, "title")
         output_file = _sharded_output_file(output_dir, corpus_id)
 
         if output_file.exists():
-            return (True, corpus_id, None, "skipped_existing", None)
+            return (True, corpus_id, None, "skipped_existing", None, title)
 
         success, sectioned_text, error, report = _sectionize_item_v2(
             item,
@@ -662,19 +748,24 @@ def _sectionize_one_file(
             exclude_patterns=exclude_patterns,
         )
         if not success:
-            return (False, corpus_id, error, "failed", report)
+            return (False, corpus_id, error, "failed", report, title)
 
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
-        return (True, corpus_id, None, "written", report)
+        return (True, corpus_id, None, "written", report, title)
 
     except Exception as e:
-        # Exception before the sectionizer ran: synthesize a structural_failure
-        # report so the corpus stats still see this document.
         report = DocReport(corpus_id=input_path.stem, outcome="structural_failure", error=str(e))
         report.finalize()
-        return (False, input_path.stem, str(e), "failed", report)
+        # Best-effort title even on hard exceptions; safe if `item` is None.
+        title = ""
+        if isinstance(item, dict):
+            try:
+                title = _get_first(item, "title") or _best_effort_title(item)
+            except Exception:
+                title = _best_effort_title(item)
+        return (False, input_path.stem, str(e), "failed", report, title)
 
 
 def _discover_batch_files(source: Path):
@@ -740,6 +831,9 @@ def _sectionize_batch_file(
                 if not line:
                     continue
 
+                # Track raw/extracted forms so the except arm can still
+                # attempt a best-effort title lookup if a later step raised.
+                item: dict | None = None
                 try:
                     doc = json.loads(line)
                     item = _extract_item_from_doc(doc)
@@ -758,9 +852,11 @@ def _sectionize_batch_file(
                     )
                     _add_report(report)
                     if not success:
+                        title = _get_first(item, "title")
                         batch_failures.append(
                             {
                                 "corpus_id": corpus_id,
+                                "title": title,
                                 "batch_file": str(batch_file),
                                 "line_number": line_number,
                                 "error": error,
@@ -775,9 +871,19 @@ def _sectionize_batch_file(
 
                 except Exception as e:
                     corpus_id = f"{batch_file.stem}_line_{line_number}"
+                    # Best-effort title: prefer the Solr-style ["title"] list
+                    # if the item was extracted; otherwise fall through to the
+                    # generic body/annotation-based recovery.
+                    title = ""
+                    if isinstance(item, dict):
+                        try:
+                            title = _get_first(item, "title") or _best_effort_title(item)
+                        except Exception:
+                            title = _best_effort_title(item)
                     batch_failures.append(
                         {
                             "corpus_id": corpus_id,
+                            "title": title,
                             "batch_file": str(batch_file),
                             "line_number": line_number,
                             "error": str(e),
@@ -1010,7 +1116,7 @@ def _sectionize_workflow(
     fail_count = 0
 
     try:
-        for success, corpus_id, error, status, report in results:
+        for success, corpus_id, error, status, report, title in results:
             progress.update(task, advance=1)
             if report is not None:
                 corpus_report.add(report)
@@ -1023,6 +1129,7 @@ def _sectionize_workflow(
                 fail_count += 1
                 failure_record = {
                     "corpus_id": corpus_id,
+                    "title": title,
                     "batch_file": None,
                     "line_number": None,
                     "error": error,
@@ -1138,33 +1245,38 @@ def _sectionize_one_file_s2orc_v2(
 ):
     """Sectionize a single per-document JSON file in s2orc_v2 format.
 
-    Returns (success, corpus_id, error, status, report). `report` is None
-    only when the output file already existed (skipped_existing).
+    Returns (success, corpus_id, error, status, report, title). `report` is None
+    only when the output file already existed (skipped_existing). `title` is
+    the document title string (may be empty).
     """
+    doc: dict | None = None
     try:
         with open(input_path) as f:
             doc = json.load(f)
 
         corpus_id = str(doc.get("corpusid", input_path.stem))
         output_file = _sharded_output_file(output_dir, corpus_id)
-        if output_file.exists():
-            return (True, corpus_id, None, "skipped_existing", None)
-
+        # Normalize first so v1 records get their title backfilled and any
+        # later title lookup sees a consistent shape.
         doc = _normalize_to_v2(doc)
+        title = _best_effort_title(doc)
+        if output_file.exists():
+            return (True, corpus_id, None, "skipped_existing", None, title)
+
         success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
             doc, capture_section_detail=capture_section_detail, exclude_patterns=exclude_patterns
         )
         if not success:
-            return (False, corpus_id, error, "failed", report)
+            return (False, corpus_id, error, "failed", report, title)
 
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
-        return (True, corpus_id, None, "written", report)
+        return (True, corpus_id, None, "written", report, title)
     except Exception as e:
         report = DocReport(corpus_id=input_path.stem, outcome="structural_failure", error=str(e))
         report.finalize()
-        return (False, input_path.stem, str(e), "failed", report)
+        return (False, input_path.stem, str(e), "failed", report, _best_effort_title(doc))
 
 
 def _sectionize_batch_file_s2orc_v2(
@@ -1197,6 +1309,10 @@ def _sectionize_batch_file_s2orc_v2(
                 line = line.strip()
                 if not line:
                     continue
+                # Track the raw doc separately so the except arm can still
+                # attempt a best-effort title lookup even if a later step
+                # mutated `doc` or raised.
+                doc: dict | None = None
                 try:
                     doc = json.loads(line)
                     corpus_id = str(doc.get("corpusid", f"{batch_file.stem}_line_{line_number}"))
@@ -1217,6 +1333,8 @@ def _sectionize_batch_file_s2orc_v2(
                         batch_failures.append(
                             {
                                 "corpus_id": corpus_id,
+                                "title": _best_effort_title(doc),
+                                "external_ids": _best_effort_external_ids(doc),
                                 "batch_file": str(batch_file),
                                 "line_number": line_number,
                                 "error": error,
@@ -1234,6 +1352,8 @@ def _sectionize_batch_file_s2orc_v2(
                     batch_failures.append(
                         {
                             "corpus_id": corpus_id,
+                            "title": _best_effort_title(doc),
+                            "external_ids": _best_effort_external_ids(doc),
                             "batch_file": str(batch_file),
                             "line_number": line_number,
                             "error": str(e),
@@ -1308,7 +1428,7 @@ def _sectionize_workflow_s2orc_v2(
     success_count = fail_count = skipped_count = 0
     failures = []
     try:
-        for success, corpus_id, error, status, report in results:
+        for success, corpus_id, error, status, report, title in results:
             progress.update(task, advance=1)
             if report is not None:
                 corpus_report.add(report)
@@ -1319,7 +1439,7 @@ def _sectionize_workflow_s2orc_v2(
                 skipped_count += 1
             else:
                 fail_count += 1
-                failures.append({"corpus_id": corpus_id, "error": error})
+                failures.append({"corpus_id": corpus_id, "title": title, "error": error})
                 progress.log(f"* Error {corpus_id}: {error}")
     finally:
         per_doc_handle.close()
