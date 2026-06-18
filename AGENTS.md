@@ -29,14 +29,6 @@ Output directory: /absolute/path/to/data/...
 
 The webapp's `CrawlEpa` component parses this line from the job's log buffer (prefixed as `[stdout] Output directory: ...`) to construct the zip download URL after a successful run.
 
-### Subprocess stderr draining
-
-Any route that spawns a child process and reads from its `stdout` must also drain `stderr`, even if the output is not needed. Failing to do so can cause the child process to block waiting for the pipe buffer to clear, resulting in a deadlock. Use:
-
-```ts
-childProcess.stderr.resume();
-```
-
 ---
 
 ## s2orc_v2 pipeline (replacement for TitanV/Solr)
