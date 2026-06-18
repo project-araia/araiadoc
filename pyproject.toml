@@ -67,6 +67,10 @@ duckdb = ">=1.5.3,<2"
 
 [tool.pixi.feature.experiment.dependencies]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
 [dependency-groups]
 dev = ["wat>=0.7.0,<0.8"]
 experiment = ["wat>=0.7.0,<0.8"]
