@@ -1,7 +1,12 @@
 import re
 
 # Import from our own modules
-from .text_validation import MIN_ALPHA_CHARS, MIN_CONTENT_CHARS, _normalize_text, is_string_valid
+from .text_validation import (
+    MIN_ALPHA_CHARS,
+    MIN_CONTENT_CHARS,
+    _normalize_text,
+    is_string_valid,
+)
 
 # These are moved from sectionize.py - keeping the same values
 unneeded_sections_no_skip_remaining = [
@@ -38,6 +43,7 @@ unneeded_sections_no_skip_remaining = [
     "reviewer",
     "continuedfromprevpage",
     "informedconsentstatement",
+    "references",
 ]
 
 needed_sections_but_skip_remaining = ["conclusion"]
@@ -287,7 +293,6 @@ def apply_synonyms(header: str) -> str:
 unneeded_sections_skip_remaining = [
     "acknowledgment",
     "acknowledgement",
-    "references",
     "workscited",
     "bibliography",
     "dataavailability",
@@ -317,8 +322,6 @@ unneeded_sections_skip_remaining = [
     "appendice",
     "nomenclature",
     "glossary",
-    "notation",
-    "symbol",
     "openaccess",
 ]
 

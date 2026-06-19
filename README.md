@@ -239,7 +239,7 @@ Options:
                           and lines starting with # are ignored.
 ```
 
-Sectionizes s2orc_v2 documents using span-annotation offsets in `body.text`. `SOURCE` may be a directory of `.gz` JSONL shards (from `download-s2orc`) or a directory of per-document `.json` files (from `get-from-local-s2orc`). v1-shape records (with `content.text` and `sectionheader`) are normalized to v2 transparently. Resumable via `batch_checkpoint.json`.
+Sectionizes s2orc_v2 documents using span-annotation offsets in `body.text`. `SOURCE` may be a directory of `.gz` JSONL shards (from `download-s2orc`) or a directory of per-document `.json` files (from `get-from-local-s2orc`). v1-shape records are normalized to v2 transparently. Resumable via `batch_checkpoint.json`.
 
 Every run writes `sectionization_report.json` (corpus aggregates) and `sectionization_report.jsonl.gz` (per-doc rows). With `--detailed-report`, each per-doc row also carries a `sections` array (header, chars, paragraphs, outcome) — roughly doubles row size, off by default.
 
@@ -248,6 +248,42 @@ With `--exclude-patterns` or `--exclude-file`, excluded documents report which p
 ```araiadoc section-dataset-s2orc data/s2orc_v2_shards```
 ```araiadoc section-dataset-s2orc data/all_weather --detailed-report```
 ```araiadoc section-dataset-s2orc data/s2orc_v2_shards --exclude-file data/filter.txt```
+
+### Download s2orc
+
+```bash
+Usage: araiadoc download-s2orc [OPTIONS]
+
+Options:
+  -k, --api-key TEXT     Semantic Scholar API key (or set S2_API_KEY env var).  [required]
+  -o, --output-dir PATH  Directory in which to save the downloaded .gz shards.  [required]
+  -n, --shards INTEGER   Download only the first N shards (omit to download all ~30).
+```
+
+Downloads the Semantic Scholar s2orc_v2 bulk dataset. Each shard is a gzip-compressed JSONL file (~6 GB each, ~180 GB total). Already-present shards are skipped so the command is safely re-runnable. Obtain an API key at https://www.semanticscholar.org/product/api.
+
+```araiadoc download-s2orc -k $S2_API_KEY -o data/s2orc_v2```
+```araiadoc download-s2orc -k $S2_API_KEY -o data/s2orc_v2 -n 5```
+
+### Get from local s2orc
+
+```bash
+Usage: araiadoc get-from-local-s2orc [OPTIONS]
+
+Options:
+  -d, --data-dir PATH    Directory containing the downloaded s2orc_v2 .gz shard files.  [required]
+  -o, --output-dir PATH  Output directory for extracted JSON documents (created if absent).
+  -s, --source PATH      File of corpus IDs to look up: a JSON array of integers, or a .txt file with one integer ID per line.
+  -a, --all-weather      Extract all documents matching the weather/climate keyword search.
+  -u, --all-utility      Extract all documents matching the utility/electricity keyword search.
+  -q, --query TEXT       Ad-hoc Solr-style query string. Supports AND, OR, NOT, parens, and quoted phrases.
+```
+
+Queries a local s2orc_v2 download using DuckDB. Use exactly one of `--source`, `--all-weather`, `--all-utility`, or `--query`. Produces one JSON file per matching document sharded by the last two digits of the corpus ID — the same layout consumed by `section-dataset-s2orc`. Resumable: completed shards are recorded in `duckdb_checkpoint.json` so re-running with the same `--output-dir` skips them. v1 shards (with `content.text` instead of `body.text`) are detected automatically per shard.
+
+```araiadoc get-from-local-s2orc -d data/s2orc_v2 -s resilience_ids.txt```
+```araiadoc get-from-local-s2orc -d data/s2orc_v2 -o data/all_weather --all-weather```
+```araiadoc get-from-local-s2orc -d data/s2orc_v2 -q '"adsorption refrigeration"'```
 
 ### Verify sectionization
 
@@ -264,9 +300,7 @@ Options:
   --exclude-file PATH          Path to .txt file with one regex pattern per line.
 ```
 
-Round-trip audit that reads written sectionized JSON back from disk, reconstructs ground-truth section bounds directly from raw span annotations, and verifies each section's first-paragraph 50-char probe survived to disk. Missing sections are attributed to the same drop reasons the production sectionizer would have used. Catches a class of bugs the internal `sectionization_report.json` cannot — silent overwrites on duplicate canonical headers, output truncation, encoding mangling.
-
-When `--exclude-patterns` or `--exclude-file` is supplied and a document has no sectionized output file, the verifier re-applies the patterns against the raw document's title and body text. Documents that match any pattern are attributed to `excluded_by_pattern` (separate from `skipped_missing_sect`) and each matching pattern is tallied individually. The summary table includes an `Excluded by pattern` row, and an `Excluded-by-pattern breakdown` table lists which patterns excluded how many documents. This information also appears in the JSON report under `excluded_by_pattern` (count) and `excluded_by_pattern_reasons` (pattern → count dict).
+Round-trip audit that reads written sectionized JSON back from disk, reconstructs ground-truth section bounds from raw span annotations independently of the production sectionizer, and verifies each section's first-paragraph 50-char probe survived to disk. Catches bugs that `sectionization_report.json` cannot — silent overwrites on duplicate canonical headers, output truncation, encoding mangling. When `--exclude-patterns` or `--exclude-file` is supplied, missing documents are re-checked against the patterns; matches are attributed to `excluded_by_pattern` (tallied per pattern in the `excluded_by_pattern_reasons` key of the JSON report) rather than `skipped_missing_sect`.
 
 ```araiadoc verify-sectionization data/s2orc_v2_shards data/s2orc_v2_shards_sectionized```
 ```araiadoc verify-sectionization raw/ sectionized/ -n 5000 --report-json audit.json --fail-threshold 5.0```
@@ -282,6 +316,7 @@ Agent Skills are available in the `.agents/skills` directory. Supported skills i
   - `section_dataset_s2orc`: Sectionize s2orc_v2 documents from span annotations
   - `araia_review`: Review a sectionized corpus against its generating Solr query
   - `araia_compare`: Compare two sectionized corpora for overlap / drift
+  - `araia_verify`: Round-trip audit of a sectionized corpus against its raw input
 
 #### JSON Schema
 
