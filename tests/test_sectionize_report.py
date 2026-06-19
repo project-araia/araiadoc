@@ -93,6 +93,15 @@ class TestDocReportRecordKept:
         assert self.report.kept_chars == 300
         assert self.report.kept_paragraphs == 5
 
+    def test_empty_parent_tracked_separately(self):
+        self.report.record_kept(chars=0, paragraphs=0, empty_parent=True)
+        assert self.report.kept_sections == 1
+        assert self.report.empty_parent_sections == 1
+
+    def test_non_empty_parent_default(self):
+        self.report.record_kept(chars=10, paragraphs=1)
+        assert self.report.empty_parent_sections == 0
+
 
 # ---------------------------------------------------------------------------
 # DocReport — record_dropped
@@ -392,6 +401,70 @@ class TestCorpusReportPartialAndMerge:
         cr.merge_partial(p2)
         assert cr.documents_processed == 2
         assert cr.kept_sections == 4
+
+
+# ---------------------------------------------------------------------------
+# CorpusReport — average section length (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestCorpusReportAvgSectionLength:
+    def _corpus_with_empty_parent(self):
+        cr = CorpusReport(pipeline="s2orc", source="/data")
+        doc = DocReport(corpus_id="d", outcome="partially_filtered")
+        # Two real kept sections + one empty parent + one dropped section.
+        doc.record_kept(chars=300, paragraphs=3)
+        doc.record_kept(chars=100, paragraphs=1)
+        doc.record_kept(chars=0, paragraphs=0, empty_parent=True)
+        doc.record_dropped("noise_header", chars=40, paragraphs=2)
+        doc.finalize()
+        cr.add(doc)
+        return cr
+
+    def test_empty_parent_propagates_to_corpus(self):
+        cr = self._corpus_with_empty_parent()
+        assert cr.empty_parent_sections == 1
+
+    def test_avg_excludes_empty_parent_before(self):
+        cr = self._corpus_with_empty_parent()
+        d = cr.to_summary_dict()
+        avg = d["totals"]["avg_section_length"]
+        # before sections = total(4) - empty_parent(1) = 3
+        assert avg["before"]["sections"] == 3
+        # before chars/section = total_chars(440) / 3
+        assert avg["before"]["chars_per_section"] == pytest.approx(440 / 3)
+
+    def test_avg_excludes_empty_parent_after(self):
+        cr = self._corpus_with_empty_parent()
+        d = cr.to_summary_dict()
+        avg = d["totals"]["avg_section_length"]
+        # after sections = kept(3) - empty_parent(1) = 2
+        assert avg["after"]["sections"] == 2
+        # after chars/section = kept_chars(400) / 2 = 200
+        assert avg["after"]["chars_per_section"] == pytest.approx(200.0)
+
+    def test_summary_has_empty_parent_in_sections(self):
+        cr = self._corpus_with_empty_parent()
+        d = cr.to_summary_dict()
+        assert d["totals"]["content_stripped"]["sections"]["empty_parent"] == 1
+
+    def test_zero_denominator_safe(self):
+        cr = CorpusReport(pipeline="p", source="s")
+        d = cr.to_summary_dict()
+        avg = d["totals"]["avg_section_length"]
+        assert avg["before"]["chars_per_section"] == 0.0
+        assert avg["after"]["chars_per_section"] == 0.0
+
+    def test_empty_parent_merges_via_partial(self):
+        p = CorpusReportPartial()
+        doc = DocReport(corpus_id="d", outcome="partially_filtered")
+        doc.record_kept(chars=0, paragraphs=0, empty_parent=True)
+        doc.finalize()
+        p.add(doc)
+        assert p.empty_parent_sections == 1
+        cr = CorpusReport(pipeline="p", source="s")
+        cr.merge_partial(p)
+        assert cr.empty_parent_sections == 1
 
 
 # ---------------------------------------------------------------------------

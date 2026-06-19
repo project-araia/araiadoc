@@ -23,9 +23,11 @@ from araiadoc.processing.verify import (
     CorpusAudit,
     DocAudit,
     _audit_loaded_doc,
+    _best_effort_oa_urls,
     _build_ground_truth_sections,
     _diagnose_missing,
     _doc_full_text,
+    _sample_oa_pdfs,
     audit_one,
 )
 
@@ -523,3 +525,70 @@ class TestCorpusAudit:
         assert len(ca.docs) == 1
         d = ca.to_dict(include_docs=True)
         assert len(d["docs"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Open-access PDF sampling (Task 3)
+# ---------------------------------------------------------------------------
+
+
+class TestBestEffortOaUrls:
+    def test_v1_oainfo_and_pdfurls(self):
+        doc = {
+            "content": {
+                "source": {
+                    "oainfo": {"openaccessurl": "https://example.org/a.pdf"},
+                    "pdfurls": ["https://mirror.org/a.pdf", "https://example.org/a.pdf"],
+                }
+            }
+        }
+        urls = _best_effort_oa_urls(doc)
+        # oainfo first, then unique pdfurls (the duplicate is de-duped).
+        assert urls == ["https://example.org/a.pdf", "https://mirror.org/a.pdf"]
+
+    def test_v2_body_source(self):
+        doc = {"body": {"source": {"oainfo": {"openaccessurl": "https://example.org/b.pdf"}}}}
+        assert _best_effort_oa_urls(doc) == ["https://example.org/b.pdf"]
+
+    def test_no_source_returns_empty(self):
+        assert _best_effort_oa_urls({"corpusid": 1}) == []
+
+    def test_malformed_does_not_raise(self):
+        assert _best_effort_oa_urls({"content": {"source": "not a dict"}}) == []
+
+    def test_scalar_pdfurls(self):
+        doc = {"content": {"source": {"pdfurls": "https://example.org/c.pdf"}}}
+        assert _best_effort_oa_urls(doc) == ["https://example.org/c.pdf"]
+
+
+class TestSampleOaPdfs:
+    def _write_raw(self, raw_dir, corpus_id, url):
+        shard = raw_dir / str(corpus_id)[-2:]
+        shard.mkdir(parents=True, exist_ok=True)
+        (shard / f"{corpus_id}.json").write_text(
+            json.dumps(
+                {
+                    "corpusid": corpus_id,
+                    "content": {"source": {"oainfo": {"openaccessurl": url}}},
+                }
+            )
+        )
+
+    def test_samples_json_docs(self, tmp_path):
+        raw = tmp_path / "raw"
+        self._write_raw(raw, 100, "https://example.org/100.pdf")
+        self._write_raw(raw, 201, "https://example.org/201.pdf")
+        json_paths = list(raw.rglob("*.json"))
+        samples = _sample_oa_pdfs(raw, [], json_paths, n=2, seed=0)
+        assert len(samples) == 2
+        by_id = {cid: urls for cid, _title, urls in samples}
+        assert by_id["100"] == ["https://example.org/100.pdf"]
+        assert by_id["201"] == ["https://example.org/201.pdf"]
+
+    def test_sample_respects_n(self, tmp_path):
+        raw = tmp_path / "raw"
+        for i in range(5):
+            self._write_raw(raw, 1000 + i, f"https://example.org/{i}.pdf")
+        json_paths = list(raw.rglob("*.json"))
+        samples = _sample_oa_pdfs(raw, [], json_paths, n=2, seed=0)
+        assert len(samples) == 2

@@ -567,6 +567,107 @@ class TestSectionizeItemS2orcV2:
         success, _, _, report = _sectionize_item_s2orc_v2(doc)
         assert report.total_sections == report.kept_sections + report.dropped_sections
 
+    def test_empty_parent_header_surfaced_as_empty_string(self):
+        # A header immediately followed by another header (no intervening
+        # paragraph span) is a parent header. It must be surfaced as a key with
+        # an empty-string value, counted as an empty_parent_section, and NOT
+        # rescue an otherwise-empty document.
+        chunk = "A sufficient English paragraph with real content. " * 5
+        # text layout: "Methods" (parent, no para) -> "Sampling" (child, para)
+        text = "Methods\nSampling\n" + chunk
+        h0_end = len("Methods")
+        h1_start = h0_end + 1
+        h1_end = h1_start + len("Sampling")
+        p_start = h1_end + 1
+        p_end = p_start + len(chunk) - 1
+
+        doc = make_v2_doc(
+            corpusid=70,
+            body_text=text,
+            para_spans=[{"start": p_start, "end": p_end}],
+            header_spans=[
+                {"start": 0, "end": h0_end},
+                {"start": h1_start, "end": h1_end},
+            ],
+        )
+        success, sectioned, _, report = _sectionize_item_s2orc_v2(doc)
+        assert success
+        # Parent header present with empty-string value.
+        assert sectioned.get("methods") == ""
+        # Child header has real content.
+        assert sectioned.get("sampling", "")
+        assert report.empty_parent_sections == 1
+
+    def test_empty_parent_header_does_not_rescue_empty_doc(self):
+        # A document whose ONLY non-abstract section is an empty parent header
+        # must still be reported as fully_filtered (empty parents don't count
+        # as real content).
+        text = "Methods\nResults\n"
+        h0_end = len("Methods")
+        h1_start = h0_end + 1
+        h1_end = h1_start + len("Results")
+        # A single tiny paragraph far away so neither header owns it... actually
+        # give zero paragraphs between/after both headers by pointing the only
+        # paragraph before the first header (becomes abstract, too short).
+        doc = make_v2_doc(
+            corpusid=71,
+            body_text=text,
+            para_spans=[{"start": 0, "end": 0}],  # empty paragraph -> ignored
+            header_spans=[
+                {"start": 0, "end": h0_end},
+                {"start": h1_start, "end": h1_end},
+            ],
+        )
+        success, sectioned, _, report = _sectionize_item_s2orc_v2(doc)
+        # Both headers are empty parents -> emitted as empty strings, but there
+        # is no real content section, so the doc is fully_filtered.
+        content_keys = [k for k in sectioned if k not in ("title", "abstract") and sectioned[k]]
+        assert content_keys == []
+        assert not success
+        assert report.outcome == "fully_filtered"
+
+    def test_numeral_prefix_retained_in_stored_header(self):
+        # "3. Introduction" must keep the leading numeral in the stored key
+        # while still being recognized as content (not dropped as noise).
+        chunk = "A sufficient English paragraph with real content. " * 5
+        raw_header = "3. Introduction"
+        text = raw_header + "\n" + chunk
+        h_end = len(raw_header)
+        p_start = h_end + 1
+        p_end = p_start + len(chunk) - 1
+
+        doc = make_v2_doc(
+            corpusid=72,
+            body_text=text,
+            para_spans=[{"start": p_start, "end": p_end}],
+            header_spans=[{"start": 0, "end": h_end}],
+        )
+        success, sectioned, _, _ = _sectionize_item_s2orc_v2(doc)
+        assert success
+        assert "3. introduction" in sectioned
+        assert "introduction" not in sectioned
+
+    def test_pure_enumeration_header_dropped(self):
+        # A header that is ENTIRELY an enumeration ("3.") must still be removed
+        # as a noise header even though its paragraph has real content.
+        chunk = "A sufficient English paragraph with real content. " * 5
+        raw_header = "3."
+        text = raw_header + "\n" + chunk
+        h_end = len(raw_header)
+        p_start = h_end + 1
+        p_end = p_start + len(chunk) - 1
+
+        doc = make_v2_doc(
+            corpusid=73,
+            body_text=text,
+            para_spans=[{"start": p_start, "end": p_end}],
+            header_spans=[{"start": 0, "end": h_end}],
+        )
+        _, sectioned, _, report = _sectionize_item_s2orc_v2(doc)
+        assert "3." not in sectioned
+        assert "3" not in sectioned
+        assert report.dropped_sections >= 1
+
 
 # ---------------------------------------------------------------------------
 # Golden integration tests — real v1 docs → expected sectionized output

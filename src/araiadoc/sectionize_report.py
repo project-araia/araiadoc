@@ -100,6 +100,12 @@ class DocReport:
     dropped_sections: int = 0  # = sum(dropped_sections_by_reason.values())
     total_sections: int = 0  # kept + dropped
 
+    # Empty parent headers: surfaced as keys with empty-string values (a header
+    # whose content lives in subsections). Counted within kept_sections, but
+    # tracked separately so average-section-length stats can exclude them
+    # (they carry zero chars and zero paragraphs).
+    empty_parent_sections: int = 0
+
     # Paragraph-level
     kept_paragraphs: int = 0
     dropped_paragraphs: int = 0
@@ -118,10 +124,19 @@ class DocReport:
     # default memory profile unchanged.
     sections: list[SectionDetail] = field(default_factory=list)
 
-    def record_kept(self, *, chars: int, paragraphs: int, header: str | None = None) -> None:
+    def record_kept(
+        self,
+        *,
+        chars: int,
+        paragraphs: int,
+        header: str | None = None,
+        empty_parent: bool = False,
+    ) -> None:
         self.kept_sections += 1
         self.kept_chars += chars
         self.kept_paragraphs += paragraphs
+        if empty_parent:
+            self.empty_parent_sections += 1
         if header is not None:
             self.sections.append(SectionDetail(header=header, chars=chars, paragraphs=paragraphs, outcome="kept"))
 
@@ -169,6 +184,12 @@ def _pct(numerator: int, denominator: int) -> float:
     return 100.0 * numerator / denominator
 
 
+def _avg(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
 def empty_outcomes() -> dict[str, int]:
     return {o: 0 for o in OUTCOMES}
 
@@ -190,6 +211,7 @@ class CorpusReport:
     kept_sections: int = 0
     dropped_sections: int = 0
     total_sections: int = 0
+    empty_parent_sections: int = 0
     kept_paragraphs: int = 0
     dropped_paragraphs: int = 0
     total_paragraphs: int = 0
@@ -213,6 +235,7 @@ class CorpusReport:
         self.kept_sections += other.kept_sections
         self.dropped_sections += other.dropped_sections
         self.total_sections += other.total_sections
+        self.empty_parent_sections += other.empty_parent_sections
         self.kept_paragraphs += other.kept_paragraphs
         self.dropped_paragraphs += other.dropped_paragraphs
         self.total_paragraphs += other.total_paragraphs
@@ -236,6 +259,7 @@ class CorpusReport:
         self.kept_sections += doc.kept_sections
         self.dropped_sections += doc.dropped_sections
         self.total_sections += doc.total_sections
+        self.empty_parent_sections += doc.empty_parent_sections
         self.kept_paragraphs += doc.kept_paragraphs
         self.dropped_paragraphs += doc.dropped_paragraphs
         self.total_paragraphs += doc.total_paragraphs
@@ -248,6 +272,30 @@ class CorpusReport:
             agg["sections"] += bucket["sections"]
             agg["paragraphs"] += bucket["paragraphs"]
             agg["chars"] += bucket["chars"]
+
+    # -- average section length ----------------------------------------------
+    # "Before processing" = every section the filter loop saw (kept + dropped),
+    # excluding empty parent headers (zero-content placeholder keys). "After
+    # processing" = sections actually kept, again excluding empty parents. Both
+    # exclusions matter because empty parents carry zero chars / zero paragraphs
+    # and would otherwise deflate the averages.
+
+    def _avg_section_lengths(self) -> dict:
+        before_sections = max(self.total_sections - self.empty_parent_sections, 0)
+        after_sections = max(self.kept_sections - self.empty_parent_sections, 0)
+        return {
+            "note": "Averages exclude empty parent headers (zero-content keys).",
+            "before": {
+                "sections": before_sections,
+                "chars_per_section": _avg(self.total_chars, before_sections),
+                "paragraphs_per_section": _avg(self.total_paragraphs, before_sections),
+            },
+            "after": {
+                "sections": after_sections,
+                "chars_per_section": _avg(self.kept_chars, after_sections),
+                "paragraphs_per_section": _avg(self.kept_paragraphs, after_sections),
+            },
+        }
 
     def to_summary_dict(self) -> dict:
         n = self.documents_processed
@@ -275,9 +323,11 @@ class CorpusReport:
                         "kept": self.kept_sections,
                         "dropped": self.dropped_sections,
                         "total": self.total_sections,
+                        "empty_parent": self.empty_parent_sections,
                         "pct_dropped": _pct(self.dropped_sections, self.total_sections),
                     },
                 },
+                "avg_section_length": self._avg_section_lengths(),
                 "drops_by_reason": self.drops_by_reason,
             },
         }
@@ -288,8 +338,35 @@ class CorpusReport:
         return [
             self._render_outcomes_table(),
             self._render_content_stripped_table(),
+            self._render_avg_section_table(),
             self._render_drops_table(),
         ]
+
+    def _render_avg_section_table(self) -> Table:
+        avg = self._avg_section_lengths()
+        t = Table(
+            title="Avg section length (empty parent headers excluded)",
+            show_lines=False,
+        )
+        t.add_column("Metric", style="bold")
+        t.add_column("Before processing", justify="right")
+        t.add_column("After processing", justify="right")
+        t.add_row(
+            "sections",
+            f"{avg['before']['sections']:,}",
+            f"{avg['after']['sections']:,}",
+        )
+        t.add_row(
+            "chars / section",
+            f"{avg['before']['chars_per_section']:,.1f}",
+            f"{avg['after']['chars_per_section']:,.1f}",
+        )
+        t.add_row(
+            "paragraphs / section",
+            f"{avg['before']['paragraphs_per_section']:,.2f}",
+            f"{avg['after']['paragraphs_per_section']:,.2f}",
+        )
+        return t
 
     def _render_outcomes_table(self) -> Table:
         n = self.documents_processed
@@ -384,6 +461,7 @@ class CorpusReportPartial:
     kept_sections: int = 0
     dropped_sections: int = 0
     total_sections: int = 0
+    empty_parent_sections: int = 0
     kept_paragraphs: int = 0
     dropped_paragraphs: int = 0
     total_paragraphs: int = 0
@@ -401,6 +479,7 @@ class CorpusReportPartial:
         self.kept_sections += doc.kept_sections
         self.dropped_sections += doc.dropped_sections
         self.total_sections += doc.total_sections
+        self.empty_parent_sections += doc.empty_parent_sections
         self.kept_paragraphs += doc.kept_paragraphs
         self.dropped_paragraphs += doc.dropped_paragraphs
         self.total_paragraphs += doc.total_paragraphs
