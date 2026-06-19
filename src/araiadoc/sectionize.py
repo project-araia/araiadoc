@@ -22,6 +22,7 @@ from .text_quality.content_assessment import (
     _header_is_noise,
     _normalize_header,
     _normalize_text,
+    _strip_enumeration_prefix,
     apply_synonyms,
     is_string_valid,
     needed_sections_but_skip_remaining,
@@ -326,7 +327,12 @@ def _sectionize_item_s2orc_v2(
     current_section_paras: list[str] = []
 
     def _flush(hdr, paras):
-        if paras:
+        # Keep a section even when it has no paragraphs of its own: a header
+        # immediately followed by another header (no intervening paragraph) is a
+        # *parent* header whose content lives in its subsections. We surface it
+        # later as a key with an empty-string value. The pre-header sentinel is
+        # the only header we never emit empty (it becomes the abstract).
+        if paras or hdr != _PRE_HEADER_KEY:
             sections.append((hdr, paras))
 
     for para_span in paragraph_spans:
@@ -352,6 +358,15 @@ def _sectionize_item_s2orc_v2(
             current_section_paras.append(para_text)
 
     _flush(current_header_text, current_section_paras)
+
+    # Flush any trailing headers that appear after the last paragraph span.
+    # These also have no paragraphs of their own and are surfaced as empty
+    # parent headers (subject to the same noise/unneeded filtering below).
+    while header_idx < n_headers:
+        hspan = header_spans[header_idx]
+        raw_header = text[hspan.get("start", 0) : hspan.get("end", 0)]  # noqa
+        sections.append((apply_synonyms(_normalize_header(raw_header)), []))
+        header_idx += 1
 
     # ---- promote pre-header paragraphs to "abstract" ----
     abstract = ""
@@ -413,7 +428,10 @@ def _sectionize_item_s2orc_v2(
             )
             continue
 
-        compare_header = "".join(header.split()).lower()
+        # Build the unneeded/skip-list comparison key from the
+        # enumeration-stripped header so a retained leading numeral (e.g.
+        # "3. references") still matches list terms ("references").
+        compare_header = "".join(_strip_enumeration_prefix(header).split()).lower()
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
             report.record_dropped(
@@ -433,6 +451,27 @@ def _sectionize_item_s2orc_v2(
                 chars=section_chars,
                 paragraphs=section_paras,
                 header=_hdr(header),
+            )
+            if should_stop_after:
+                _record_truncated_tail(i + 1)
+                break
+            continue
+
+        # Empty parent header: a header with no paragraphs of its own (its
+        # content lives in subsections). Surface it as a key with an empty
+        # string value so the document structure is preserved. It bypasses the
+        # content-quality filters (there is no content to assess) but has
+        # already passed the noise/unneeded checks above. It does NOT count as
+        # a real content section (actual_headers_count) so it can't rescue an
+        # otherwise fully-filtered document.
+        if not para_list:
+            if header not in sectioned_text:
+                sectioned_text[header] = ""
+            report.record_kept(
+                chars=0,
+                paragraphs=0,
+                header=_hdr(header),
+                empty_parent=True,
             )
             if should_stop_after:
                 _record_truncated_tail(i + 1)
@@ -493,7 +532,10 @@ def _sectionize_item_s2orc_v2(
     # default `finalize()` behavior (kept+dropped) is correct.
     report.finalize()
 
-    content_keys = [k for k in sectioned_text if k not in ("title", "abstract")]
+    # Empty parent headers (empty-string values) don't count as real content:
+    # a document whose only non-abstract keys are empty parents is still
+    # fully_filtered.
+    content_keys = [k for k in sectioned_text if k not in ("title", "abstract") and sectioned_text[k]]
     if not content_keys and actual_headers_count == 0:
         # Distinguish "all sections were filtered out" from "no sections to
         # begin with" — the latter would have been caught above as a
@@ -626,7 +668,10 @@ def _sectionize_item_v2(
             report.record_dropped("noise_header", chars=chars, paragraphs=paras, header=_hdr(header))
             continue
 
-        compare_header = "".join(header.split()).lower()
+        # Build the unneeded/skip-list comparison key from the
+        # enumeration-stripped header so a retained leading numeral (e.g.
+        # "3. references") still matches list terms ("references").
+        compare_header = "".join(_strip_enumeration_prefix(header).split()).lower()
 
         if any(j in compare_header for j in unneeded_sections_skip_remaining):
             report.record_dropped(
@@ -1199,7 +1244,12 @@ def section_dataset(source: Path, detailed_report: bool):
     type=click.Path(exists=True, path_type=Path),
     help="Path to .txt file with one regex pattern per line. Empty lines and lines starting with # are ignored.",
 )
-def section_dataset_v2(source: Path, detailed_report: bool, exclude_patterns: str, exclude_file: Path | None):
+def section_dataset_v2(
+    source: Path,
+    detailed_report: bool,
+    exclude_patterns: str,
+    exclude_file: Path | None,
+):
     """Preprocess full-text files into header:paragraph JSON dictionaries.
 
     Supports both:
@@ -1228,7 +1278,11 @@ def section_dataset_v2(source: Path, detailed_report: bool, exclude_patterns: st
     exclude_patterns_compiled = _compile_exclude_patterns(exclude_patterns or None, exclude_file)
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _sectionize_workflow(
-            source, progress, True, capture_section_detail=detailed_report, exclude_patterns=exclude_patterns_compiled
+            source,
+            progress,
+            True,
+            capture_section_detail=detailed_report,
+            exclude_patterns=exclude_patterns_compiled,
         )
 
 
@@ -1264,7 +1318,9 @@ def _sectionize_one_file_s2orc_v2(
             return (True, corpus_id, None, "skipped_existing", None, title)
 
         success, sectioned_text, error, report = _sectionize_item_s2orc_v2(
-            doc, capture_section_detail=capture_section_detail, exclude_patterns=exclude_patterns
+            doc,
+            capture_section_detail=capture_section_detail,
+            exclude_patterns=exclude_patterns,
         )
         if not success:
             return (False, corpus_id, error, "failed", report, title)
@@ -1276,7 +1332,14 @@ def _sectionize_one_file_s2orc_v2(
     except Exception as e:
         report = DocReport(corpus_id=input_path.stem, outcome="structural_failure", error=str(e))
         report.finalize()
-        return (False, input_path.stem, str(e), "failed", report, _best_effort_title(doc))
+        return (
+            False,
+            input_path.stem,
+            str(e),
+            "failed",
+            report,
+            _best_effort_title(doc),
+        )
 
 
 def _sectionize_batch_file_s2orc_v2(
@@ -1482,7 +1545,12 @@ def _sectionize_workflow_s2orc_v2(
     type=click.Path(exists=True, path_type=Path),
     help="Path to .txt file with one regex pattern per line. Empty lines and lines starting with # are ignored.",
 )
-def section_dataset_s2orc(source: Path, detailed_report: bool, exclude_patterns: str, exclude_file: Path | None):
+def section_dataset_s2orc(
+    source: Path,
+    detailed_report: bool,
+    exclude_patterns: str,
+    exclude_file: Path | None,
+):
     """Sectionize s2orc_v2 documents using span-annotation offsets.
 
     SOURCE may be:
@@ -1503,5 +1571,8 @@ def section_dataset_s2orc(source: Path, detailed_report: bool, exclude_patterns:
     exclude_patterns_compiled = _compile_exclude_patterns(exclude_patterns or None, exclude_file)
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         _sectionize_workflow_s2orc_v2(
-            source, progress, capture_section_detail=detailed_report, exclude_patterns=exclude_patterns_compiled
+            source,
+            progress,
+            capture_section_detail=detailed_report,
+            exclude_patterns=exclude_patterns_compiled,
         )

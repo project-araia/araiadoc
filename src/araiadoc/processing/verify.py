@@ -450,6 +450,108 @@ def _doc_full_text(raw: dict) -> str:
     return " ".join(filter(None, [title, text]))
 
 
+def _best_effort_oa_urls(raw: dict) -> list[str]:
+    """Extract open-access PDF URL(s) from a raw s2orc document (v1 or v2).
+
+    Probes both the v1 (`content.source`) and v2 (`body.source`) roots and
+    collects, in order of preference:
+
+      1. `source.oainfo.openaccessurl`
+      2. `source.pdfurls` (list)
+
+    Returns a de-duplicated list (possibly empty). Wrapped defensively so a
+    malformed record never raises.
+    """
+    urls: list[str] = []
+    try:
+        for root_key in ("body", "content"):
+            root = raw.get(root_key)
+            if not isinstance(root, dict):
+                continue
+            source = root.get("source")
+            if not isinstance(source, dict):
+                continue
+            oainfo = source.get("oainfo")
+            if isinstance(oainfo, dict):
+                oa_url = oainfo.get("openaccessurl")
+                if oa_url:
+                    urls.append(str(oa_url))
+            pdfurls = source.get("pdfurls")
+            if isinstance(pdfurls, (list, tuple)):
+                urls.extend(str(u) for u in pdfurls if u)
+            elif pdfurls:
+                urls.append(str(pdfurls))
+    except Exception:
+        return urls
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
+
+
+def _best_effort_title(raw: dict) -> str:
+    """Best-effort title for display in the OA-PDF sample table."""
+    title = raw.get("title")
+    if title:
+        return str(title)
+    return ""
+
+
+def _render_oa_pdf_table(samples: list[tuple[str, str, list[str]]]) -> Table:
+    """Render sampled (corpus_id, title, open-access URLs) rows."""
+    t = Table(title="Sampled open-access PDFs (raw source)")
+    t.add_column("Corpus ID", style="bold")
+    t.add_column("Title")
+    t.add_column("Open-access URL(s)")
+    for corpus_id, title, urls in samples:
+        title_snippet = (title[:60] + "…") if len(title) > 61 else title
+        url_text = "\n".join(urls) if urls else "[dim](none)[/dim]"
+        t.add_row(corpus_id, title_snippet or "[dim](no title)[/dim]", url_text)
+    if not samples:
+        t.add_row("[dim](no documents sampled)[/dim]", "", "")
+    return t
+
+
+def _sample_oa_pdfs(
+    raw_dir: Path,
+    gz_files: list[Path],
+    json_paths: list[Path],
+    n: int,
+    seed: int,
+) -> list[tuple[str, str, list[str]]]:
+    """Reservoir/random-sample N raw documents and extract their OA PDF URLs.
+
+    Returns a list of (corpus_id, title, urls). Sampling is independent of the
+    audit sample so the two `--seed` controls don't interfere.
+    """
+    samples: list[tuple[str, str, list[str]]] = []
+    if gz_files:
+        sampled_docs, _seen = _reservoir_sample_gz_docs(gz_files, n, seed)
+        for raw_doc, _label, corpus_id in sampled_docs:
+            samples.append((corpus_id, _best_effort_title(raw_doc), _best_effort_oa_urls(raw_doc)))
+        return samples
+
+    rng = random.Random(seed)
+    if 0 < n < len(json_paths):
+        chosen = rng.sample(json_paths, n)
+    else:
+        chosen = list(json_paths)
+        rng.shuffle(chosen)
+    for raw_path in chosen:
+        try:
+            with open(raw_path) as f:
+                raw_doc = json.load(f)
+        except Exception:
+            continue
+        corpus_id = str(raw_doc.get("corpusid", raw_path.stem))
+        samples.append((corpus_id, _best_effort_title(raw_doc), _best_effort_oa_urls(raw_doc)))
+    return samples
+
+
 @click.command("verify-sectionization")
 @click.argument("raw_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.argument("sect_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
@@ -497,6 +599,23 @@ def _doc_full_text(raw: dict) -> str:
     default=None,
     help="Path to .txt file with one regex pattern per line.",
 )
+@click.option(
+    "--n-sample-pdfs",
+    type=int,
+    default=0,
+    show_default=True,
+    help=(
+        "Sample N open-access PDF URLs from the raw source and print them to "
+        "the CLI for visual comparison. 0 (default) disables this output."
+    ),
+)
+@click.option(
+    "--oa-seed",
+    type=int,
+    default=0,
+    show_default=True,
+    help="RNG seed for the --n-sample-pdfs sampling (independent of --seed).",
+)
 def verify_sectionization(
     raw_dir: Path,
     sect_dir: Path,
@@ -507,6 +626,8 @@ def verify_sectionization(
     fail_threshold: float | None,
     exclude_patterns: str,
     exclude_file: Path | None,
+    n_sample_pdfs: int,
+    oa_seed: int,
 ):
     """Audit a sectionized corpus against its raw input.
 
@@ -626,6 +747,11 @@ def verify_sectionization(
     exclude_table = _render_exclude_table(audit)
     if exclude_table:
         console.print(exclude_table)
+
+    if n_sample_pdfs > 0:
+        oa_samples = _sample_oa_pdfs(raw_dir, gz_files, json_paths, n_sample_pdfs, oa_seed)
+        console.print()
+        console.print(_render_oa_pdf_table(oa_samples))
 
     if report_json is not None:
         report_json.parent.mkdir(parents=True, exist_ok=True)

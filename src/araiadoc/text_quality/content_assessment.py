@@ -284,10 +284,19 @@ def apply_synonyms(header: str) -> str:
     """
     Map a normalized header to its canonical form using HEADER_SYNONYMS.
 
-    This is applied *after* _normalize_header so both input and lookup key
-    are already lowercase with prefixes stripped.
+    This is applied *after* _normalize_header. `_normalize_header` may now retain
+    a leading enumeration prefix (e.g. "3. introduction") when readable text
+    follows it. To keep canonicalization stable, the synonym lookup is performed
+    against the enumeration-stripped key. If a synonym exists, its canonical
+    value is returned (numeral dropped); otherwise the original header is
+    returned unchanged so the numeral is preserved in the stored output.
     """
-    return HEADER_SYNONYMS.get(header, header)
+    if header in HEADER_SYNONYMS:
+        return HEADER_SYNONYMS[header]
+    stripped = _strip_enumeration_prefix(header).strip()
+    if stripped != header and stripped in HEADER_SYNONYMS:
+        return HEADER_SYNONYMS[stripped]
+    return header
 
 
 unneeded_sections_skip_remaining = [
@@ -324,6 +333,114 @@ unneeded_sections_skip_remaining = [
     "glossary",
     "openaccess",
 ]
+
+
+# Enumeration prefixes: roman numeral, single-letter, and digit forms.
+# Each requires an explicit punctuation separator (., -, :, closing paren /
+# bracket) or a letter boundary between the marker and the rest, and a
+# following alphabetic char. Order matters: roman before single-letter before
+# digit (a lone "I." is a roman numeral, not a single letter).
+_ENUM_PREFIX_PATTERNS: tuple[re.Pattern, ...] = (
+    # roman numeral: III. / III- / III: / III) / (III) / [III]
+    re.compile(
+        r"""
+        ^\s*
+        (?:
+            \([IVXLCDM]+\)              |
+            \[[IVXLCDM]+\]              |
+            [IVXLCDM]+\s*[.\-:\)]
+        )
+        \s*
+        (?=[A-Za-z])
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    ),
+    # single-letter subsection: A. Methods / B) Results
+    re.compile(r"^\s*[A-Za-z]\s*[.\-:)\]]\s*(?=[A-Za-z])"),
+    # digit: 1. / 2.1 / 3.2.1 / (1) / [2.1], optionally trailing punct, then a
+    # letter boundary (handles "1.Introduction" with no space).
+    re.compile(
+        r"""
+        ^\s*
+        (?:
+            \(\d+(?:\.\d+)*\)       |
+            \[\d+(?:\.\d+)*\]       |
+            \d+(?:\.\d+)*
+        )
+        \s*[.\-:\)]?\s*
+        (?=[A-Za-z])
+        """,
+        re.VERBOSE,
+    ),
+)
+
+
+def _strip_enumeration_prefix(header: str) -> str:
+    """Unconditionally strip a leading roman / single-letter / digit prefix.
+
+    Applies each enumeration pattern at most once, in priority order. Used to
+    build the comparison / synonym-lookup key so that keeping the numeral in the
+    *stored* header (see `_conditionally_strip_enumeration_prefix`) does not
+    change filtering or canonicalization behavior.
+    """
+    if not isinstance(header, str):
+        return ""
+    for pat in _ENUM_PREFIX_PATTERNS:
+        new = pat.sub("", header, count=1)
+        if new != header:
+            return new
+    return header
+
+
+def _has_readable_text(text: str) -> bool:
+    """True if `text` contains a run of >=2 consecutive ASCII letters."""
+    return bool(re.search(r"[A-Za-z]{2,}", text))
+
+
+# Captures the bare marker (digits like "3.2.1" or a roman numeral) from a
+# leading enumeration prefix, discarding any surrounding brackets / separators
+# so the retained marker is rendered cleanly as "<marker> <remainder>".
+_ENUM_MARKER_RE = re.compile(
+    r"""
+    ^\s*
+    [\(\[]?\s*
+    (?P<marker>
+        \d+(?:\.\d+)*           |   # 3 / 2.1 / 3.2.1
+        [IVXLCDM]+                  # roman numeral
+    )
+    \s*[.\-:\)\]]*\s*
+    (?P<rest>[A-Za-z].*)$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _conditionally_strip_enumeration_prefix(header: str) -> str:
+    """Strip a leading enumeration prefix ONLY when nothing readable remains.
+
+    Keeps the numeral for headers like "3. Introduction" (readable remainder)
+    while collapsing pure enumerations like "3." or "IV:" to empty so they are
+    dropped downstream. When the numeral is kept, surrounding bracket / separator
+    noise is normalized so the result is "<marker> <remainder>"
+    (e.g. "(2) Background" -> "2 Background", "[III] Results" -> "III Results").
+    """
+    stripped = _strip_enumeration_prefix(header)
+    if stripped == header:
+        return header
+    # If removing the prefix leaves readable text, keep the numeral but tidy
+    # the marker punctuation to a canonical "<marker>. <remainder>" form. We
+    # keep an explicit "." separator (rather than a bare space) so that the
+    # enumeration prefix remains strippable by `_strip_enumeration_prefix` when
+    # building the comparison / synonym-lookup key — a bare-space roman marker
+    # ("IV Results") is intentionally NOT strippable there to avoid clipping
+    # real words that look like roman numerals (e.g. "MIX Methods").
+    if _has_readable_text(stripped):
+        m = _ENUM_MARKER_RE.match(header)
+        if m:
+            return f"{m.group('marker')}. {m.group('rest')}"
+        return header
+    # Otherwise the prefix was the whole header — keep it stripped (-> empty/noise).
+    return stripped
 
 
 def _normalize_header(header: str) -> str:
@@ -450,50 +567,15 @@ def _normalize_header(header: str) -> str:
 
     header = _repair_fragmented_ocr_phrase(header)
 
-    # Step 5: strip roman numeral prefix
-    # Require an explicit punctuation separator (., -, :, closing paren/bracket)
-    # between the numeral and the rest. We deliberately do NOT strip on bare
-    # whitespace alone (e.g. "MIX Methods") because real words like "MIX",
-    # "DID", "CIVIL" are all valid roman numerals and would be misclassified.
-    roman_prefix_pattern = re.compile(
-        r"""
-        ^\s*
-        (?:
-            \([IVXLCDM]+\)              |   # (III)
-            \[[IVXLCDM]+\]              |   # [III]
-            [IVXLCDM]+\s*[.\-:\)]           # III. / III- / III: / III)
-        )
-        \s*
-        (?=[A-Za-z])
-        """,
-        re.IGNORECASE | re.VERBOSE,
-    )
-    header = roman_prefix_pattern.sub("", header)
-
-    # Step 5b: strip single-letter subsection prefix (A. Methods, B) Results, …)
-    # Only strip when it is a lone letter followed by punctuation — never bare
-    # whitespace — to avoid clipping real single-letter words like "I" or "A".
-    alpha_prefix_pattern = re.compile(r"^\s*[A-Za-z]\s*[.\-:)\]]\s*(?=[A-Za-z])")
-    header = alpha_prefix_pattern.sub("", header)
-
-    # Step 6: strip digit prefix
-    # Match: "1.", "2.1", "3.2.1", "(1)", "[2.1]", optionally followed by
-    # trailing punctuation, and a separator that is either whitespace OR a
-    # letter boundary (handles "1.Introduction" with no space).
-    digit_prefix_pattern = re.compile(
-        r"""
-        ^\s*
-        (?:
-            \(\d+(?:\.\d+)*\)       |   # (1) or (2.1)
-            \[\d+(?:\.\d+)*\]       |   # [1] or [2.1]
-            \d+(?:\.\d+)*               # 1 or 2.1 or 3.2.1
-        )
-        \s*[.\-:\)]?\s*
-        (?=[A-Za-z])
-        """,
-        re.VERBOSE,
-    )
-    header = digit_prefix_pattern.sub("", header)
+    # Steps 5/5b/6: enumeration prefixes (roman numeral / single-letter /
+    # digit). Historically these were always stripped. We now KEEP a leading
+    # numeral when the rest of the header still contains readable text, so
+    # "3. Introduction" -> "3. introduction" and "IV: Methods" -> "iv: methods".
+    # A header that is *entirely* an enumeration ("3.", "IV:") has no readable
+    # remainder, so the prefix is stripped to empty and dropped downstream by
+    # `_header_is_noise`. `_strip_enumeration_prefix` performs the unconditional
+    # strip used to build the comparison / synonym lookup key elsewhere.
+    header = _conditionally_strip_enumeration_prefix(header)
 
     # Step 7: strip leading/trailing punctuation only
     header = re.sub(r'^[\s\.,;:!\?\-\[\]\(\)\{\}"\'`]+', "", header)
