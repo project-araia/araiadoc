@@ -1,5 +1,5 @@
 ---
-name: crawl-epa
+name: crawl_epa
 description: Asynchronously crawl EPA NEPIS document result pages using the araiadoc tool.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: section-dataset-s2orc
+name: section_dataset_s2orc
 description: Sectionize s2orc_v2 documents into header:paragraph JSON dictionaries using the araiadoc tool. Reconstructs section structure from span-annotation offsets in body.text.
 ---
 

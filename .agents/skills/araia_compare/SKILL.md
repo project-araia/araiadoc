@@ -1,5 +1,5 @@
 ---
-name: araia-compare
+name: araia_compare
 description: Compare two araiadoc datasets (typically two sectionized corpus directories or two ID lists) to surface overlap, cloning, drift, or mislabeling. Query context is optional — supply a query identifier from src/araiadoc/searches.py to additionally check whether each dir is a plausible subset of that query's results.
 ---
 

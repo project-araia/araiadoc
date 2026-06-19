@@ -1,5 +1,5 @@
 ---
-name: araia-review
+name: araia_review
 description: Review a single sectionized araiadoc corpus against the Solr boolean query in src/araiadoc/searches.py that was supposed to generate it. Judge topical fit, surface recurring failure modes, and feed insights back into iterating the literal query.
 ---
 

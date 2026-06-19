@@ -1,5 +1,5 @@
 ---
-name: crawl-osti
+name: crawl_osti
 description: Asynchronously crawl OSTI (Office of Scientific and Technical Information) result pages using the araiadoc tool.
 ---
 
