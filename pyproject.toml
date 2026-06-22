@@ -28,7 +28,7 @@ platforms = ["osx-arm64", "linux-64"]
 araiadoc = { path = ".", editable = true }
 
 [tool.pixi.environments]
-default = []
+default = ["araiadoc"]
 dev = ["dev", "araiadoc"]
 araiadoc = ["araiadoc"]
 experiment = ["experiment"]
