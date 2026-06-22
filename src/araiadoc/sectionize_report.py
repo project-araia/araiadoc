@@ -73,6 +73,7 @@ class SectionDetail:
     header: str
     chars: int
     paragraphs: int
+    words: int
     outcome: str  # "kept" or one of DROP_REASONS
 
 
@@ -111,6 +112,11 @@ class DocReport:
     dropped_paragraphs: int = 0
     total_paragraphs: int = 0
 
+    # Word-level (whitespace-split token count of content)
+    kept_words: int = 0
+    dropped_words: int = 0
+    total_words: int = 0
+
     # Character-level (content only — headers excluded)
     kept_chars: int = 0
     dropped_chars: int = 0
@@ -129,16 +135,20 @@ class DocReport:
         *,
         chars: int,
         paragraphs: int,
+        words: int = 0,
         header: str | None = None,
         empty_parent: bool = False,
     ) -> None:
         self.kept_sections += 1
         self.kept_chars += chars
         self.kept_paragraphs += paragraphs
+        self.kept_words += words
         if empty_parent:
             self.empty_parent_sections += 1
         if header is not None:
-            self.sections.append(SectionDetail(header=header, chars=chars, paragraphs=paragraphs, outcome="kept"))
+            self.sections.append(
+                SectionDetail(header=header, chars=chars, paragraphs=paragraphs, words=words, outcome="kept")
+            )
 
     def record_dropped(
         self,
@@ -146,6 +156,7 @@ class DocReport:
         *,
         chars: int,
         paragraphs: int,
+        words: int = 0,
         header: str | None = None,
     ) -> None:
         # Caller is responsible for passing a known reason; unknown values
@@ -153,20 +164,27 @@ class DocReport:
         # rendered Rich table (which iterates DROP_REASONS), so they're
         # functionally invisible in the CLI. This is intentional: we want
         # added reasons to require an explicit DROP_REASONS entry.
-        bucket = self.dropped_sections_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "chars": 0})
+        bucket = self.dropped_sections_by_reason.setdefault(
+            reason, {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0}
+        )
         bucket["sections"] += 1
         bucket["paragraphs"] += paragraphs
+        bucket["words"] += words
         bucket["chars"] += chars
         self.dropped_sections += 1
         self.dropped_paragraphs += paragraphs
+        self.dropped_words += words
         self.dropped_chars += chars
         if header is not None:
-            self.sections.append(SectionDetail(header=header, chars=chars, paragraphs=paragraphs, outcome=reason))
+            self.sections.append(
+                SectionDetail(header=header, chars=chars, paragraphs=paragraphs, words=words, outcome=reason)
+            )
 
     def finalize(self) -> None:
         """Compute denominators from the kept/dropped sides."""
         self.total_sections = self.kept_sections + self.dropped_sections
         self.total_paragraphs = self.kept_paragraphs + self.dropped_paragraphs
+        self.total_words = self.kept_words + self.dropped_words
         # total_chars: prefer an externally set value (e.g. len(body.text))
         # if it was already populated; otherwise fall back to kept+dropped.
         if not self.total_chars:
@@ -195,7 +213,7 @@ def empty_outcomes() -> dict[str, int]:
 
 
 def empty_drops() -> dict[str, dict[str, int]]:
-    return {r: {"sections": 0, "paragraphs": 0, "chars": 0} for r in DROP_REASONS}
+    return {r: {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0} for r in DROP_REASONS}
 
 
 @dataclass
@@ -215,6 +233,9 @@ class CorpusReport:
     kept_paragraphs: int = 0
     dropped_paragraphs: int = 0
     total_paragraphs: int = 0
+    kept_words: int = 0
+    dropped_words: int = 0
+    total_words: int = 0
     kept_chars: int = 0
     dropped_chars: int = 0
     total_chars: int = 0
@@ -239,13 +260,17 @@ class CorpusReport:
         self.kept_paragraphs += other.kept_paragraphs
         self.dropped_paragraphs += other.dropped_paragraphs
         self.total_paragraphs += other.total_paragraphs
+        self.kept_words += other.kept_words
+        self.dropped_words += other.dropped_words
+        self.total_words += other.total_words
         self.kept_chars += other.kept_chars
         self.dropped_chars += other.dropped_chars
         self.total_chars += other.total_chars
         for reason, bucket in other.drops_by_reason.items():
-            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "chars": 0})
+            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0})
             agg["sections"] += bucket["sections"]
             agg["paragraphs"] += bucket["paragraphs"]
+            agg["words"] += bucket.get("words", 0)
             agg["chars"] += bucket["chars"]
 
     def add(self, doc: DocReport) -> None:
@@ -263,14 +288,18 @@ class CorpusReport:
         self.kept_paragraphs += doc.kept_paragraphs
         self.dropped_paragraphs += doc.dropped_paragraphs
         self.total_paragraphs += doc.total_paragraphs
+        self.kept_words += doc.kept_words
+        self.dropped_words += doc.dropped_words
+        self.total_words += doc.total_words
         self.kept_chars += doc.kept_chars
         self.dropped_chars += doc.dropped_chars
         self.total_chars += doc.total_chars
 
         for reason, bucket in doc.dropped_sections_by_reason.items():
-            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "chars": 0})
+            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0})
             agg["sections"] += bucket["sections"]
             agg["paragraphs"] += bucket["paragraphs"]
+            agg["words"] += bucket.get("words", 0)
             agg["chars"] += bucket["chars"]
 
     # -- average section length ----------------------------------------------
@@ -288,11 +317,13 @@ class CorpusReport:
             "before": {
                 "sections": before_sections,
                 "chars_per_section": _avg(self.total_chars, before_sections),
+                "words_per_section": _avg(self.total_words, before_sections),
                 "paragraphs_per_section": _avg(self.total_paragraphs, before_sections),
             },
             "after": {
                 "sections": after_sections,
                 "chars_per_section": _avg(self.kept_chars, after_sections),
+                "words_per_section": _avg(self.kept_words, after_sections),
                 "paragraphs_per_section": _avg(self.kept_paragraphs, after_sections),
             },
         }
@@ -312,6 +343,12 @@ class CorpusReport:
                         "dropped": self.dropped_chars,
                         "total": self.total_chars,
                         "pct_dropped": _pct(self.dropped_chars, self.total_chars),
+                    },
+                    "words": {
+                        "kept": self.kept_words,
+                        "dropped": self.dropped_words,
+                        "total": self.total_words,
+                        "pct_dropped": _pct(self.dropped_words, self.total_words),
                     },
                     "paragraphs": {
                         "kept": self.kept_paragraphs,
@@ -362,6 +399,11 @@ class CorpusReport:
             f"{avg['after']['chars_per_section']:,.1f}",
         )
         t.add_row(
+            "words / section",
+            f"{avg['before']['words_per_section']:,.1f}",
+            f"{avg['after']['words_per_section']:,.1f}",
+        )
+        t.add_row(
             "paragraphs / section",
             f"{avg['before']['paragraphs_per_section']:,.2f}",
             f"{avg['after']['paragraphs_per_section']:,.2f}",
@@ -399,6 +441,7 @@ class CorpusReport:
         t.add_column("% Dropped", justify="right")
         rows = [
             ("chars", self.kept_chars, self.dropped_chars, self.total_chars),
+            ("words", self.kept_words, self.dropped_words, self.total_words),
             (
                 "paragraphs",
                 self.kept_paragraphs,
@@ -427,15 +470,17 @@ class CorpusReport:
         t.add_column("Reason", style="bold")
         t.add_column("Sections", justify="right")
         t.add_column("Paragraphs", justify="right")
+        t.add_column("Words", justify="right")
         t.add_column("Chars", justify="right")
         t.add_column("% of dropped sections", justify="right")
         total_dropped_sections = self.dropped_sections
         for reason in DROP_REASONS:
-            bucket = self.drops_by_reason.get(reason, {"sections": 0, "paragraphs": 0, "chars": 0})
+            bucket = self.drops_by_reason.get(reason, {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0})
             t.add_row(
                 reason,
                 f"{bucket['sections']:,}",
                 f"{bucket['paragraphs']:,}",
+                f"{bucket.get('words', 0):,}",
                 f"{bucket['chars']:,}",
                 f"{_pct(bucket['sections'], total_dropped_sections):.2f}",
             )
@@ -465,6 +510,9 @@ class CorpusReportPartial:
     kept_paragraphs: int = 0
     dropped_paragraphs: int = 0
     total_paragraphs: int = 0
+    kept_words: int = 0
+    dropped_words: int = 0
+    total_words: int = 0
     kept_chars: int = 0
     dropped_chars: int = 0
     total_chars: int = 0
@@ -483,13 +531,17 @@ class CorpusReportPartial:
         self.kept_paragraphs += doc.kept_paragraphs
         self.dropped_paragraphs += doc.dropped_paragraphs
         self.total_paragraphs += doc.total_paragraphs
+        self.kept_words += doc.kept_words
+        self.dropped_words += doc.dropped_words
+        self.total_words += doc.total_words
         self.kept_chars += doc.kept_chars
         self.dropped_chars += doc.dropped_chars
         self.total_chars += doc.total_chars
         for reason, bucket in doc.dropped_sections_by_reason.items():
-            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "chars": 0})
+            agg = self.drops_by_reason.setdefault(reason, {"sections": 0, "paragraphs": 0, "words": 0, "chars": 0})
             agg["sections"] += bucket["sections"]
             agg["paragraphs"] += bucket["paragraphs"]
+            agg["words"] += bucket.get("words", 0)
             agg["chars"] += bucket["chars"]
 
 

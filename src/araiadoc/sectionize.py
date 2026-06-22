@@ -394,6 +394,7 @@ def _sectionize_item_s2orc_v2(
         # per-section filter loop, so record it directly.
         report.record_kept(
             chars=len(abstract),
+            words=len(abstract.split()),
             paragraphs=abstract_para_count,
             header=_hdr("abstract"),
         )
@@ -405,24 +406,30 @@ def _sectionize_item_s2orc_v2(
         # matches what would have been written.
         return len(" ".join(para_list))
 
+    def _content_words_for(para_list: list[str]) -> int:
+        return len(" ".join(para_list).split())
+
     def _record_truncated_tail(start_idx: int) -> None:
         """Bucket every section the loop would have visited after a break."""
         for hdr, paras in remaining_sections[start_idx:]:
             report.record_dropped(
                 "post_break_truncated",
                 chars=_content_chars_for(paras),
+                words=_content_words_for(paras),
                 paragraphs=len(paras),
                 header=_hdr(hdr),
             )
 
     for i, (header, para_list) in enumerate(remaining_sections):
         section_chars = _content_chars_for(para_list)
+        section_words = _content_words_for(para_list)
         section_paras = len(para_list)
 
         if _header_is_noise(header):
             report.record_dropped(
                 "noise_header",
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -437,6 +444,7 @@ def _sectionize_item_s2orc_v2(
             report.record_dropped(
                 "unneeded_skip_remaining",
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -449,6 +457,7 @@ def _sectionize_item_s2orc_v2(
             report.record_dropped(
                 "unneeded_no_skip",
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -469,6 +478,7 @@ def _sectionize_item_s2orc_v2(
                 sectioned_text[header] = ""
             report.record_kept(
                 chars=0,
+                words=0,
                 paragraphs=0,
                 header=_hdr(header),
                 empty_parent=True,
@@ -485,6 +495,7 @@ def _sectionize_item_s2orc_v2(
             report.record_dropped(
                 "non_substantive",
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -503,6 +514,7 @@ def _sectionize_item_s2orc_v2(
             actual_headers_count += 1
             report.record_kept(
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -510,6 +522,7 @@ def _sectionize_item_s2orc_v2(
             report.record_dropped(
                 "non_english_or_invalid",
                 chars=section_chars,
+                words=section_words,
                 paragraphs=section_paras,
                 header=_hdr(header),
             )
@@ -522,6 +535,7 @@ def _sectionize_item_s2orc_v2(
                 report.record_dropped(
                     "post_conclusion_truncation",
                     chars=_content_chars_for(paras),
+                    words=_content_words_for(paras),
                     paragraphs=len(paras),
                     header=_hdr(hdr),
                 )
@@ -646,7 +660,7 @@ def _sectionize_item_v2(
 
     # Abstract counts as kept content (it bypasses the per-section filter loop).
     if abstract:
-        report.record_kept(chars=len(abstract), paragraphs=1, header=_hdr("abstract"))
+        report.record_kept(chars=len(abstract), words=len(abstract.split()), paragraphs=1, header=_hdr("abstract"))
 
     actual_headers_count = 0
     paired = list(zip(section_headers, paragraphs))
@@ -656,16 +670,18 @@ def _sectionize_item_v2(
             report.record_dropped(
                 "post_break_truncated",
                 chars=len(content),
+                words=len(content.split()),
                 paragraphs=1,
                 header=_hdr(hdr),
             )
 
     for i, (header, content) in enumerate(paired):
         chars = len(content)
+        words = len(content.split())
         paras = 1  # legacy schema is 1 paragraph per (header, content) pair
 
         if _header_is_noise(header):
-            report.record_dropped("noise_header", chars=chars, paragraphs=paras, header=_hdr(header))
+            report.record_dropped("noise_header", chars=chars, words=words, paragraphs=paras, header=_hdr(header))
             continue
 
         # Build the unneeded/skip-list comparison key from the
@@ -677,6 +693,7 @@ def _sectionize_item_v2(
             report.record_dropped(
                 "unneeded_skip_remaining",
                 chars=chars,
+                words=words,
                 paragraphs=paras,
                 header=_hdr(header),
             )
@@ -689,6 +706,7 @@ def _sectionize_item_v2(
             report.record_dropped(
                 "unneeded_no_skip",
                 chars=chars,
+                words=words,
                 paragraphs=paras,
                 header=_hdr(header),
             )
@@ -698,6 +716,7 @@ def _sectionize_item_v2(
             report.record_dropped(
                 "non_substantive",
                 chars=chars,
+                words=words,
                 paragraphs=paras,
                 header=_hdr(header),
             )
@@ -714,11 +733,12 @@ def _sectionize_item_v2(
             else:
                 sectioned_text[header] = content
             actual_headers_count += 1
-            report.record_kept(chars=chars, paragraphs=paras, header=_hdr(header))
+            report.record_kept(chars=chars, words=words, paragraphs=paras, header=_hdr(header))
         else:
             report.record_dropped(
                 "non_english_or_invalid",
                 chars=chars,
+                words=words,
                 paragraphs=paras,
                 header=_hdr(header),
             )
@@ -728,6 +748,7 @@ def _sectionize_item_v2(
                 report.record_dropped(
                     "post_conclusion_truncation",
                     chars=len(c),
+                    words=len(c.split()),
                     paragraphs=1,
                     header=_hdr(hdr),
                 )

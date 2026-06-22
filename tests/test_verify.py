@@ -144,7 +144,9 @@ class TestBuildGroundTruthSections:
         sections = _build_ground_truth_sections(doc)
         intro = next(s for s in sections if s["norm_header"] == "introduction")
         expected_chars = sum(len(p) for p in intro["paragraphs"])
+        expected_words = sum(len(p.split()) for p in intro["paragraphs"])
         assert intro["total_chars"] == expected_chars
+        assert intro["total_words"] == expected_words
 
     def test_empty_body_returns_empty_list(self):
         doc = {"body": {"text": "", "annotations": {}}}
@@ -188,11 +190,9 @@ class TestDiagnoseMissing:
         # "figure" is in unneeded_sections_no_skip_remaining → unneeded_no_skip
         assert reason in ("noise_header", "unneeded_no_skip", "unknown_after_break")
 
-    def test_unneeded_skip_remaining_references(self):
-        reason = _diagnose_missing("References", "references", "Smith 2020, Journal X.")
-        assert reason == "unneeded_skip_remaining"
-
     def test_unneeded_skip_remaining_acknowledgments(self):
+        # "References" is caught by _header_is_noise before skip_remaining;
+        # use "Acknowledgments" which is skip_remaining but not noise.
         reason = _diagnose_missing("Acknowledgments", "acknowledgment", "We thank the reviewers.")
         assert reason == "unneeded_skip_remaining"
 
@@ -336,6 +336,7 @@ class TestAuditLoadedDoc:
         assert audit.error is None
         assert audit.sections_missing >= 1
         assert audit.missing_chars > 0
+        assert audit.missing_words > 0
 
     def test_missing_sect_file_sets_error(self, tmp_path):
         raw = self._build_raw_v2("text", [], [])
@@ -412,7 +413,9 @@ class TestAuditOne:
 
 
 class TestCorpusAudit:
-    def _make_doc_audit(self, *, missing=0, present=2, raw_chars=500, missing_chars=0, error=None):
+    def _make_doc_audit(
+        self, *, missing=0, present=2, raw_chars=500, missing_chars=0, raw_words=100, missing_words=0, error=None
+    ):
         d = DocAudit(
             corpus_id="d",
             raw_path="/r",
@@ -422,6 +425,8 @@ class TestCorpusAudit:
             sections_missing=missing,
             raw_chars=raw_chars,
             missing_chars=missing_chars,
+            raw_words=raw_words,
+            missing_words=missing_words,
         )
         if missing:
             d.missing_by_reason["noise_header"] = missing
@@ -455,6 +460,22 @@ class TestCorpusAudit:
         ca.add(self._make_doc_audit(raw_chars=100, missing_chars=0))
         assert ca.raw_chars == 400
         assert ca.missing_chars == 75
+
+    def test_aggregate_word_counts(self):
+        ca = CorpusAudit(raw_dir="/r", sect_dir="/s")
+        ca.add(self._make_doc_audit(raw_words=200, missing_words=40))
+        ca.add(self._make_doc_audit(raw_words=100, missing_words=0))
+        assert ca.raw_words == 300
+        assert ca.missing_words == 40
+
+    def test_word_loss_pct_correct(self):
+        ca = CorpusAudit(raw_dir="/r", sect_dir="/s")
+        ca.add(self._make_doc_audit(raw_words=200, missing_words=50))
+        assert ca.word_loss_pct == pytest.approx(25.0)
+
+    def test_word_loss_pct_zero_when_no_raw_words(self):
+        ca = CorpusAudit(raw_dir="/r", sect_dir="/s")
+        assert ca.word_loss_pct == pytest.approx(0.0)
 
     def test_missing_by_reason_accumulated(self):
         ca = CorpusAudit(raw_dir="/r", sect_dir="/s")
@@ -501,6 +522,9 @@ class TestCorpusAudit:
             "raw_chars",
             "missing_chars",
             "loss_pct",
+            "raw_words",
+            "missing_words",
+            "word_loss_pct",
             "section_loss_pct",
             "missing_by_reason",
         ):
