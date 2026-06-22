@@ -16,21 +16,28 @@ Run with:
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 from conftest import make_v1_doc, make_v2_doc
 
 from araiadoc.sectionize import (
     _best_effort_external_ids,
     _best_effort_title,
     _compile_exclude_patterns,
+    _exclude_matches_for_doc,
+    _filter_dataset_workflow,
+    _filter_one_json_file,
+    _filter_one_jsonl_file,
     _get_corpus_id,
     _normalize_to_v2,
     _parse_spans,
     _sectionize_item_s2orc_v2,
     _sharded_output_file,
+    filter_dataset,
 )
 
 # ---------------------------------------------------------------------------
@@ -152,6 +159,154 @@ class TestCompileExcludePatterns:
 
         patterns = _compile_exclude_patterns(patterns_str=r"\btest\b")
         assert isinstance(patterns[0], re.Pattern)
+
+
+# ---------------------------------------------------------------------------
+# raw dataset filtering helpers
+# ---------------------------------------------------------------------------
+
+
+class TestFilterDatasetHelpers:
+    def test_exclude_matches_legacy_v2_paragraphs(self):
+        import re
+
+        doc = {
+            "corpus_id": "abc",
+            "title": ["Grid resilience"],
+            "abstract": ["Safe abstract."],
+            "paragraph": ["This paper studies gene expression."],
+        }
+        matches = _exclude_matches_for_doc(doc, [re.compile("gene expression", re.IGNORECASE)])
+        assert matches == ["gene expression"]
+
+    def test_filter_one_json_file_copies_kept_file(self, tmp_path):
+        patterns = _compile_exclude_patterns(patterns_str="genomics")
+        source = tmp_path / "raw"
+        source.mkdir()
+        doc_path = source / "keep.json"
+        doc = make_v2_doc(corpusid=1, title="Energy systems", body_text="Utility resilience planning.")
+        doc_path.write_text(json.dumps(doc))
+
+        output_dir = tmp_path / "filtered"
+        result = _filter_one_json_file(doc_path, source, output_dir, patterns)
+
+        assert result["status"] == "kept"
+        assert (output_dir / "keep.json").exists()
+        assert json.loads((output_dir / "keep.json").read_text())["corpusid"] == 1
+
+    def test_filter_one_json_file_excludes_matching_file(self, tmp_path):
+        patterns = _compile_exclude_patterns(patterns_str="genomics")
+        source = tmp_path / "raw"
+        source.mkdir()
+        doc_path = source / "drop.json"
+        doc = make_v2_doc(corpusid=2, title="Genomics study", body_text="Utility resilience planning.")
+        doc_path.write_text(json.dumps(doc))
+
+        output_dir = tmp_path / "filtered"
+        result = _filter_one_json_file(doc_path, source, output_dir, patterns)
+
+        assert result["status"] == "excluded"
+        assert result["matched"] == ["genomics"]
+        assert not (output_dir / "drop.json").exists()
+
+    def test_filter_one_json_file_removes_stale_output_when_excluded_on_rerun(self, tmp_path):
+        source = tmp_path / "raw"
+        source.mkdir()
+        doc_path = source / "changed.json"
+        output_dir = tmp_path / "filtered"
+
+        kept_doc = make_v2_doc(corpusid=3, title="Energy systems", body_text="Utility resilience planning.")
+        doc_path.write_text(json.dumps(kept_doc))
+        _filter_one_json_file(doc_path, source, output_dir, _compile_exclude_patterns(patterns_str="genomics"))
+        assert (output_dir / "changed.json").exists()
+
+        excluded_doc = make_v2_doc(corpusid=3, title="Genomics study", body_text="Utility resilience planning.")
+        doc_path.write_text(json.dumps(excluded_doc))
+        result = _filter_one_json_file(doc_path, source, output_dir, _compile_exclude_patterns(patterns_str="genomics"))
+
+        assert result["status"] == "excluded"
+        assert not (output_dir / "changed.json").exists()
+
+    def test_filter_one_jsonl_file_rewrites_kept_docs(self, tmp_path):
+        patterns = _compile_exclude_patterns(patterns_str="genomics")
+        source = tmp_path / "raw"
+        source.mkdir()
+        shard = source / "shard.jsonl.gz"
+        keep_doc = make_v2_doc(corpusid=10, title="Energy systems", body_text="Utility resilience planning.")
+        drop_doc = make_v2_doc(corpusid=11, title="Genomics study", body_text="Utility resilience planning.")
+        with gzip.open(shard, "wt", encoding="utf-8") as f:
+            f.write(json.dumps(keep_doc) + "\n")
+            f.write(json.dumps(drop_doc) + "\n")
+
+        output_dir = tmp_path / "filtered"
+        result = _filter_one_jsonl_file(shard, source, output_dir, patterns)
+
+        assert result["kept"] == 1
+        assert result["excluded"] == 1
+        assert result["matched_counts"] == {"genomics": 1}
+        with gzip.open(output_dir / "shard.jsonl.gz", "rt", encoding="utf-8") as f:
+            docs = [json.loads(line) for line in f if line.strip()]
+        assert [doc["corpusid"] for doc in docs] == [10]
+
+    def test_filter_workflow_discovers_plain_gz_s2orc_shard(self, tmp_path):
+        from rich.progress import Progress
+
+        patterns = _compile_exclude_patterns(patterns_str="genomics")
+        source = tmp_path / "raw"
+        source.mkdir()
+        shard = source / "s2orc-shard.gz"
+        keep_doc = make_v2_doc(corpusid=20, title="Energy systems", body_text="Utility resilience planning.")
+        drop_doc = make_v2_doc(corpusid=21, title="Genomics study", body_text="Utility resilience planning.")
+        with gzip.open(shard, "wt", encoding="utf-8") as f:
+            f.write(json.dumps(keep_doc) + "\n")
+            f.write(json.dumps(drop_doc) + "\n")
+
+        output_dir = tmp_path / "filtered"
+        with Progress() as progress:
+            report = _filter_dataset_workflow(source, output_dir, patterns, progress)
+
+        assert report["batch_files_processed"] == 1
+        assert report["documents_kept"] == 1
+        assert report["documents_excluded"] == 1
+        with gzip.open(output_dir / "s2orc-shard.gz", "rt", encoding="utf-8") as f:
+            docs = [json.loads(line) for line in f if line.strip()]
+        assert [doc["corpusid"] for doc in docs] == [20]
+        assert json.loads((output_dir / "filter_report.json").read_text())["matched_counts"] == {"genomics": 1}
+
+    def test_filter_dataset_cli_rejects_output_inside_source(self, tmp_path):
+        source = tmp_path / "raw"
+        source.mkdir()
+        runner = CliRunner()
+
+        result = runner.invoke(
+            filter_dataset,
+            [str(source), "--patterns", "genomics", "--output-dir", str(source / "filtered")],
+        )
+
+        assert result.exit_code != 0
+        assert "--output-dir must be outside SOURCE" in result.output
+
+    def test_filter_dataset_cli_writes_report_for_json_files(self, tmp_path):
+        source = tmp_path / "raw"
+        source.mkdir()
+        keep_doc = make_v2_doc(corpusid=30, title="Energy systems", body_text="Utility resilience planning.")
+        drop_doc = make_v2_doc(corpusid=31, title="Genomics study", body_text="Utility resilience planning.")
+        (source / "keep.json").write_text(json.dumps(keep_doc))
+        (source / "drop.json").write_text(json.dumps(drop_doc))
+        output_dir = tmp_path / "filtered"
+
+        result = CliRunner().invoke(
+            filter_dataset,
+            [str(source), "--patterns", "genomics", "--output-dir", str(output_dir)],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (output_dir / "keep.json").exists()
+        assert not (output_dir / "drop.json").exists()
+        report = json.loads((output_dir / "filter_report.json").read_text())
+        assert report["documents_kept"] == 1
+        assert report["documents_excluded"] == 1
+        assert report["matched_counts"] == {"genomics": 1}
 
 
 # ---------------------------------------------------------------------------

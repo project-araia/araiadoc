@@ -2,6 +2,7 @@ import gzip
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import click
@@ -47,6 +48,143 @@ def _compile_exclude_patterns(patterns_str: str | None = None, pattern_file: Pat
             ]
         )
     return [re.compile(p, re.IGNORECASE) for p in patterns]
+
+
+def _exclude_matches_for_doc(doc: dict, exclude_patterns: list[re.Pattern]) -> list[str]:
+    """Return pattern strings that match a raw legacy-v2 or s2orc v1/v2 document."""
+    item = _extract_item_from_doc(doc)
+    title = _get_first(item, "title") or _best_effort_title(item)
+    abstract = _get_first(item, "abstract")
+    paragraphs = _get_list(item, "paragraph")
+
+    normalized = _normalize_to_v2(item)
+    body = normalized.get("body") if isinstance(normalized, dict) else {}
+    body_text = body.get("text") if isinstance(body, dict) else ""
+
+    full_text = " ".join(filter(None, [title, abstract, body_text, " ".join(paragraphs)]))
+    return [p.pattern for p in exclude_patterns if p.search(full_text)]
+
+
+def _filter_one_json_file(input_path: Path, source: Path, output_dir: Path, exclude_patterns: list[re.Pattern]) -> dict:
+    with open(input_path) as f:
+        doc = json.load(f)
+
+    matched = _exclude_matches_for_doc(doc, exclude_patterns)
+    rel_path = input_path.relative_to(source)
+    output_path = output_dir / rel_path
+    if matched:
+        if output_path.exists():
+            output_path.unlink()
+        return {"status": "excluded", "path": str(rel_path), "matched": matched}
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(input_path, output_path)
+    return {"status": "kept", "path": str(rel_path), "matched": []}
+
+
+def _filter_one_jsonl_file(
+    input_path: Path, source: Path, output_dir: Path, exclude_patterns: list[re.Pattern]
+) -> dict:
+    rel_path = input_path.relative_to(source)
+    output_path = output_dir / rel_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    opener = gzip.open if input_path.suffix == ".gz" else open
+    kept = excluded = failures = 0
+    matched_counts: dict[str, int] = {}
+
+    with opener(input_path, "rt", encoding="utf-8") as in_f, opener(output_path, "wt", encoding="utf-8") as out_f:
+        for line in in_f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                doc = json.loads(stripped)
+                matched = _exclude_matches_for_doc(doc, exclude_patterns)
+            except Exception:
+                failures += 1
+                # Preserve unparseable rows rather than silently dropping data.
+                out_f.write(line if line.endswith("\n") else line + "\n")
+                kept += 1
+                continue
+
+            if matched:
+                excluded += 1
+                for pattern in matched:
+                    matched_counts[pattern] = matched_counts.get(pattern, 0) + 1
+                continue
+
+            out_f.write(json.dumps(doc) + "\n")
+            kept += 1
+
+    return {
+        "status": "processed_batch",
+        "path": str(rel_path),
+        "kept": kept,
+        "excluded": excluded,
+        "failures": failures,
+        "matched_counts": matched_counts,
+    }
+
+
+def _filter_dataset_workflow(
+    source: Path, output_dir: Path, exclude_patterns: list[re.Pattern], progress: Progress
+) -> dict:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    batch_files = sorted([p for p in source.rglob("*.jsonl") if p.is_file()])
+    batch_files.extend(p for p in sorted(source.rglob("*.gz")) if p.is_file() and p not in batch_files)
+    json_files = sorted(p for p in source.rglob("*.json") if p.is_file())
+
+    report = {
+        "source": str(source),
+        "output_dir": str(output_dir),
+        "patterns": [p.pattern for p in exclude_patterns],
+        "files_copied": 0,
+        "files_excluded": 0,
+        "batch_files_processed": 0,
+        "documents_kept": 0,
+        "documents_excluded": 0,
+        "documents_failed_parse": 0,
+        "matched_counts": {},
+    }
+
+    total = len(json_files) + len(batch_files)
+    task = progress.add_task("[green]Filtering dataset", total=total)
+
+    for input_path in json_files:
+        try:
+            result = _filter_one_json_file(input_path, source, output_dir, exclude_patterns)
+            if result["status"] == "excluded":
+                report["files_excluded"] += 1
+                report["documents_excluded"] += 1
+                for pattern in result["matched"]:
+                    report["matched_counts"][pattern] = report["matched_counts"].get(pattern, 0) + 1
+            else:
+                report["files_copied"] += 1
+                report["documents_kept"] += 1
+        except Exception as e:
+            progress.log(f"* Error filtering {input_path}: {e}")
+            report["documents_failed_parse"] += 1
+        progress.update(task, advance=1)
+
+    for input_path in batch_files:
+        try:
+            result = _filter_one_jsonl_file(input_path, source, output_dir, exclude_patterns)
+            report["batch_files_processed"] += 1
+            report["documents_kept"] += result["kept"]
+            report["documents_excluded"] += result["excluded"]
+            report["documents_failed_parse"] += result["failures"]
+            for pattern, count in result["matched_counts"].items():
+                report["matched_counts"][pattern] = report["matched_counts"].get(pattern, 0) + count
+        except Exception as e:
+            progress.log(f"* Error filtering {input_path}: {e}")
+            report["documents_failed_parse"] += 1
+        progress.update(task, advance=1)
+
+    report["matched_counts"] = dict(sorted(report["matched_counts"].items(), key=lambda x: (-x[1], x[0])))
+    (output_dir / "filter_report.json").write_text(json.dumps(report, indent=2))
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -1539,6 +1677,52 @@ def _sectionize_workflow_s2orc_v2(
     progress.log(f"* Existing skipped: {skipped_count}")
     progress.log(f"* Failures: {fail_count}")
     _render_report_tables(progress, corpus_report)
+
+
+@click.command("filter-dataset")
+@click.argument("source", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option(
+    "--file",
+    "filter_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to .txt file with one regex pattern per line. Empty lines and lines starting with # are ignored.",
+)
+@click.option(
+    "--patterns",
+    default="",
+    help="Comma-separated regex patterns. Documents matching ANY pattern are excluded.",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(path_type=Path),
+    help="Directory for the filtered copy. Defaults to SOURCE_filtered.",
+)
+def filter_dataset(source: Path, filter_file: Path | None, patterns: str, output_dir: Path | None):
+    """Copy SOURCE to a filtered raw dataset, excluding keyword matches.
+
+    SOURCE must be a raw pre-sectionization dataset containing per-document
+    .json files and/or .jsonl/.jsonl.gz shards. Kept documents are copied or
+    rewritten into OUTPUT_DIR; the source dataset is never modified.
+    """
+    exclude_patterns_compiled = _compile_exclude_patterns(patterns or None, filter_file)
+    if not exclude_patterns_compiled:
+        raise click.UsageError("Provide at least one exclusion pattern with --file or --patterns.")
+
+    output_dir = output_dir or Path(str(source) + "_filtered")
+    source_resolved = source.resolve()
+    output_resolved = output_dir.resolve(strict=False)
+    if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
+        raise click.UsageError("--output-dir must be outside SOURCE so filtering never mutates or rereads its input.")
+
+    with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+        report = _filter_dataset_workflow(source, output_dir, exclude_patterns_compiled, progress)
+        progress.log("\n* Dataset filtering complete.")
+        progress.log(f"* Output directory: {output_dir}")
+        progress.log(f"* Documents kept: {report['documents_kept']}")
+        progress.log(f"* Documents excluded: {report['documents_excluded']}")
+        progress.log(f"* Parse failures preserved: {report['documents_failed_parse']}")
+        progress.log("* Report: filter_report.json")
 
 
 @click.command("section-dataset-s2orc")
