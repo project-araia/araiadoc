@@ -12,9 +12,7 @@ data
 
 # local scratch / analysis artifacts
 scratch/
-audit.json
 failures.json
-filter.txt
 
 # C extensions
 *.so

@@ -30,9 +30,10 @@ Use this skill any time the user asks to:
       Prefer an explicit path over any inferred one.
    b. A path inferable from context (e.g. the user said "the resilience
       corpus" and only one `*resilience*_sectionized` dir exists under
-      `data/`).
-   c. **Fallback only:** scan `data/` for `*_sectionized` directories and
-      ask the user to confirm which one to use before proceeding.
+      `data/` or at the repo root).
+   c. **Fallback only:** scan `data/` and the repo root for
+      `*_sectionized` directories and ask the user to confirm which one to
+      use before proceeding.
 
    The directory is a tree of per-paper sectionized `.json` files like
    `data/<name>_sectionized/<bucket>/<corpus_id>.json`. The schema produced
@@ -61,11 +62,16 @@ structure:
 - Per-doc fields extracted (title, headers, snippet, hit groups)
 
 ### Sample — <dir>
-| corpus_id | Title | <Query> groups hit | Context hits | Topical verdict | Notes |
+| corpus_id | Title | <Query> groups hit | Topical verdict | Notes |
+(end the table with a summary line: `n ON-TOPIC, n BORDERLINE, n OFF-TOPIC
+out of N` and both precision bounds — strict and generous)
 
 ### Broadened coverage check (optional)
 - Larger N (e.g. 50) random sample
 - Word-boundary hit rate against a curated shortlist
+
+### False-positive drivers (recommended)
+- Ranked table of which term/group fired in the OFF-TOPIC docs
 
 ### Findings
 - Numbered list of conclusions
@@ -92,10 +98,11 @@ Do **not** rewrite earlier rounds — only append.
 1. Any directory path the user stated in the conversation *before* invoking
    the skill (absolute or relative). Use it directly without scanning.
 2. A name inferable from context (e.g. "the resilience corpus" →
-   `data/*resilience*_sectionized/`). Resolve to an absolute path and
-   confirm with the user before proceeding.
-3. **Fallback only:** list `data/*_sectionized/` directories, report them,
-   and ask the user which one to use.
+   `data/*resilience*_sectionized/` or `./*resilience*_sectionized/`).
+   Resolve to an absolute path and confirm with the user before proceeding.
+3. **Fallback only:** list `data/*_sectionized/` and repo-root
+   `./*_sectionized/` directories, report them, and ask the user which one
+   to use.
 
 Once the path is settled, confirm it exists and capture totals:
 
@@ -125,10 +132,19 @@ RES_TERMS = {
 }
 ```
 
-Do the same for `Q2`'s 20 chunks if reviewing the utility corpus. Drop or
-down-weight `AND`-block boilerplate terms (`climate`, `weather`, `risk`,
-`infrastructure`, …) when counting hits — they fire on almost every paper
-and are not useful signal.
+For `q`, drop or down-weight the second AND-block boilerplate terms
+(`climate`, `weather`, `risk`, `infrastructure`, …) when counting hits —
+they fire on almost every paper and are not useful signal.
+
+For utility reviews, do **not** treat `Q2_AND_BLOCK` as boilerplate. The
+production utility query is `(q2_chunks OR ...) AND Q2_AND_BLOCK AND NOT
+Q2_NOT_BLOCK` for local s2orc (`src/araiadoc/collection/s2orc.py`) and the
+TitanV path uses `Q2_AND_BLOCK` as a required Solr filter query. Its terms
+(`electricity`, `power grid`, `substation`, `kWh`, `MWh`, `feeder`, `ISO`,
+etc.) are required utility anchors and often the exact terms whose false
+positives need to be diagnosed. For the utility corpus, score both the
+20 `q2_chunks` groups and the `Q2_AND_BLOCK` anchors, while keeping
+`Q2_NOT_BLOCK` in mind as the exclusion template.
 
 ### 3. Sample N files (file-level, truly random unless told otherwise)
 
@@ -161,14 +177,17 @@ def hit_groups_wb(text, groups):
     text = text.lower()
     found = {}
     for g, terms in groups.items():
-        hits = [t for t in terms if re.search(r'\b' + re.escape(t) + r'\b', text)]
+        hits = [t for t in terms if re.search(r'\b' + re.escape(t.lower()) + r'\b', text)]
         if hits:
             found[g] = hits[:5]
     return found
 ```
 
 For unit/acronym tokens (`SAIDI`, `kWh`, `NERC`) prefer **case-sensitive**
-matching against the original (not lowercased) text.
+matching against the original (not lowercased) text. Keep those tokens in a
+separate acronym/unit list so the lowercasing helper above does not erase
+useful case distinctions (`ISO` vs `iso` inside *isolate*, `MWh`/`kWh` as
+energy units vs unrelated text).
 
 ### 6. Optional: broadened coverage check
 
@@ -187,11 +206,32 @@ positive (e.g. "chip flooding" in a petroleum-recovery paper).
 ### 8. Roll up findings
 
 Per-dir summary line of the form `n ON-TOPIC, n BORDERLINE, n OFF-TOPIC`
-out of N. State an estimated precision.
+out of N. State an estimated precision as **two numbers**:
+
+- **strict precision** = `ON-TOPIC / N` (BORDERLINE counted as misses), and
+- **generous precision** = `(ON-TOPIC + BORDERLINE) / N`.
+
+Reporting both bounds is important: a large gap between them means the
+corpus is heavy on *adjacent* (borderline) papers rather than cleanly on- or
+off-topic, and a single number would hide that.
+
+**Rank the false-positive drivers.** After assigning verdicts, count which
+term/group fired in each OFF-TOPIC doc and sort descending. This single
+table is the most actionable output of the round — it tells the next
+iteration exactly which terms to tighten or drop. A `collections.Counter`
+over the OFF-TOPIC docs' hit groups does the job.
 
 Note recurring failure modes you saw (boilerplate `AND` terms, unit
 substring hits, false-positive technical jargon clashes) — these become
 inputs for the next iteration of the literal query.
+
+**Tip — drive the verdicts from a single in-memory list.** With large N it
+is far easier to hold the per-doc rows as a list of tuples
+`(cid, title_stub, hits_str, verdict, note)` in one script, then derive the
+verdict tallies, the precision bounds, and the FP-driver Counter from that
+same list. This keeps the markdown table, the summary line, and the FP
+ranking consistent (they all come from one source of truth) and avoids
+re-deriving verdicts by hand.
 
 ### 9. Open questions
 
@@ -217,19 +257,37 @@ because both workflows need them.
   `frost` (the surname), and `MWh`/`kWh` units in chemistry papers.
 - **The sectionized JSON schema is flat** (`title` + one key per section
   header). There is no nested `sections` dict, no separate `abstract`
-  field guaranteed — the abstract is just whatever section sorts first
-  (often `introduction` or `abstract`).
+  field guaranteed. Use the first non-title key in insertion order as an
+  abstract-like snippet source (often `abstract` or `introduction`); do not
+  alphabetically sort section keys.
 - **The `q` AND-block is near-vacuous** as a filter — `risk`, `recovery`,
   `disaster`, `infrastructure`, `response` are in nearly every paper.
-- **`Q2_NOT_BLOCK`** is the existing template for query-side exclusion of
-  off-topic clusters (genomics, particle physics, perovskite cells,
-  clinical trials, etc.). When proposing a `NOT`-block for `q`, start
-  from `Q2_NOT_BLOCK` plus any recurring false-positive clusters that
-  Round 1/2 surfaced (e.g. petroleum / enhanced oil recovery,
-  metallurgical leaching).
+- **`Q2_NOT_BLOCK` and similar filter lists are iterative artifacts.** The
+  current `Q2_NOT_BLOCK` in `src/araiadoc/searches.py` is an exclusion
+  template built from recurring false-positive domains (genomics, clinical
+  medicine, chemical engineering, spectroscopy, astronomy/particle physics,
+  fusion/plasma physics, materials science, battery electrochemistry, etc.).
+  Treat this kind of filter file / NOT-block as something to improve after
+  each review round: promote repeated OFF-TOPIC drivers into the exclusion
+  list, tighten ambiguous phrases, and preserve useful historical exclusions
+  unless the sample shows they are suppressing true positives. When proposing
+  a `NOT`-block for `q`, start from `Q2_NOT_BLOCK` plus any recurring
+  false-positive clusters that the current round surfaced.
+- **Utility query context matters.** `Q2_AND_BLOCK` is not analogous to the
+  broad `q` AND-block. It is a required utility-anchor filter in both the
+  local s2orc and TitanV paths, so score it during utility reviews rather
+  than dropping it as boilerplate.
+- **Report strict AND generous precision** (see step 8). The gap between them
+  *is* the BORDERLINE rate and is itself a finding.
 - **Always check whether the dir you are reviewing is the one you think
   it is.** Earlier rounds discovered that `utility_06-15_sectionized/`
   was actually a clone of `resilience_06-15_sectionized/`, not a `Q2`
   result set. Before drawing conclusions about a query's precision,
   spot-check that the directory's IDs are actually a subset of the
   query's expected ID list (see `araia-compare` for the procedure).
+- **A persistently low strict precision can itself be a provenance signal.**
+  If a corpus scores poorly across rounds and its name does not map to a
+  known run for the query under review, suspect it was not produced by that
+  query at all (e.g. a general s2orc slice). Resolve provenance (run logs,
+  ID-list overlap via `araia-compare`) *before* concluding the query is at
+  fault — you cannot evaluate a query against a corpus it did not generate.

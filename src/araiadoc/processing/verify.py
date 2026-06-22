@@ -70,6 +70,7 @@ class AuditedSection:
     header: str
     chars: int
     paragraphs: int
+    words: int
     present: bool
     # Drop reason if not present. One of: noise_header, unneeded_no_skip,
     # unneeded_skip_remaining, post_conclusion_truncation, non_substantive,
@@ -89,6 +90,8 @@ class DocAudit:
     raw_chars: int = 0
     sect_chars: int = 0
     missing_chars: int = 0
+    raw_words: int = 0
+    missing_words: int = 0
     missing_by_reason: dict[str, int] = field(default_factory=dict)
     sections: list[AuditedSection] = field(default_factory=list)
     error: str | None = None
@@ -134,6 +137,7 @@ def _build_ground_truth_sections(doc: dict) -> list[dict]:
                 "norm_header": "abstract",
                 "paragraphs": pre_paras,
                 "total_chars": sum(len(p) for p in pre_paras),
+                "total_words": sum(len(p.split()) for p in pre_paras),
             }
         )
 
@@ -150,6 +154,7 @@ def _build_ground_truth_sections(doc: dict) -> list[dict]:
                 "norm_header": h_norm,
                 "paragraphs": paras,
                 "total_chars": sum(len(p) for p in paras),
+                "total_words": sum(len(p.split()) for p in paras),
             }
         )
 
@@ -213,6 +218,7 @@ def _audit_loaded_doc(raw: dict, raw_label: str, sect_path: Path, fallback_corpu
 
     for gt in gt_sections:
         chars = gt["total_chars"]
+        words = gt["total_words"]
         paras = gt["paragraphs"]
         if not paras:
             # No paragraph content under this header — nothing to verify and
@@ -227,6 +233,7 @@ def _audit_loaded_doc(raw: dict, raw_label: str, sect_path: Path, fallback_corpu
             header=gt["norm_header"] or "abstract",
             chars=chars,
             paragraphs=len(paras),
+            words=words,
             present=present,
         )
 
@@ -235,6 +242,7 @@ def _audit_loaded_doc(raw: dict, raw_label: str, sect_path: Path, fallback_corpu
             sec.reason = reason
             audit.sections_missing += 1
             audit.missing_chars += chars
+            audit.missing_words += words
             audit.missing_by_reason[reason] = audit.missing_by_reason.get(reason, 0) + 1
         else:
             audit.sections_present += 1
@@ -242,6 +250,7 @@ def _audit_loaded_doc(raw: dict, raw_label: str, sect_path: Path, fallback_corpu
         audit.sections.append(sec)
         audit.sections_total += 1
         audit.raw_chars += chars
+        audit.raw_words += words
 
     return audit
 
@@ -282,6 +291,8 @@ class CorpusAudit:
     sections_missing: int = 0
     raw_chars: int = 0
     missing_chars: int = 0
+    raw_words: int = 0
+    missing_words: int = 0
     missing_by_reason: dict[str, int] = field(default_factory=dict)
     docs: list[DocAudit] = field(default_factory=list)
 
@@ -296,6 +307,8 @@ class CorpusAudit:
         self.sections_missing += doc.sections_missing
         self.raw_chars += doc.raw_chars
         self.missing_chars += doc.missing_chars
+        self.raw_words += doc.raw_words
+        self.missing_words += doc.missing_words
         for reason, count in doc.missing_by_reason.items():
             self.missing_by_reason[reason] = self.missing_by_reason.get(reason, 0) + count
 
@@ -304,6 +317,12 @@ class CorpusAudit:
         if self.raw_chars <= 0:
             return 0.0
         return 100.0 * self.missing_chars / self.raw_chars
+
+    @property
+    def word_loss_pct(self) -> float:
+        if self.raw_words <= 0:
+            return 0.0
+        return 100.0 * self.missing_words / self.raw_words
 
     @property
     def section_loss_pct(self) -> float:
@@ -326,6 +345,9 @@ class CorpusAudit:
             "raw_chars": self.raw_chars,
             "missing_chars": self.missing_chars,
             "loss_pct": self.loss_pct,
+            "raw_words": self.raw_words,
+            "missing_words": self.missing_words,
+            "word_loss_pct": self.word_loss_pct,
             "section_loss_pct": self.section_loss_pct,
             "missing_by_reason": self.missing_by_reason,
             "excluded_by_pattern_reasons": dict(sorted(self.excluded_by_pattern_reasons.items(), key=lambda x: -x[1])),
@@ -410,6 +432,10 @@ def _render_summary_table(audit: CorpusAudit) -> Table:
     t.add_row("Raw content chars", f"{audit.raw_chars:,}")
     t.add_row("Missing content chars", f"{audit.missing_chars:,}")
     t.add_row("Content loss %", f"{audit.loss_pct:.2f}")
+    t.add_section()
+    t.add_row("Raw content words", f"{audit.raw_words:,}")
+    t.add_row("Missing content words", f"{audit.missing_words:,}")
+    t.add_row("Word loss %", f"{audit.word_loss_pct:.2f}")
     return t
 
 
