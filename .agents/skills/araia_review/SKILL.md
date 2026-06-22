@@ -23,8 +23,18 @@ Use this skill any time the user asks to:
 
 ## Inputs the user must supply (or infer from context)
 
-1. **One corpus directory** (under `data/`), a tree of per-paper
-   sectionized `.json` files like
+1. **One corpus directory.** Resolution order (use the first that applies):
+   a. A path the user mentioned **in the conversation before invoking the
+      skill** — check the message history for any directory path (absolute
+      or relative to the repo root) that looks like a sectionized corpus.
+      Prefer an explicit path over any inferred one.
+   b. A path inferable from context (e.g. the user said "the resilience
+      corpus" and only one `*resilience*_sectionized` dir exists under
+      `data/`).
+   c. **Fallback only:** scan `data/` for `*_sectionized` directories and
+      ask the user to confirm which one to use before proceeding.
+
+   The directory is a tree of per-paper sectionized `.json` files like
    `data/<name>_sectionized/<bucket>/<corpus_id>.json`. The schema produced
    by `sectionize.py` is flat:
    `{title: str, "<section_header>": "<concatenated paragraph text>", …}`.
@@ -75,7 +85,19 @@ Do **not** rewrite earlier rounds — only append.
 
 ## Step-by-step procedure
 
-### 1. Confirm the corpus dir exists and capture totals
+### 1. Resolve and confirm the corpus dir, then capture totals
+
+**Resolution order — stop at the first match:**
+
+1. Any directory path the user stated in the conversation *before* invoking
+   the skill (absolute or relative). Use it directly without scanning.
+2. A name inferable from context (e.g. "the resilience corpus" →
+   `data/*resilience*_sectionized/`). Resolve to an absolute path and
+   confirm with the user before proceeding.
+3. **Fallback only:** list `data/*_sectionized/` directories, report them,
+   and ask the user which one to use.
+
+Once the path is settled, confirm it exists and capture totals:
 
 ```bash
 find <dir> -name '*.json' -not -name 'failures.json' | wc -l
