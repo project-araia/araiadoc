@@ -21,7 +21,7 @@ from araiadoc.processing.metadata import get_metadata_from_database, get_metadat
 from araiadoc.processing.schema import ParsedDocumentSchema
 from araiadoc.processing.verify import verify_sectionization
 from araiadoc.searches_legacy import RESILIENCE_SEARCHES
-from araiadoc.sectionize import section_dataset, section_dataset_s2orc, section_dataset_v2
+from araiadoc.sectionize import filter_dataset, section_dataset, section_dataset_s2orc, section_dataset_v2
 from araiadoc.utils import (
     _collect_from_path,
     _find_project_root,
@@ -727,6 +727,7 @@ main.add_command(count_remote_osti)
 main.add_command(section_dataset)
 main.add_command(section_dataset_v2)
 main.add_command(section_dataset_s2orc)
+main.add_command(filter_dataset)
 main.add_command(verify_sectionization)
 main.add_command(get_metadata_from_database)
 main.add_command(get_metadata_from_semanticscholar)

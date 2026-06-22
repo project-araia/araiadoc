@@ -19,6 +19,7 @@ Commands:
   crawl-osti                 Asynchronously crawl OSTI result pages.
   download-s2orc             Download Semantic Scholar's s2orc_v2 bulk dataset (~30 shards).
   epa-ocr-to-json            Convert EPA's OCR fulltext to similar json format as internal schema.
+  filter-dataset             Copy a raw dataset while excluding documents that match regex patterns.
   get-from-local-s2orc       Query a local s2orc_v2 download by corpus-ID list, full-text keyword, or pre-defined search.
   get-from-titanv            Download from TitanV database or perform a pre-defined search (legacy; prefer get-from-local-s2orc).
   get-metadata-from-database Grabs metadata from a postgresql database.
@@ -196,6 +197,32 @@ Associates metadata with documents from Semantic Scholar.
 
 ```araiadoc get-metadata-from-semanticscholar data/OSTI_documents```
 
+### Filter dataset
+
+```bash
+Usage: araiadoc filter-dataset [OPTIONS] SOURCE
+
+Options:
+  --file FILE            Path to .txt file with one regex pattern per line.
+                         Empty lines and lines starting with # are ignored.
+  --patterns TEXT        Comma-separated regex patterns. Documents matching
+                         ANY pattern are excluded.
+  -o, --output-dir PATH  Directory for the filtered copy. Defaults to
+                         SOURCE_filtered.
+```
+
+Copies a raw pre-sectionization dataset while excluding documents whose title, abstract, paragraph text, or s2orc body text matches any exclusion regex. The original dataset is never modified. Kept per-document `.json` files are copied with relative paths preserved; `.jsonl`, `.jsonl.gz`, and plain `.gz` JSONL shards are streamed and rewritten with only kept rows.
+
+The default output directory is `SOURCE_filtered`. If `--output-dir` is provided, it must be outside `SOURCE` so filtering cannot mutate or reread its own input. Every run writes `filter_report.json` in the output directory with kept/excluded counts and matches by pattern.
+
+Use this when you want keyword-based exclusion before sectionization:
+
+```bash
+araiadoc filter-dataset data/s2orc_v2_shards --file data/filter.txt
+araiadoc filter-dataset data/all_weather --patterns "genomics,nanoparticle synthesis" -o data/all_weather_filtered
+araiadoc section-dataset-s2orc data/all_weather_filtered
+```
+
 ### Sectionize dataset
 
 ```bash
@@ -221,7 +248,7 @@ Options:
 
 Preprocesses full-text files into header:paragraph JSON dictionaries. Supports both legacy per-document JSON files and batched JSONL.GZ output. Built for the TitanV/Solr schema — for new work prefer `section-dataset-s2orc`.
 
-When `--exclude-patterns` or `--exclude-file` is used, the `sectionization_report.jsonl.gz` includes which specific pattern(s) matched in the `error` field of excluded documents (e.g. `"Excluded by pattern(s): nanoparticle synthesis, quantum dot"`).
+When `--exclude-patterns` or `--exclude-file` is used, the `sectionization_report.jsonl.gz` includes which specific pattern(s) matched in the `error` field of excluded documents (e.g. `"Excluded by pattern(s): nanoparticle synthesis, quantum dot"`). For reusable raw filtered datasets, prefer `filter-dataset` before sectionization.
 
 ```araiadoc section-dataset-v2 data/all_terms/batches```
 ```araiadoc section-dataset-v2 data/all_terms/batches --exclude-file data/filter.txt```
@@ -243,7 +270,7 @@ Sectionizes s2orc_v2 documents using span-annotation offsets in `body.text`. `SO
 
 Every run writes `sectionization_report.json` (corpus aggregates) and `sectionization_report.jsonl.gz` (per-doc rows). With `--detailed-report`, each per-doc row also carries a `sections` array (header, chars, paragraphs, outcome) — roughly doubles row size, off by default.
 
-With `--exclude-patterns` or `--exclude-file`, excluded documents report which pattern(s) matched in their `error` field.
+With `--exclude-patterns` or `--exclude-file`, excluded documents report which pattern(s) matched in their `error` field. For reusable raw filtered datasets, prefer `filter-dataset` before sectionization.
 
 ```araiadoc section-dataset-s2orc data/s2orc_v2_shards```
 ```araiadoc section-dataset-s2orc data/all_weather --detailed-report```
