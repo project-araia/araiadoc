@@ -62,7 +62,7 @@ structure:
 - Per-doc fields extracted (title, headers, snippet, hit groups)
 
 ### Sample — <dir>
-| corpus_id | Title | <Query> groups hit | Topical verdict | Notes |
+| corpus_id | Title | <Query> groups hit | Context hits | Topical verdict | Notes |
 (end the table with a summary line: `n ON-TOPIC, n BORDERLINE, n OFF-TOPIC
 out of N` and both precision bounds — strict and generous)
 
@@ -227,11 +227,11 @@ inputs for the next iteration of the literal query.
 
 **Tip — drive the verdicts from a single in-memory list.** With large N it
 is far easier to hold the per-doc rows as a list of tuples
-`(cid, title_stub, hits_str, verdict, note)` in one script, then derive the
-verdict tallies, the precision bounds, and the FP-driver Counter from that
-same list. This keeps the markdown table, the summary line, and the FP
-ranking consistent (they all come from one source of truth) and avoids
-re-deriving verdicts by hand.
+`(cid, title_stub, hits_str, context_hits_str, verdict, note)` in one script,
+then derive the verdict tallies, the precision bounds, and the FP-driver
+Counter from that same list. This keeps the markdown table, the summary line,
+and the FP ranking consistent (they all come from one source of truth) and
+avoids re-deriving verdicts by hand.
 
 ### 9. Open questions
 
