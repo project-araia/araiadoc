@@ -13,6 +13,7 @@ from crawl4ai import AsyncWebCrawler
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
+from araiadoc.agentic import agentic_judge_dataset
 from araiadoc.collection.s2orc import download_s2orc, get_from_local_s2orc
 from araiadoc.collection.sources import source_mapping
 from araiadoc.collection.titanv import get_from_titanv
@@ -717,6 +718,7 @@ def main():
     pass
 
 
+main.add_command(agentic_judge_dataset)
 main.add_command(crawl_epa)
 main.add_command(crawl_osti)
 main.add_command(complete_semantic_scholar)

@@ -11,6 +11,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
+  agentic-judge-dataset      Judge relevance of a sectionized corpus with an OpenAI-compatible model.
   complete-semantic-scholar  Download documents from Semantic Scholar that match a given input file containing document ID.
   convert                    Convert PDFs in a given directory ``source`` to json.
   count-local                Count the number of downloaded files from a given source. Creates a checkpoint file.
@@ -311,6 +312,79 @@ Queries a local s2orc_v2 download using DuckDB. Use exactly one of `--source`, `
 ```araiadoc get-from-local-s2orc -d data/s2orc_v2 -s resilience_ids.txt```
 ```araiadoc get-from-local-s2orc -d data/s2orc_v2 -o data/all_weather --all-weather```
 ```araiadoc get-from-local-s2orc -d data/s2orc_v2 -q '"adsorption refrigeration"'```
+
+### Agentic judge dataset
+
+```bash
+Usage: araiadoc agentic-judge-dataset [OPTIONS] SOURCE
+
+Options:
+  --model TEXT                 OpenAI-compatible chat model name.
+  --base-url TEXT              OpenAI-compatible API base URL.
+  --api-key TEXT               API key/token. Also read from API_KEY or OPENAI_API_KEY.
+  --prompt FILE                Rubric prompt file.  [required]
+  -o, --output-dir PATH        Directory for judgment artifacts. Defaults to SOURCE_judged.
+  --mode [requests|provider-batch]
+                               Local concurrent requests or provider batch API.
+  --concurrency INTEGER        Concurrent requests for --mode requests.  [default: 4]
+  --max-tokens INTEGER         Maximum generated tokens.  [default: 512]
+  --temperature FLOAT          Sampling temperature.  [default: 0.0]
+  --timeout FLOAT              Per-request timeout in seconds.  [default: 120.0]
+  --limit INTEGER              Judge at most N documents.
+  --dry-run                    Build and print prompt samples without calling the model.
+  --max-input-chars INTEGER    Maximum document payload characters per prompt.  [default: 20000]
+  --copy-kept                  Copy documents with kept decisions into OUTPUT_DIR/kept.
+  --keep-decisions TEXT        Comma-separated decisions copied by --copy-kept.  [default: relevant]
+  --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
+  --batch-poll-interval FLOAT  Provider batch poll interval in seconds.  [default: 30.0]
+  --batch-timeout FLOAT        Provider batch wait timeout in seconds.  [default: 86400.0]
+```
+
+Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
+
+The command preserves source data and writes judgment artifacts outside the input directory:
+
+```text
+SOURCE_judged/
+  judge_results.jsonl.gz
+  judge_summary.json
+  judge_checkpoint.json
+  failures.json
+  kept/                  # only when --copy-kept is used
+```
+
+Use `--dry-run --limit 3` first to inspect prompt payloads before spending inference time:
+
+```bash
+araiadoc agentic-judge-dataset data/all_weather_sectionized \
+  --prompt prompts/weather_utility.md \
+  --dry-run \
+  --limit 3
+```
+
+Default request mode uses OpenAI-compatible chat completions with bounded local concurrency. The default model/base URL target ALCF Sophia/vLLM (`openai/gpt-oss-20b` at `/resource_server/sophia/vllm/v1`), but both should be overridden together when targeting another endpoint:
+
+```bash
+araiadoc agentic-judge-dataset data/all_weather_sectionized \
+  --prompt prompts/weather_utility.md \
+  --api-key "$API_KEY" \
+  --concurrency 4
+```
+
+For endpoints that support OpenAI-compatible batch APIs, use provider batch mode. It writes `batch_requests.jsonl`, submits a `/v1/chat/completions` batch, polls until completion, downloads `batch_output.jsonl`, and converts results into the same `judge_results.jsonl.gz` schema:
+
+```bash
+araiadoc agentic-judge-dataset data/all_weather_sectionized \
+  --prompt prompts/weather_utility.md \
+  --api-key "$API_KEY" \
+  --mode provider-batch
+```
+
+Each result row includes `doc_id`, `source_path`, title, model, base URL, prompt and input hashes, decision, score, rationale, raw response, parse status, and timestamp. Unparseable model responses are preserved as rows with `parsed=false` and `raw_response` for auditability.
+
+Resume is enabled by default. Completed work is keyed by source path, document ID, input hash, prompt hash, model, and base URL, so changing the prompt/model/endpoint/document content forces re-judgment. `--output-dir` must be outside `SOURCE` so the command cannot recurse into its own artifacts.
+
+When `--copy-kept` is set, documents whose parsed decision is in `--keep-decisions` are copied to `OUTPUT_DIR/kept/` with relative paths preserved. The default keeps only `relevant`; use `--keep-decisions relevant,maybe` to also retain uncertain matches.
 
 ### Verify sectionization
 
