@@ -587,6 +587,58 @@ def _normalize_header(header: str) -> str:
     return header
 
 
+def _header_is_structural_noise(header: str) -> bool:
+    """
+    Subset of `_header_is_noise`: True only for headers that look like
+    *intra-section markup* (bullet glyphs, lone enumeration markers like
+    "2.", "i)", "1.1.", single letters, strings with fewer than two
+    consecutive alpha chars) rather than legitimate-but-unwanted real
+    sections (e.g. "References", "Figure 1", "Keywords").
+
+    The sectionizer's span walk uses this to decide whether a header
+    span should be *swallowed* (paragraphs fold into the preceding real
+    section, as a human reader would expect for bulleted list items) vs.
+    *opened as its own section* and then dropped by the downstream filter
+    loop (which is what we still want for "References" et al.).
+
+    Keep this strictly narrower than `_header_is_noise`: anything that
+    might be a real section's title — even one we ultimately want to drop —
+    must NOT be classified as structural noise, because doing so would
+    silently merge its body content into the previous kept section.
+    """
+    if not header:
+        return True
+
+    normalized = _normalize_header(header)
+    if not normalized:
+        return True
+
+    lowered = normalized.lower()
+
+    # enumeration fragments like "v.", "ii", "a)"
+    if re.fullmatch(r"[ivxlcdm]+[.)]?", lowered):
+        return True
+    # single-letter "headers" like "a)" or "X."
+    if re.fullmatch(r"[a-zA-Z][.)]?", normalized):
+        return True
+
+    # mostly symbols / numbers (covers bullet glyphs like U+201A, "--", "*",
+    # bare digits "3", multi-digit "11.", subsection numbers "1.1.").
+    alpha_count = len(re.findall(r"[A-Za-z]", normalized))
+    if alpha_count < 2:
+        return True
+
+    # mojibake / decomposition artifacts with no real word-run
+    if not re.search(r"[A-Za-z]{2,}", normalized):
+        return True
+
+    # very-short one-token fragments ("ab", "ix", "xi")
+    if len(normalized.split()) == 1 and len(normalized) <= 3:
+        return True
+
+    return False
+
+
 def _header_is_noise(header: str) -> bool:
     """
     Determine if a header represents noise rather than a meaningful section header.
@@ -601,31 +653,16 @@ def _header_is_noise(header: str) -> bool:
     if not normalized:
         return True
 
-    # enumeration fragments like "v.", "ii", "a)"
-    if re.fullmatch(r"[ivxlcdm]+[.)]?", lowered):
-        return True
-    if re.fullmatch(r"[a-zA-Z][.)]?", normalized):
+    # All structural-noise cases (enumeration fragments, single letters,
+    # mostly-symbols, tiny tokens) are also noise.
+    if _header_is_structural_noise(header):
         return True
 
     # table / figure labels
     if re.fullmatch(r"(table|fig|figure)\s*[-.]?\s*\d*", lowered):
         return True
 
-    # mostly symbols / numbers
-    alpha_count = len(re.findall(r"[A-Za-z]", normalized))
-    if alpha_count < 2:
-        return True
-
-    # reject mojibake / decomposition artifacts (e.g. "ï¨ ï" → "i̋¨ i̋" after NFD)
-    # that inflate alpha_count with isolated letters from combining sequences
-    if not re.search(r"[A-Za-z]{2,}", normalized):
-        return True
-
     if not is_string_valid(normalized):
-        return True
-
-    # noisy one-token fragments that are not likely real section headers
-    if len(normalized.split()) == 1 and len(normalized) <= 3:
         return True
 
     # catch normalized "table", "figure", etc.
