@@ -16,18 +16,7 @@ The short form `-t` and long form `--search-term` are both valid. Do not use `--
 
 ## Skill files are authoritative for CLI flags
 
-When writing webapp form components (or any code that builds CLI argument lists), **always verify flag names against the corresponding SKILL.md** in `.agents/skills/` before trusting your own knowledge. The skill files are kept in sync with the actual Click definitions in `src/araiadoc/crawl.py`.
-
-
-### Output directory detection
-
-`_prep_output_dir()` in `src/araiadoc/utils.py` echoes the output path to stdout:
-
-```
-Output directory: /absolute/path/to/data/...
-```
-
-The webapp's `CrawlEpa` component parses this line from the job's log buffer (prefixed as `[stdout] Output directory: ...`) to construct the zip download URL after a successful run.
+When writing any code that builds CLI argument lists, **always verify flag names against the corresponding SKILL.md** in `.agents/skills/` before trusting your own knowledge. The skill files are kept in sync with the actual Click definitions in `src/araiadoc/crawl.py`.
 
 ---
 
