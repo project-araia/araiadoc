@@ -12,7 +12,11 @@ SKIP_JSON_FILENAMES = {
 }
 PRIORITY_SECTION_MARKERS = (
     "introduction",
-    "intro",
+    "abstract",
+    "results",
+    "results and discussion",
+    "materials and methods",
+    "methodology",
     "background",
     "overview",
     "summary",
