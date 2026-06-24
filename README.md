@@ -442,13 +442,3 @@ Development and package management is done with [Pixi](https://pixi.sh/latest/).
 Enter the development environment with:
 
 ```pixi shell -e dev```
-
-## Additional information
-
-``araiadoc`` uses:
-
-- [crawl4ai](https://crawl4ai.com/mkdocs/) as its primary webcrawler
-library. Downloads are at "human speeds" to try avoiding being blocked
-or rate-limited.
-
-- [openparse](https://github.com/Filimoa/open-parse) for text-extraction and formatting.
