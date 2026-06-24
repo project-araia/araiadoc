@@ -28,7 +28,7 @@ araiadoc = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = ["araiadoc"]
-dev = ["dev", "araiadoc"]
+dev = ["dev", "docs", "araiadoc"]
 araiadoc = ["araiadoc"]
 docs = ["araiadoc", "docs"]
 
@@ -57,6 +57,9 @@ openai = ">=2.43.0,<3"
 duckdb = ">=1.5.4,<2"
 
 [tool.pixi.feature.docs.dependencies]
+sphinx = ">=7.0.0,<8.0.0"
+myst-parser = ">=3.0.1,<5"
+furo = ">=2024.8.6,<2026"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -64,4 +67,4 @@ pythonpath = ["src"]
 
 [dependency-groups]
 dev = ["wat>=0.7.0,<0.8"]
-araiadoc = ["crawl4ai>=0.8.5,<0.9", "globus-sdk>=4.8.1,<5", "snowballstemmer>=2.2"]
+araiadoc = ["crawl4ai>=0.8.9,<0.9", "globus-sdk>=4.8.1,<5", "snowballstemmer>=2.2,<3"]
