@@ -802,9 +802,14 @@ class TestSectionizeItemS2orcV2:
         assert "3. introduction" in sectioned
         assert "introduction" not in sectioned
 
-    def test_pure_enumeration_header_dropped(self):
-        # A header that is ENTIRELY an enumeration ("3.") must still be removed
-        # as a noise header even though its paragraph has real content.
+    def test_pure_enumeration_header_swallowed(self):
+        # A header that is ENTIRELY an enumeration ("3.") is structural noise
+        # — a bullet/list marker, not a real subsection title. The span walk
+        # swallows it, so the paragraph that follows folds into whatever
+        # section is currently open (here, the pre-header region, which
+        # becomes the abstract). The key invariant: "3." / "3" must never
+        # appear as a real section key, and the paragraph content must not
+        # be silently dropped.
         chunk = "A sufficient English paragraph with real content. " * 5
         raw_header = "3."
         text = raw_header + "\n" + chunk
@@ -818,10 +823,13 @@ class TestSectionizeItemS2orcV2:
             para_spans=[{"start": p_start, "end": p_end}],
             header_spans=[{"start": 0, "end": h_end}],
         )
-        _, sectioned, _, report = _sectionize_item_s2orc_v2(doc)
+        _, sectioned, _, _ = _sectionize_item_s2orc_v2(doc)
         assert "3." not in sectioned
         assert "3" not in sectioned
-        assert report.dropped_sections >= 1
+        # Paragraph content must survive — it folds into the abstract here
+        # because no real section had been opened when the enumeration
+        # header appeared.
+        assert chunk.strip() in sectioned.get("abstract", "")
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from .sectionize_report import (
 from .text_quality.content_assessment import (
     _content_is_substantive,
     _header_is_noise,
+    _header_is_structural_noise,
     _normalize_header,
     _normalize_text,
     _strip_enumeration_prefix,
@@ -478,15 +479,36 @@ def _sectionize_item_s2orc_v2(
         para_end = para_span.get("end", 0)
 
         # Advance through headers whose end position is ≤ this paragraph's start.
+        # *Structural-noise* headers (bullet glyphs like U+201A, stray
+        # punctuation, lone enumeration markers like "2." or "i)") are
+        # *swallowed* here rather than triggering a section break: they
+        # represent intra-section list markup, not real subsection
+        # boundaries, and the paragraphs that follow them belong to the most
+        # recently opened real section. Without this swallow step, the
+        # downstream filter loop would bucket those paragraphs under
+        # `noise_header` and silently drop their content (e.g. the bulleted
+        # "contributions of this paper" list in 948902).
+        #
+        # Note: we use the narrower `_header_is_structural_noise`, NOT
+        # `_header_is_noise`. The latter also flags real-but-unwanted
+        # sections like "References" or "Figure 1" — those must still open
+        # their own section so the filter loop can drop them, otherwise
+        # their content would silently fold into the previous kept section.
         while header_idx < n_headers:
             hspan = header_spans[header_idx]
             h_start = hspan.get("start", 0)
             h_end = hspan.get("end", 0)
             if h_end <= para_start:
+                raw_header = text[h_start:h_end]
+                normalized_header = apply_synonyms(_normalize_header(raw_header))
+                if _header_is_structural_noise(raw_header):
+                    # Don't flush, don't open a new section. Subsequent
+                    # paragraphs keep accumulating under current_header_text.
+                    header_idx += 1
+                    continue
                 _flush(current_header_text, current_section_paras)
                 current_section_paras = []
-                raw_header = text[h_start:h_end]
-                current_header_text = apply_synonyms(_normalize_header(raw_header))
+                current_header_text = normalized_header
                 header_idx += 1
             else:
                 break
@@ -500,10 +522,16 @@ def _sectionize_item_s2orc_v2(
     # Flush any trailing headers that appear after the last paragraph span.
     # These also have no paragraphs of their own and are surfaced as empty
     # parent headers (subject to the same noise/unneeded filtering below).
+    # Structural-noise headers in the tail have no paragraphs to attach to
+    # a preceding section either (we're past the last paragraph), so we
+    # skip them entirely — they'd just be dropped by the filter loop anyway.
+    # Other "noise" headers (e.g. "References") are still emitted as empty
+    # parent headers so the filter loop's accounting picks them up.
     while header_idx < n_headers:
         hspan = header_spans[header_idx]
         raw_header = text[hspan.get("start", 0) : hspan.get("end", 0)]  # noqa
-        sections.append((apply_synonyms(_normalize_header(raw_header)), []))
+        if not _header_is_structural_noise(raw_header):
+            sections.append((apply_synonyms(_normalize_header(raw_header)), []))
         header_idx += 1
 
     # ---- promote pre-header paragraphs to "abstract" ----
