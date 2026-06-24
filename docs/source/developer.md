@@ -33,9 +33,21 @@ We maintain strict guidelines to keep the codebase clean, readable, and highly m
 
 ---
 
+## Documentation
+
+Build the documentation locally in the `araiadoc/docs` directory with:
+
+```bash
+make clean; make html
+```
+
+Then open `araiadoc/docs/build/html/index.html` in your browser to view the documentation.
+
+---
+
 ## Agent Skills & Automation
 
-`araiadoc` is built to support autonomous AI agents. The `.agents/skills` directory contains specialized skill markdown files defining the workflows, CLI commands, and expectations.
+`araiadoc` supports autonomous AI agents. The `.agents/skills` directory contains specialized skill markdown files defining the workflows, CLI commands, and expectations.
 
 The skills directory is organized as follows:
 
