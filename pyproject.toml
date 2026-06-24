@@ -64,4 +64,4 @@ pythonpath = ["src"]
 
 [dependency-groups]
 dev = ["wat>=0.7.0,<0.8"]
-araiadoc = ["crawl4ai>=0.8.5,<0.9", "globus-sdk>=4.8.1,<5"]
+araiadoc = ["crawl4ai>=0.8.5,<0.9", "globus-sdk>=4.8.1,<5", "snowballstemmer>=2.2"]
