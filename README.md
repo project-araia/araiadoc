@@ -324,8 +324,12 @@ Options:
   --api-key TEXT               API key/token. Also read from API_KEY or OPENAI_API_KEY.
   --prompt FILE                Rubric prompt file.  [required]
   -o, --output-dir PATH        Directory for judgment artifacts. Defaults to SOURCE_judged.
-  --mode [requests|provider-batch]
-                               Local concurrent requests or provider batch API.
+  --mode [requests|alcf-batch-submit|alcf-batch-collect]
+                               requests: judge each document via chat completions.
+                               alcf-batch-submit: build the request JSONL + manifest
+                               and POST an ALCF filesystem-based batch job.
+                               alcf-batch-collect: fold an ALCF batch output file/folder
+                               back into judge artifacts.  [default: requests]
   --concurrency INTEGER        Concurrent requests for --mode requests.  [default: 4]
   --max-tokens INTEGER         Maximum generated tokens.  [default: 512]
   --temperature FLOAT          Sampling temperature.  [default: 0.0]
@@ -336,8 +340,11 @@ Options:
   --copy-kept                  Copy documents with kept decisions into OUTPUT_DIR/kept.
   --keep-decisions TEXT        Comma-separated decisions copied by --copy-kept.  [default: relevant]
   --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
-  --batch-poll-interval FLOAT  Provider batch poll interval in seconds.  [default: 30.0]
-  --batch-timeout FLOAT        Provider batch wait timeout in seconds.  [default: 86400.0]
+  --batch-input-file TEXT      [alcf-batch-submit] ALCF path the service reads the
+                               request JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl).
+  --batch-output-folder TEXT   [alcf-batch-submit] ALCF folder the service writes output to.
+  --collect-batch-output PATH  [alcf-batch-collect] Path to the ALCF batch output .jsonl
+                               file, or a folder of output .jsonl files.
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -350,6 +357,8 @@ SOURCE_judged/
   judge_summary.json
   judge_checkpoint.json
   failures.json
+  batch_requests.jsonl   # only for ALCF batch modes
+  batch_manifest.json    # only for ALCF batch modes
   kept/                  # only when --copy-kept is used
 ```
 
@@ -357,30 +366,65 @@ Use `--dry-run --limit 3` first to inspect prompt payloads before spending infer
 
 ```bash
 araiadoc agentic-judge-dataset data/all_weather_sectionized \
-  --prompt prompts/weather_utility.md \
+  --prompt prompts/resilience_relevance.md \
   --dry-run \
   --limit 3
 ```
 
-Default request mode uses OpenAI-compatible chat completions with bounded local concurrency. The default model/base URL target ALCF Sophia/vLLM (`openai/gpt-oss-20b` at `/resource_server/sophia/vllm/v1`), but both should be overridden together when targeting another endpoint:
+#### Request mode (default)
+
+Request mode uses OpenAI-compatible chat completions with bounded local concurrency, and works on any OpenAI-compatible endpoint. The default model/base URL target ALCF Sophia/vLLM (`openai/gpt-oss-20b` at `/resource_server/sophia/vllm/v1`), but both should be overridden together when targeting another endpoint:
 
 ```bash
 araiadoc agentic-judge-dataset data/all_weather_sectionized \
-  --prompt prompts/weather_utility.md \
+  --prompt prompts/resilience_relevance.md \
   --api-key "$API_KEY" \
   --concurrency 4
 ```
 
-For endpoints that support OpenAI-compatible batch APIs, use provider batch mode. It writes `batch_requests.jsonl`, submits a `/v1/chat/completions` batch, polls until completion, downloads `batch_output.jsonl`, and converts results into the same `judge_results.jsonl.gz` schema:
+#### ALCF batch mode
 
-```bash
-araiadoc agentic-judge-dataset data/all_weather_sectionized \
-  --prompt prompts/weather_utility.md \
-  --api-key "$API_KEY" \
-  --mode provider-batch
-```
+The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: there is no file upload. A single `POST {base_url}/batches` references an input JSONL and an output folder that both live on **ALCF shared storage** (e.g. Eagle, `/eagle/argonne_tpc/...`), which the inference service reads and writes directly. Because of that, ALCF batch judging is split into two phases bracketing a file transfer to/from ALCF storage.
 
-Each result row includes `doc_id`, `source_path`, title, model, base URL, prompt and input hashes, decision, score, rationale, raw response, parse status, and timestamp. Unparseable model responses are preserved as rows with `parsed=false` and `raw_response` for auditability.
+1. **Submit.** First build the request JSONL and manifest locally (no ALCF paths submits nothing — it just stages files and prints next steps):
+
+   ```bash
+   araiadoc agentic-judge-dataset data/all_weather_sectionized \
+     --prompt prompts/resilience_relevance.md \
+     --mode alcf-batch-submit -o data/all_weather_judged \
+     --model google/gemma-3-27b-it
+   ```
+
+   Copy `data/all_weather_judged/batch_requests.jsonl` to ALCF storage, then submit the batch referencing the ALCF paths:
+
+   ```bash
+   araiadoc agentic-judge-dataset data/all_weather_sectionized \
+     --prompt prompts/resilience_relevance.md \
+     --mode alcf-batch-submit -o data/all_weather_judged \
+     --model google/gemma-3-27b-it \
+     --api-key "$API_KEY" \
+     --batch-input-file /eagle/argonne_tpc/you/input.jsonl \
+     --batch-output-folder /eagle/argonne_tpc/you/output/
+   ```
+
+2. **Collect.** When the job finishes, copy the output back and fold it into the same judge artifacts. The `batch_manifest.json` written during submit maps each request `custom_id` back to its document:
+
+   ```bash
+   araiadoc agentic-judge-dataset data/all_weather_sectionized \
+     --prompt prompts/resilience_relevance.md \
+     --mode alcf-batch-collect -o data/all_weather_judged \
+     --model google/gemma-3-27b-it \
+     --collect-batch-output ./batch_output.jsonl \
+     --copy-kept
+   ```
+
+`--collect-batch-output` accepts either a single `.jsonl` file or a folder of `.jsonl` files. Output rows whose `custom_id` is missing from the manifest, and manifest entries with no matching output row, are recorded in `failures.json`.
+
+Not all ALCF models support batch processing — see the [ALCF inference endpoints docs](https://docs.alcf.anl.gov/services/inference-endpoints/#available-models). When in doubt, request mode works everywhere.
+
+#### Result schema and resume
+
+Each result row in `judge_results.jsonl.gz` includes `doc_id`, `source_path`, title, model, base URL, prompt and input hashes, decision, score, rationale, raw response, parse status, and timestamp. Unparseable model responses are preserved as rows with `parsed=false` and `raw_response` for auditability.
 
 Resume is enabled by default. Completed work is keyed by source path, document ID, input hash, prompt hash, model, and base URL, so changing the prompt/model/endpoint/document content forces re-judgment. `--output-dir` must be outside `SOURCE` so the command cannot recurse into its own artifacts.
 

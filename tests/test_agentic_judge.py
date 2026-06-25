@@ -8,6 +8,12 @@ from click.testing import CliRunner
 
 import araiadoc.agentic.runners as runners
 from araiadoc.agentic import agentic_judge_dataset
+from araiadoc.agentic.alcf_batch import (
+    build_batch_request_line,
+    collect_alcf_batch_output,
+    write_batch_manifest,
+    write_batch_request_file,
+)
 from araiadoc.agentic.cli import parse_keep_decisions
 from araiadoc.agentic.docs import doc_input_sha256, iter_sectionized_docs, job_key
 from araiadoc.agentic.parsing import parse_judge_response
@@ -17,6 +23,155 @@ from araiadoc.agentic.prompting import build_judge_prompt, truncate_document_tex
 def _write_sectionized_doc(path: Path, **fields: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(fields), encoding="utf-8")
+
+
+def _make_job(doc_id: str, prompt: str) -> dict:
+    return {
+        "key": doc_id,
+        "doc": {
+            "doc_id": doc_id,
+            "source_path": f"00/{doc_id}.json",
+            "title": f"title-{doc_id}",
+        },
+        "input_sha256": "x",
+        "prompt": prompt,
+    }
+
+
+def _batch_output_line(custom_id: str, content: str) -> str:
+    return (
+        json.dumps(
+            {
+                "custom_id": custom_id,
+                "response": {"body": {"choices": [{"message": {"content": content}}]}},
+            }
+        )
+        + "\n"
+    )
+
+
+class TestAlcfBatchRequestBuilding:
+    def test_request_line_has_custom_id_and_body(self):
+        line = build_batch_request_line(_make_job("1", "hello"), model="m", temperature=0.0, max_tokens=8)
+        obj = json.loads(line)
+        assert obj["custom_id"] == "1"
+        assert obj["url"] == "/v1/chat/completions"
+        assert obj["body"]["model"] == "m"
+        assert obj["body"]["messages"][0]["content"] == "hello"
+
+    def test_write_request_file_and_manifest(self, tmp_path):
+        jobs = [_make_job("1", "a"), _make_job("2", "b")]
+        request_path = tmp_path / "batch_requests.jsonl"
+        manifest_path = tmp_path / "batch_manifest.json"
+
+        total_bytes = write_batch_request_file(jobs, request_path, model="m", temperature=0.0, max_tokens=8)
+        write_batch_manifest(jobs, manifest_path)
+
+        lines = request_path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        assert total_bytes > 0
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["1"]["source_path"] == "00/1.json"
+        assert manifest["1"]["input_sha256"] == "x"
+
+
+class TestAlcfBatchCollect:
+    def test_collect_folds_output_into_results(self, tmp_path):
+        source = tmp_path / "sectionized"
+        source.mkdir()
+        output_dir = tmp_path / "judged"
+        output_dir.mkdir()
+        result_path = output_dir / "judge_results.jsonl.gz"
+        checkpoint_path = output_dir / "judge_checkpoint.json"
+
+        manifest = {
+            "1": {
+                "doc_id": "1",
+                "source_path": "00/1.json",
+                "title": "t1",
+                "input_sha256": "x",
+            },
+            "2": {
+                "doc_id": "2",
+                "source_path": "00/2.json",
+                "title": "t2",
+                "input_sha256": "x",
+            },
+        }
+        batch_output = tmp_path / "batch_output.jsonl"
+        batch_output.write_text(
+            _batch_output_line("1", '{"decision":"relevant","score":3,"rationale":"ok"}')
+            + _batch_output_line("2", '{"decision":"irrelevant","score":0,"rationale":"no"}'),
+            encoding="utf-8",
+        )
+
+        completed_keys: set[str] = set()
+        stats = collect_alcf_batch_output(
+            output_path=batch_output,
+            manifest=manifest,
+            source=source,
+            output_dir=output_dir,
+            model="m",
+            base_url="u",
+            prompt_sha256="p",
+            copy_kept=False,
+            keep_decisions={"relevant"},
+            completed_keys=completed_keys,
+            checkpoint_path=checkpoint_path,
+            result_path=result_path,
+        )
+
+        assert stats["succeeded"] == 2
+        assert stats["failed"] == 0
+        assert stats["decision_counts"] == {"relevant": 1, "irrelevant": 1}
+        with gzip.open(result_path, "rt", encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f]
+        assert {r["decision"] for r in rows} == {"relevant", "irrelevant"}
+
+    def test_collect_marks_missing_custom_ids_as_failed(self, tmp_path):
+        source = tmp_path / "sectionized"
+        source.mkdir()
+        output_dir = tmp_path / "judged"
+        output_dir.mkdir()
+        manifest = {
+            "1": {
+                "doc_id": "1",
+                "source_path": "00/1.json",
+                "title": "t1",
+                "input_sha256": "x",
+            },
+            "2": {
+                "doc_id": "2",
+                "source_path": "00/2.json",
+                "title": "t2",
+                "input_sha256": "x",
+            },
+        }
+        batch_output = tmp_path / "batch_output.jsonl"
+        batch_output.write_text(
+            _batch_output_line("1", '{"decision":"relevant","score":3,"rationale":"ok"}'),
+            encoding="utf-8",
+        )
+
+        stats = collect_alcf_batch_output(
+            output_path=batch_output,
+            manifest=manifest,
+            source=source,
+            output_dir=output_dir,
+            model="m",
+            base_url="u",
+            prompt_sha256="p",
+            copy_kept=False,
+            keep_decisions={"relevant"},
+            completed_keys=set(),
+            checkpoint_path=output_dir / "judge_checkpoint.json",
+            result_path=output_dir / "judge_results.jsonl.gz",
+        )
+
+        assert stats["succeeded"] == 1
+        assert stats["failed"] == 1
+        assert any(f.get("source_path") == "00/2.json" for f in stats["failures"])
 
 
 class TestIterSectionizedDocs:
