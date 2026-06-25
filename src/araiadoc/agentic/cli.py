@@ -6,11 +6,17 @@ from pathlib import Path
 import click
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
+from araiadoc.agentic.alcf_batch import (
+    collect_alcf_batch_output,
+    submit_alcf_batch,
+    write_batch_manifest,
+    write_batch_request_file,
+)
 from araiadoc.agentic.artifacts import summarize_results_file, write_summary
 from araiadoc.agentic.constants import DEFAULT_BASE_URL, DEFAULT_MODEL, VALID_DECISIONS
 from araiadoc.agentic.docs import doc_input_sha256, iter_sectionized_docs
 from araiadoc.agentic.jobs import prepare_doc_jobs
-from araiadoc.agentic.runners import run_provider_batch_mode, run_requests_mode
+from araiadoc.agentic.runners import run_requests_mode
 from araiadoc.agentic.util import load_json, sha256_text
 
 
@@ -22,6 +28,77 @@ def parse_keep_decisions(value: str) -> set[str]:
     if not decisions:
         raise click.BadParameter("provide at least one decision")
     return decisions
+
+
+def _run_alcf_batch_submit(
+    *,
+    jobs: list,
+    output_dir: Path,
+    api_key: str | None,
+    base_url: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    batch_input_file: str | None,
+    batch_output_folder: str | None,
+) -> None:
+    """Build the request JSONL + manifest, then submit an ALCF batch job.
+
+    The ALCF inference gateway reads the input JSONL and writes output from/to
+    ALCF shared storage paths (e.g. /eagle/...). This step writes a local copy
+    of the request file and a custom_id->doc manifest, then POSTs the batch
+    referencing the ALCF paths so that --mode alcf-batch-collect can later fold
+    results back into judge artifacts.
+    """
+    if not jobs:
+        click.echo("No documents to submit (all completed or none discovered).")
+        return
+
+    request_path = output_dir / "batch_requests.jsonl"
+    manifest_path = output_dir / "batch_manifest.json"
+    total_bytes = write_batch_request_file(
+        jobs,
+        request_path,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    write_batch_manifest(jobs, manifest_path)
+    click.echo(f"Wrote {len(jobs)} requests ({total_bytes} bytes) to {request_path}")
+    click.echo(f"Wrote manifest to {manifest_path}")
+
+    if not batch_input_file or not batch_output_folder:
+        click.echo(
+            "\nNo --batch-input-file / --batch-output-folder provided, so the "
+            "batch was NOT submitted.\n"
+            "Next steps:\n"
+            f"  1. Copy {request_path} to ALCF storage (e.g. /eagle/...).\n"
+            "  2. Re-run with --mode alcf-batch-submit plus --batch-input-file "
+            "and --batch-output-folder set to the ALCF paths.\n"
+            "  3. After the job finishes, copy the output back and run "
+            "--mode alcf-batch-collect --collect-batch-output <path>."
+        )
+        return
+
+    if not api_key:
+        raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
+
+    click.echo(f"Submitting ALCF batch job to {base_url.rstrip('/')}/batches ...")
+    response = submit_alcf_batch(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        input_file=batch_input_file,
+        output_folder_path=batch_output_folder,
+        timeout=timeout,
+    )
+    click.echo(json.dumps(response, indent=2))
+    click.echo(
+        "\nWhen the job completes, copy the output back and run:\n"
+        f"  araiadoc agentic-judge-dataset <SOURCE> --mode alcf-batch-collect "
+        f"-o {output_dir} --collect-batch-output <ALCF_OUTPUT_PATH>"
+    )
 
 
 @click.command("agentic-judge-dataset")
@@ -48,7 +125,7 @@ def parse_keep_decisions(value: str) -> set[str]:
     "prompt_path",
     required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Rubric prompt file.",
+    help="Rubric prompt file. Must emphasize a 0-3 score and corresponding relevance criteria.",
 )
 @click.option(
     "--output-dir",
@@ -58,9 +135,16 @@ def parse_keep_decisions(value: str) -> set[str]:
 )
 @click.option(
     "--mode",
-    type=click.Choice(["requests", "provider-batch"]),
+    type=click.Choice(["requests", "alcf-batch-submit", "alcf-batch-collect"]),
     default="requests",
     show_default=True,
+    help=(
+        "Mode: 'requests' judges each document via chat completions (works on "
+        "any OpenAI-compatible endpoint). 'alcf-batch-submit' builds the batch "
+        "request JSONL + manifest and POSTs an ALCF filesystem-based batch job. "
+        "'alcf-batch-collect' folds an ALCF batch output file/folder back into "
+        "judge artifacts."
+    ),
 )
 @click.option(
     "--concurrency",
@@ -78,7 +162,11 @@ def parse_keep_decisions(value: str) -> set[str]:
     type=click.FloatRange(1.0),
     help="Per-request timeout in seconds.",
 )
-@click.option("--limit", type=click.IntRange(1), help="Judge at most N documents.")
+@click.option(
+    "--limit",
+    type=click.IntRange(1),
+    help="Judge at most N documents. No limit by default.",
+)
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -109,18 +197,29 @@ def parse_keep_decisions(value: str) -> set[str]:
     help="Skip completed stable job keys from judge_checkpoint.json.",
 )
 @click.option(
-    "--batch-poll-interval",
-    default=30.0,
-    show_default=True,
-    type=click.FloatRange(1.0),
-    help="Provider batch poll interval in seconds.",
+    "--batch-input-file",
+    type=str,
+    help=(
+        "[alcf-batch-submit] ALCF filesystem path the inference service will "
+        "read the request JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl). "
+        "The tool also writes a local copy to OUTPUT_DIR/batch_requests.jsonl."
+    ),
 )
 @click.option(
-    "--batch-timeout",
-    default=86400.0,
-    show_default=True,
-    type=click.FloatRange(1.0),
-    help="Provider batch wait timeout in seconds.",
+    "--batch-output-folder",
+    type=str,
+    help=(
+        "[alcf-batch-submit] ALCF filesystem folder the inference service will "
+        "write batch output to (e.g. /eagle/argonne_tpc/you/output/)."
+    ),
+)
+@click.option(
+    "--collect-batch-output",
+    type=click.Path(exists=True, path_type=Path),
+    help=(
+        "[alcf-batch-collect] Path to the ALCF batch output .jsonl file, or a "
+        "folder containing output .jsonl files, to fold into judge artifacts."
+    ),
 )
 def agentic_judge_dataset(
     source: Path,
@@ -140,8 +239,9 @@ def agentic_judge_dataset(
     copy_kept: bool,
     keep_decisions: str,
     resume: bool,
-    batch_poll_interval: float,
-    batch_timeout: float,
+    batch_input_file: str | None,
+    batch_output_folder: str | None,
+    collect_batch_output: Path | None,
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
     output_dir = output_dir or Path(str(source) + "_judged")
@@ -182,12 +282,41 @@ def agentic_judge_dataset(
             click.echo(job["prompt"])
         return
 
-    if not api_key:
-        raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
-
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if mode == "alcf-batch-submit":
+        _run_alcf_batch_submit(
+            jobs=jobs,
+            output_dir=output_dir,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            batch_input_file=batch_input_file,
+            batch_output_folder=batch_output_folder,
+        )
+        return
+
+    if mode == "alcf-batch-collect":
+        manifest_path = output_dir / "batch_manifest.json"
+        manifest = load_json(manifest_path, {})
+        if not manifest:
+            raise click.UsageError(
+                f"No batch manifest found at {manifest_path}. Run "
+                "--mode alcf-batch-submit first (with the same --output-dir)."
+            )
+        if collect_batch_output is None:
+            raise click.UsageError(
+                "alcf-batch-collect requires --collect-batch-output pointing to "
+                "the ALCF batch output .jsonl file or folder."
+            )
+
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         if mode == "requests":
+            if not api_key:
+                raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
             stats = run_requests_mode(
                 jobs=jobs,
                 source=source,
@@ -207,26 +336,21 @@ def agentic_judge_dataset(
                 result_path=result_path,
                 progress=progress,
             )
-        else:
-            stats = run_provider_batch_mode(
-                jobs=jobs,
+        else:  # alcf-batch-collect
+            progress.log(f"Collecting ALCF batch output from {collect_batch_output}")
+            stats = collect_alcf_batch_output(
+                output_path=collect_batch_output,
+                manifest=manifest,
                 source=source,
                 output_dir=output_dir,
-                api_key=api_key,
-                base_url=base_url,
                 model=model,
+                base_url=base_url,
                 prompt_sha256=prompt_sha256,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
                 copy_kept=copy_kept,
                 keep_decisions=parsed_keep_decisions,
                 completed_keys=completed_keys,
                 checkpoint_path=checkpoint_path,
                 result_path=result_path,
-                batch_poll_interval=batch_poll_interval,
-                batch_timeout=batch_timeout,
-                progress=progress,
             )
 
         if stats["failures"]:
