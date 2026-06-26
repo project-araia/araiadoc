@@ -1,3 +1,6 @@
+import re
+from importlib import resources
+
 q = """
 (
   (
@@ -866,3 +869,150 @@ q2_chunks = [
     _q2_chunk(_Q2_CHUNK_19_OR),
     _q2_chunk(_Q2_CHUNK_20_OR),
 ]
+
+
+_Q3_KEYWORD_PACKAGE = "araiadoc.q3_keywords"
+
+_Q3_FILES = {
+    1: "File 1_Energy_revised.txt",
+    2: "File 2_Water.txt",
+    3: "File 3_Transportation_revised.txt",
+    4: "File 4_Comms and IT.txt",
+    5: "File 5_Chemical and Critical Manufacturing.txt",
+    6: "File 6_Other Critical Infrastructure Sectors.txt",
+    7: "File 7_Cross Cutting Infrastructure Topics.txt",
+}
+
+_Q3_SECTOR_MAPPING = {
+    (1, 1): ("Energy", ["Electricity"]),
+    (1, 2): ("Energy", ["Electricity"]),
+    (1, 3): ("Energy", ["Electricity"]),
+    (1, 4): ("Energy", ["Electricity"]),
+    (1, 5): ("Energy", ["Electricity"]),
+    (1, 6): ("Energy", ["Electricity"]),
+    (1, 7): ("Energy", ["Electricity"]),
+    (1, 8): ("Energy", ["Electricity"]),
+    (1, 9): ("Energy", ["Natural Gas", "Petroleum"]),
+    (1, 10): ("Transportation", ["Pipeline Systems"]),
+    (1, 11): ("Energy", ["Natural Gas", "Petroleum"]),
+    (1, 12): ("Nuclear", ["Nuclear Facility Subsector"]),
+    (1, 13): ("Dams", ["Electricity Generation"]),
+    (2, 1): ("Water", ["Water"]),
+    (2, 2): ("Water", ["Water"]),
+    (2, 3): ("Water", ["Water"]),
+    (2, 4): ("Water", ["Wastewater"]),
+    (2, 5): ("Water", ["Wastewater"]),
+    (2, 6): ("Dams", ["Water Supply and Flood Control"]),
+    (2, 7): ("Water", []),
+    (3, 1): ("Transportation", ["Aviation"]),
+    (3, 2): ("Transportation", ["Highways and Motor Carriers"]),
+    (3, 3): ("Transportation", ["Maritime"]),
+    (3, 4): ("Transportation", ["Mass Transit and Passenger Rail"]),
+    (3, 5): ("Transportation", ["Freight Rail"]),
+    (3, 6): ("Transportation", ["Pipeline Systems"]),
+    (3, 7): ("Transportation", ["Postal and Shipping"]),
+    (4, 1): ("Communications", ["Wireline"]),
+    (4, 2): ("Communications", ["Wireless"]),
+    (4, 3): ("Communications", ["Satellite"]),
+    (4, 4): ("Communications", ["Cable"]),
+    (4, 5): ("Communications", ["Broadcasting"]),
+    (4, 6): ("Information Technology", []),
+    (5, 1): ("Chemical", []),
+    (5, 2): ("Critical Manufacturing", []),
+    (6, 1): ("Commercial Facilities", []),
+    (6, 2): ("Defense Industrial Base", []),
+    (6, 3): ("Emergency Services", []),
+    (6, 4): ("Financial Services", []),
+    (6, 5): ("Food and Agriculture", []),
+    (6, 6): ("Government Facilities", []),
+    (6, 7): ("Healthcare and Public Health", []),
+}
+
+
+def _q3_clean_lines(lines: list[str]) -> list[str]:
+    cleaned = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith("--"):
+            continue
+        if line == "NOT":
+            line = "AND NOT"
+        if line:
+            cleaned.append(line)
+
+    for idx, line in enumerate(cleaned[:-1]):
+        nxt = cleaned[idx + 1]
+        if line.startswith('"') and not line.endswith("OR") and nxt.startswith('"'):
+            cleaned[idx] = f"{line} OR"
+    return cleaned
+
+
+def _q3_parse_file(file_num: int, text: str) -> list[dict]:
+    body = text.split('"""', 1)[1].rsplit('"""', 1)[0]
+    lines = body.splitlines()
+
+    groups = []
+    idx = 0
+    last_group_close = 0
+    while idx < len(lines):
+        match = re.search(r"--\s*GROUP\s+(\d+)\s*:\s*(.+)", lines[idx])
+        if not match:
+            idx += 1
+            continue
+
+        group_num = int(match.group(1))
+        name = match.group(2).strip()
+        term_lines = []
+        idx += 1
+        while idx < len(lines):
+            if lines[idx].strip() == ")":
+                last_group_close = idx
+                break
+            term_lines.append(lines[idx])
+            idx += 1
+
+        group_query = "(\n" + "\n".join(_q3_clean_lines(term_lines)) + "\n)"
+        groups.append({"file": file_num, "group": group_num, "name": name, "group_query": group_query})
+        idx += 1
+
+    suffix_start = None
+    for idx in range(last_group_close + 1, len(lines)):
+        if lines[idx].strip() == "AND":
+            suffix_start = idx
+            break
+    suffix = ""
+    if suffix_start is not None:
+        suffix = "\n" + "\n".join(_q3_clean_lines(lines[suffix_start:]))
+
+    parsed = []
+    for group in groups:
+        query = f"{group['group_query']}{suffix}"
+        meta = {
+            "file": group["file"],
+            "group": group["group"],
+            "name": group["name"],
+            "query": query,
+        }
+        if file_num == 7:
+            meta["tag"] = group["name"]
+        else:
+            sector, subsectors = _Q3_SECTOR_MAPPING[(file_num, group["group"])]
+            meta["sector"] = sector
+            meta["subsectors"] = subsectors
+        parsed.append(meta)
+    return parsed
+
+
+def get_q3_groups() -> list[dict]:
+    """Return Q3 critical-infrastructure query groups with sector/tag metadata."""
+    groups = []
+    package_files = resources.files(_Q3_KEYWORD_PACKAGE)
+    for file_num, filename in _Q3_FILES.items():
+        text = (package_files / filename).read_text(encoding="utf-8")
+        groups.extend(_q3_parse_file(file_num, text))
+    return groups
+
+
+def get_q3_query() -> str:
+    """Return one OR query covering all Q3 critical-infrastructure groups."""
+    return " OR ".join(f"({group['query']})" for group in get_q3_groups())

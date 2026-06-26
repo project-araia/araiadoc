@@ -19,6 +19,9 @@ araiadoc = "araiadoc.collection.crawl:main"
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-data]
+"araiadoc.q3_keywords" = ["*.txt"]
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]

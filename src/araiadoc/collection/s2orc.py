@@ -28,7 +28,7 @@ import click
 import requests
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
-from araiadoc.searches import Q2_AND_BLOCK, Q2_NOT_BLOCK, q, q2_chunks
+from araiadoc.searches import Q2_AND_BLOCK, Q2_NOT_BLOCK, get_q3_groups, get_q3_query, q, q2_chunks
 from araiadoc.utils import _build_session, _prep_output_dir
 
 # ---------------------------------------------------------------------------
@@ -542,6 +542,191 @@ def _query_with_duckdb(
     return written
 
 
+def _q3_group_key(group: dict) -> str:
+    return f"file{group['file']}_group{group['group']}"
+
+
+def _q3_group_record(group: dict) -> dict:
+    record = {"file": group["file"], "group": group["group"], "name": group["name"]}
+    if "tag" in group:
+        record["tag"] = group["tag"]
+    else:
+        record["sector"] = group["sector"]
+        record["subsectors"] = group["subsectors"]
+    return record
+
+
+def _merge_q3_tag(doc: dict, group: dict) -> dict:
+    tags = doc.setdefault("_araiadoc_tags", {})
+    ci = tags.setdefault("critical_infrastructure", {})
+    sectors = ci.setdefault("sectors", [])
+    cross_tags = ci.setdefault("tags", [])
+    matched_groups = ci.setdefault("matched_groups", [])
+
+    if "tag" in group:
+        if group["tag"] not in cross_tags:
+            cross_tags.append(group["tag"])
+    else:
+        sector_record = {"sector": group["sector"], "subsectors": group["subsectors"]}
+        sector_key = (sector_record["sector"], tuple(sector_record["subsectors"]))
+        existing_sector_keys = {(item.get("sector"), tuple(item.get("subsectors", []))) for item in sectors}
+        if sector_key not in existing_sector_keys:
+            sectors.append(sector_record)
+
+    group_key = (group["file"], group["group"])
+    existing_group_keys = {(item.get("file"), item.get("group")) for item in matched_groups}
+    if group_key not in existing_group_keys:
+        matched_groups.append(_q3_group_record(group))
+
+    sectors.sort(key=lambda item: (item.get("sector", ""), item.get("subsectors", [])))
+    cross_tags.sort()
+    matched_groups.sort(key=lambda item: (item.get("file", 0), item.get("group", 0)))
+    return doc
+
+
+def _write_doc_with_q3_tag(doc: dict, output_dir: Path, group: dict) -> tuple[Path, bool]:
+    corpus_id = str(doc.get("corpusid", "unknown"))
+    shard = corpus_id[-2:] if len(corpus_id) >= 2 else corpus_id
+    shard_dir = output_dir / shard
+    shard_dir.mkdir(exist_ok=True)
+    dest = shard_dir / f"{corpus_id}.json"
+
+    is_new = not dest.exists()
+    if is_new:
+        existing = doc
+    else:
+        try:
+            existing = json.loads(dest.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = doc
+
+    _merge_q3_tag(existing, group)
+    dest.write_text(json.dumps(existing, ensure_ascii=False))
+    return dest, is_new
+
+
+def _count_q3_tagged_docs(output_dir: Path) -> int:
+    count = 0
+    for path in output_dir.glob("*/*.json"):
+        try:
+            doc = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if doc.get("_araiadoc_tags", {}).get("critical_infrastructure"):
+            count += 1
+    return count
+
+
+def _load_q3_checkpoint(output_dir: Path) -> dict:
+    cp_path = output_dir / "duckdb_q3_checkpoint.json"
+    if cp_path.exists():
+        try:
+            data = json.loads(cp_path.read_text())
+            if isinstance(data, dict):
+                completed = data.get("completed", {})
+                data["completed"] = {key: set(value) for key, value in completed.items()}
+                data["written"] = _count_q3_tagged_docs(output_dir)
+                data.setdefault("matched_rows", 0)
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"completed": {}, "written": 0, "matched_rows": 0}
+
+
+def _save_q3_checkpoint(output_dir: Path, data: dict) -> None:
+    cp_path = output_dir / "duckdb_q3_checkpoint.json"
+    tmp = cp_path.with_suffix(".json.tmp")
+    serialisable = {
+        "completed": {key: sorted(value) for key, value in data.get("completed", {}).items()},
+        "written": data.get("written", 0),
+        "matched_rows": data.get("matched_rows", 0),
+    }
+    tmp.write_text(json.dumps(serialisable, indent=2))
+    tmp.replace(cp_path)
+
+
+def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
+    import duckdb
+
+    groups = get_q3_groups()
+    checkpoint = _load_q3_checkpoint(output_dir)
+    completed_by_group: dict[str, set[str]] = checkpoint["completed"]
+    written: int = checkpoint.get("written", 0)
+    matched_rows: int = checkpoint.get("matched_rows", 0)
+
+    con = duckdb.connect()
+    try:
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            total = len(groups) * len(gz_files)
+            task = progress.add_task("[cyan]DuckDB scan (critical infrastructure)", total=total)
+            progress.update(task, advance=sum(len(v) for v in completed_by_group.values()))
+
+            for group in groups:
+                group_key = _q3_group_key(group)
+                completed = completed_by_group.setdefault(group_key, set())
+                ast = _SolrParser(_tokenize_solr(group["query"])).parse()
+                pending = [gz for gz in gz_files if gz.name not in completed]
+                if not pending:
+                    continue
+
+                progress.log(
+                    f"* Q3 {group_key}: {group['name']} " f"({len(completed)}/{len(gz_files)} shard(s) complete)"
+                )
+
+                for gz in pending:
+                    text_expr = _detect_body_column(con, gz)
+                    if text_expr is None:
+                        progress.log(
+                            f"* WARNING: shard {gz.name} has neither 'body' nor 'content' "
+                            f"top-level column; skipping."
+                        )
+                        progress.update(task, advance=1)
+                        continue
+
+                    where_clause = _solr_ast_to_sql(ast, text_expr)
+                    sql = (
+                        "SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true) " f"WHERE {where_clause}"
+                    )
+                    seen_in_group_shard: set[str] = set()
+                    try:
+                        con.execute(sql, [[str(gz)]])
+                        col_names = [desc[0] for desc in con.description]
+                        while True:
+                            row = con.fetchone()
+                            if row is None:
+                                break
+                            doc = dict(zip(col_names, row))
+                            cid = str(doc.get("corpusid", ""))
+                            if cid in seen_in_group_shard:
+                                continue
+                            seen_in_group_shard.add(cid)
+                            matched_rows += 1
+                            _, is_new = _write_doc_with_q3_tag(doc, output_dir, group)
+                            if is_new:
+                                written += 1
+                    except Exception as exc:
+                        progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
+                        progress.update(task, advance=1)
+                        continue
+
+                    completed.add(gz.name)
+                    checkpoint["completed"] = completed_by_group
+                    checkpoint["written"] = written
+                    checkpoint["matched_rows"] = matched_rows
+                    _save_q3_checkpoint(output_dir, checkpoint)
+                    progress.update(task, advance=1)
+    finally:
+        con.close()
+
+    written = _count_q3_tagged_docs(output_dir)
+    checkpoint["written"] = written
+    checkpoint["matched_rows"] = matched_rows
+    _save_q3_checkpoint(output_dir, checkpoint)
+    click.echo(f"* DuckDB returned {matched_rows} Q3 group-document match(es).")
+    click.echo(f"* {written} unique document(s) written.")
+    return written
+
+
 # ---------------------------------------------------------------------------
 # get-from-local-s2orc
 # ---------------------------------------------------------------------------
@@ -582,6 +767,16 @@ def _query_with_duckdb(
     help="Extract all documents matching the utility/electricity keyword search.",
 )
 @click.option(
+    "--all-critical-infrastructure",
+    is_flag=True,
+    help="Extract all documents matching the critical-infrastructure keyword search.",
+)
+@click.option(
+    "--with-tags",
+    is_flag=True,
+    help="Tag critical-infrastructure documents with matching sector/subsector and cross-cutting groups.",
+)
+@click.option(
     "--query",
     "-q",
     default=None,
@@ -593,11 +788,13 @@ def get_from_local_s2orc(
     source: str | None,
     all_weather: bool,
     all_utility: bool,
+    all_critical_infrastructure: bool,
+    with_tags: bool,
     query: str | None,
 ):
     """Extract documents from a local s2orc_v2 download using DuckDB.
 
-    Use one of --source, --all-weather, --all-utility, or --query.
+    Use one of --source, --all-weather, --all-utility, --all-critical-infrastructure, or --query.
 
     Produces one JSON file per matching document, sharded by the last two
     digits of the corpus ID — the same layout consumed by section-dataset-s2orc.
@@ -617,14 +814,21 @@ def get_from_local_s2orc(
       # Ad-hoc query
       araiadoc get-from-local-s2orc -d /data/s2orc -q '"adsorption refrigeration"'
     """
-    if sum([bool(source), all_weather, all_utility, bool(query)]) != 1:
-        raise click.UsageError("Provide exactly one of --source, --all-weather, --all-utility, or --query.")
+    if sum([bool(source), all_weather, all_utility, all_critical_infrastructure, bool(query)]) != 1:
+        raise click.UsageError(
+            "Provide exactly one of --source, --all-weather, --all-utility, "
+            "--all-critical-infrastructure, or --query."
+        )
+    if with_tags and not all_critical_infrastructure:
+        raise click.UsageError("--with-tags is only supported with --all-critical-infrastructure.")
 
     if output_dir is None:
         if all_weather:
             output_dir = _prep_output_dir("s2orc_weather_results")
         elif all_utility:
             output_dir = _prep_output_dir("s2orc_utility_results")
+        elif all_critical_infrastructure:
+            output_dir = _prep_output_dir("s2orc_critical_infrastructure_results")
         else:
             output_dir = _prep_output_dir("s2orc_id_results")
     else:
@@ -653,6 +857,12 @@ def get_from_local_s2orc(
     # ------------------------------------------------------------------ #
     # Keyword search                                                     #
     # ------------------------------------------------------------------ #
+    if all_critical_infrastructure and with_tags:
+        written = _query_q3_with_duckdb(gz_files, output_dir)
+        click.echo(f"* Done. {written} document(s) written.")
+        click.echo(f"* Output: {output_dir}")
+        return
+
     if all_weather:
         query_text = q
         label = "weather"
@@ -660,6 +870,9 @@ def get_from_local_s2orc(
         chunks_joined = " OR ".join(f"({c})" for c in q2_chunks)
         query_text = f"({chunks_joined}) AND ({Q2_AND_BLOCK}) AND NOT ({Q2_NOT_BLOCK})"
         label = "utility"
+    elif all_critical_infrastructure:
+        query_text = get_q3_query()
+        label = "critical infrastructure"
     else:
         query_text = query
         label = "query"
