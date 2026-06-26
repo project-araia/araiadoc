@@ -1,5 +1,5 @@
 ---
-name: section_dataset_v2
+name: section-dataset-v2
 description: Sectionize documents into header:paragraph JSON dictionaries using the araiadoc tool.
 ---
 

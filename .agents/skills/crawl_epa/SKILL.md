@@ -1,5 +1,5 @@
 ---
-name: crawl_epa
+name: crawl-epa
 description: Asynchronously crawl EPA NEPIS document result pages using the araiadoc tool.
 ---
 
@@ -10,7 +10,7 @@ Asynchronously crawl the EPA NEPIS (National Environmental Publications Informat
 ## Usage
 
 ```bash
-pixi run -e araiadoc araiadoc crawl-epa [OPTIONS] START_IDX STOP_IDX
+pixi run -e araiadoc araiadoc craw_epa [OPTIONS] START_IDX STOP_IDX
 ```
 
 ### Arguments
@@ -30,17 +30,17 @@ pixi run -e araiadoc araiadoc crawl-epa [OPTIONS] START_IDX STOP_IDX
 
 - Crawl documents 0-200 for "Flooding":
   ```bash
-  pixi run -e araiadoc araiadoc crawl-epa 0 200 -t Flooding
+  pixi run -e araiadoc araiadoc crawl_epa 0 200 -t Flooding
   ```
 
 - Crawl documents 0-500 for multiple climate terms (runs in parallel):
   ```bash
-  pixi run -e araiadoc araiadoc crawl-epa 0 500 -t "Heat Wave" -t Flooding -t Drought
+  pixi run -e araiadoc araiadoc crawl_epa 0 500 -t "Heat Wave" -t Flooding -t Drought
   ```
 
 - Crawl a small batch for "Wildfire":
   ```bash
-  pixi run -e araiadoc araiadoc crawl-epa 0 50 -t Wildfire
+  pixi run -e araiadoc araiadoc crawl_epa 0 50 -t Wildfire
   ```
 
 ## How It Works

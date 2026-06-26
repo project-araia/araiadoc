@@ -1,5 +1,5 @@
 ---
-name: get_from_titanv
+name: get-from-titanv
 description: Download documents from TitanV (S2ORC) database or perform an all-terms search using the araiadoc tool.
 ---
 
