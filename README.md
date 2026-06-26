@@ -454,14 +454,14 @@ Round-trip audit that reads written sectionized JSON back from disk, reconstruct
 ### Agent Skills
 
 Agent Skills are available in the `.agents/skills` directory. Supported skills include:
-  - `crawl_epa`: Crawl EPA result pages
-  - `crawl_osti`: Crawl OSTI result pages
-  - `get_from_titanv`: Download from TitanV (S2ORC) database
-  - `section_dataset_v2`: Sectionize dataset v2
-  - `section_dataset_s2orc`: Sectionize s2orc_v2 documents from span annotations
-  - `araia_review`: Review a sectionized corpus against its generating Solr query
-  - `araia_compare`: Compare two sectionized corpora for overlap / drift
-  - `araia_verify`: Round-trip audit of a sectionized corpus against its raw input
+  - `crawl-epa`: Crawl EPA result pages
+  - `crawl-osti`: Crawl OSTI result pages
+  - `get-from-titanv`: Download from TitanV (S2ORC) database
+  - `section-dataset-v2`: Sectionize dataset v2
+  - `section-dataset-s2orc`: Sectionize s2orc_v2 documents from span annotations
+  - `araia-review`: Review a sectionized corpus against its generating Solr query
+  - `araia-compare`: Compare two sectionized corpora for overlap / drift
+  - `araia-verify`: Round-trip audit of a sectionized corpus against its raw input
 
 #### JSON Schema
 

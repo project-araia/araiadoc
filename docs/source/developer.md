@@ -55,6 +55,6 @@ The skills directory is organized as follows:
 - **`section_dataset_s2orc`:** Instructions on parsing the `s2orc_v2` span annotations and creating matching paragraphs.
 - **`araia_verify`:** Guide to executing `verify-sectionization` to check content integrity.
 - **`araia_review`:** Review and audit topical relevance against generator queries.
-- **`araia_compare` / `get_from_titanv`:** Overlap detection, dataset comparison, and legacy extraction.
+- **`araia_compare` / `get-from-titanv`:** Overlap detection, dataset comparison, and legacy extraction.
 
 **Rule:** Before generating CLI arguments, **always verify flag names against the corresponding skill file** in `.agents/skills/` to ensure full parity with the actual Click definitions in `src/araiadoc/crawl.py`.

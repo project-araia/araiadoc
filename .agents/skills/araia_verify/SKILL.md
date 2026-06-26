@@ -1,9 +1,9 @@
 ---
-name: araia_verify
+name: araia-verify
 description: Round-trip audit of a sectionized araiadoc corpus against its raw s2orc input. Samples sectionized outputs, reconstructs ground truth from raw header/paragraph span annotations, and verifies each section survived to disk. Catches silent bugs the internal sectionization_report.json cannot — duplicate-header overwrites, output truncation, encoding mangling.
 ---
 
-# `araia_verify` Skill
+# `araia-verify` Skill
 
 Independent disk-level correctness check for `section-dataset-s2orc` output.
 Where `sectionization_report.json` records what the sectionizer *decided*,
@@ -12,8 +12,8 @@ back and comparing it against ground truth reconstructed directly from raw span
 annotations.
 
 If you want to evaluate topical fit of a corpus against its source query, use
-`araia_review` instead. If you want to compare two corpora for overlap or
-drift, use `araia_compare`.
+`araia-review` instead. If you want to compare two corpora for overlap or
+drift, use `araia-compare`.
 
 Use this skill any time the user asks to:
 

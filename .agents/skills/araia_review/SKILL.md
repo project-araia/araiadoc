@@ -1,5 +1,5 @@
 ---
-name: araia_review
+name: araia-review
 description: Review a single sectionized araiadoc corpus against the Solr boolean query in src/araiadoc/searches.py that was supposed to generate it. Judge topical fit, surface recurring failure modes, and feed insights back into iterating the literal query.
 ---
 
@@ -8,7 +8,7 @@ description: Review a single sectionized araiadoc corpus against the Solr boolea
 Iterative workflow for judging how well a literal Solr query in
 `src/araiadoc/searches.py` matches the topical *intent* of the sectionized
 corpus it produced. Each invocation appends a new dated round to
-`araia_review.md` at the repo root.
+`araia-review.md` at the repo root.
 
 If you instead want to compare **two corpora to each other** (overlap,
 cloning, divergence), use the `araia-compare` skill. The two skills are
@@ -50,7 +50,7 @@ Use this skill any time the user asks to:
 
 ## Output
 
-Append a new dated section to `araia_review.md` at the repo root with this
+Append a new dated section to `araia-review.md` at the repo root with this
 structure:
 
 ```
@@ -241,7 +241,7 @@ End each round with concrete next-iteration questions, e.g.:
   a `NOT`-block?"
 - "should `Q2` require ≥2 distinct chunks to fire?"
 
-### 10. Append to `araia_review.md`
+### 10. Append to `araia-review.md`
 
 Use `edit` to append the new round below the last round. Do **not**
 overwrite the file. Increment the round number. Date is today.

@@ -18,11 +18,19 @@ from araiadoc.collection.s2orc import download_s2orc, get_from_local_s2orc
 from araiadoc.collection.sources import source_mapping
 from araiadoc.collection.titanv import get_from_titanv
 from araiadoc.processing.convert import convert, epa_ocr_to_json
-from araiadoc.processing.metadata import get_metadata_from_database, get_metadata_from_semanticscholar
+from araiadoc.processing.metadata import (
+    get_metadata_from_database,
+    get_metadata_from_semanticscholar,
+)
 from araiadoc.processing.schema import ParsedDocumentSchema
 from araiadoc.processing.verify import verify_sectionization
 from araiadoc.searches_legacy import RESILIENCE_SEARCHES
-from araiadoc.sectionize import filter_dataset, section_dataset, section_dataset_s2orc, section_dataset_v2
+from araiadoc.sectionize import (
+    filter_dataset,
+    section_dataset,
+    section_dataset_s2orc,
+    section_dataset_v2,
+)
 from araiadoc.utils import (
     _collect_from_path,
     _find_project_root,

@@ -1,5 +1,5 @@
 ---
-name: araia_compare
+name: araia-compare
 description: Compare two araiadoc datasets (typically two sectionized corpus directories or two ID lists) to surface overlap, cloning, drift, or mislabeling. Query context is optional — supply a query identifier from src/araiadoc/searches.py to additionally check whether each dir is a plausible subset of that query's results.
 ---
 
@@ -7,7 +7,7 @@ description: Compare two araiadoc datasets (typically two sectionized corpus dir
 
 Diff two datasets to surface accidental cloning, packaging bugs,
 unexpected overlap or divergence between corpora, and stale snapshots.
-Each invocation appends a new dated round to `araia_compare.md` at the
+Each invocation appends a new dated round to `araia-compare.md` at the
 repo root.
 
 If you want to evaluate a **single corpus against its source Solr
@@ -40,7 +40,7 @@ Use this skill any time the user asks to:
 
 ## Output
 
-Append a new dated section to `araia_compare.md` at the repo root:
+Append a new dated section to `araia-compare.md` at the repo root:
 
 ```
 ## Round N — YYYY-MM-DD
@@ -238,7 +238,7 @@ End each round with concrete next-iteration questions, e.g.:
 - "rebuild B from its real upstream?",
 - "where did the K missing docs go?".
 
-### 8. Append to `araia_compare.md`
+### 8. Append to `araia-compare.md`
 
 Use `edit` to append the new round below the last round. Do **not**
 overwrite the file. Increment the round number. Date is today.
