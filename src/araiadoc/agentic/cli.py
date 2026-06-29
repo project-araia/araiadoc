@@ -8,9 +8,10 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from araiadoc.agentic.alcf_batch import (
     collect_alcf_batch_output,
+    derive_chunk_input_path,
     submit_alcf_batch,
     write_batch_manifest,
-    write_batch_request_file,
+    write_batch_request_chunks,
 )
 from araiadoc.agentic.artifacts import summarize_results_file, write_summary
 from araiadoc.agentic.constants import DEFAULT_BASE_URL, DEFAULT_MODEL, VALID_DECISIONS
@@ -42,41 +43,70 @@ def _run_alcf_batch_submit(
     timeout: float,
     batch_input_file: str | None,
     batch_output_folder: str | None,
+    max_batch_bytes: int,
 ) -> None:
-    """Build the request JSONL + manifest, then submit an ALCF batch job.
+    """Build the request JSONL chunk(s) + manifest, then submit ALCF batch job(s).
 
     The ALCF inference gateway reads the input JSONL and writes output from/to
     ALCF shared storage paths (e.g. /eagle/...). This step writes a local copy
-    of the request file and a custom_id->doc manifest, then POSTs the batch
-    referencing the ALCF paths so that --mode alcf-batch-collect can later fold
-    results back into judge artifacts.
+    of the request file(s) and a custom_id->doc manifest, then POSTs one batch
+    per chunk referencing the ALCF paths so that --mode alcf-batch-collect can
+    later fold results back into judge artifacts.
+
+    When all requests fit within *max_batch_bytes* bytes a single
+    ``batch_requests.jsonl`` is written (backward-compatible). Otherwise
+    numbered chunk files (``batch_requests_000.jsonl``, …) are written and one
+    batch is submitted per chunk, all sharing the same output folder.
     """
     if not jobs:
         click.echo("No documents to submit (all completed or none discovered).")
         return
 
-    request_path = output_dir / "batch_requests.jsonl"
     manifest_path = output_dir / "batch_manifest.json"
-    total_bytes = write_batch_request_file(
+    chunks = write_batch_request_chunks(
         jobs,
-        request_path,
+        output_dir,
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
+        max_bytes=max_batch_bytes,
     )
     write_batch_manifest(jobs, manifest_path)
-    click.echo(f"Wrote {len(jobs)} requests ({total_bytes} bytes) to {request_path}")
+
+    total_bytes = sum(c["num_bytes"] for c in chunks)
+    if len(chunks) == 1:
+        click.echo(f"Wrote {len(jobs)} requests ({total_bytes} bytes) to {chunks[0]['path']}")
+    else:
+        click.echo(
+            f"Split {len(jobs)} requests ({total_bytes} bytes) across {len(chunks)} chunks "
+            f"(--max-batch-mb={max_batch_bytes / 1_000_000:.3g}):"
+        )
+        for chunk in chunks:
+            click.echo(f"  {chunk['path'].name}: {chunk['num_requests']} requests, " f"{chunk['num_bytes']} bytes")
     click.echo(f"Wrote manifest to {manifest_path}")
 
     if not batch_input_file or not batch_output_folder:
+        if len(chunks) == 1:
+            copy_hint = f"  1. Copy {chunks[0]['path']} to ALCF storage (e.g. /eagle/...).\n"
+            input_hint = "and --batch-output-folder set to the ALCF paths.\n"
+        else:
+            chunk_names = ", ".join(c["path"].name for c in chunks)
+            copy_hint = f"  1. Copy all chunk files ({chunk_names}) to ALCF storage.\n"
+            p = Path(batch_input_file) if batch_input_file else Path("/eagle/.../input.jsonl")
+            example_paths = ", ".join(derive_chunk_input_path(str(p), c["index"]) for c in chunks)
+            input_hint = (
+                "and --batch-output-folder set to the ALCF paths.\n"
+                f"     --batch-input-file is used as a template; chunks will be "
+                f"submitted as {example_paths}.\n"
+            )
         click.echo(
             "\nNo --batch-input-file / --batch-output-folder provided, so the "
             "batch was NOT submitted.\n"
             "Next steps:\n"
-            f"  1. Copy {request_path} to ALCF storage (e.g. /eagle/...).\n"
-            "  2. Re-run with --mode alcf-batch-submit plus --batch-input-file "
-            "and --batch-output-folder set to the ALCF paths.\n"
-            "  3. After the job finishes, copy the output back and run "
+            + copy_hint
+            + "  2. Re-run with --mode alcf-batch-submit plus --batch-input-file "
+            + input_hint
+            + "  3. After the job(s) finish, copy the output back and run "
             "--mode alcf-batch-collect --collect-batch-output <path>."
         )
         return
@@ -84,18 +114,43 @@ def _run_alcf_batch_submit(
     if not api_key:
         raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
 
-    click.echo(f"Submitting ALCF batch job to {base_url.rstrip('/')}/batches ...")
-    response = submit_alcf_batch(
-        base_url=base_url,
-        api_key=api_key,
-        model=model,
-        input_file=batch_input_file,
-        output_folder_path=batch_output_folder,
-        timeout=timeout,
-    )
-    click.echo(json.dumps(response, indent=2))
+    endpoint = base_url.rstrip("/") + "/batches"
+    if len(chunks) == 1:
+        click.echo(f"Submitting ALCF batch job to {endpoint} ...")
+        chunk = chunks[0]
+        # Single chunk: use --batch-input-file as-is (backward compatible).
+        response = submit_alcf_batch(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            input_file=batch_input_file,
+            output_folder_path=batch_output_folder,
+            timeout=timeout,
+        )
+        click.echo(json.dumps(response, indent=2))
+    else:
+        click.echo(
+            f"Submitting {len(chunks)} ALCF batch jobs to {endpoint} " f"(one per chunk, shared output folder) ..."
+        )
+        for chunk in chunks:
+            chunk_input = derive_chunk_input_path(batch_input_file, chunk["index"])
+            click.echo(
+                f"\n  Chunk {chunk['index']:03d}: {chunk['num_requests']} requests "
+                f"({chunk['num_bytes']} bytes) -> {chunk_input}"
+            )
+            response = submit_alcf_batch(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                input_file=chunk_input,
+                output_folder_path=batch_output_folder,
+                timeout=timeout,
+            )
+            click.echo(json.dumps(response, indent=2))
+        click.echo(f"\nSubmitted {len(chunks)} batch jobs.")
+
     click.echo(
-        "\nWhen the job completes, copy the output back and run:\n"
+        "\nWhen the job(s) complete, copy the output back and run:\n"
         f"  araiadoc agentic-judge-dataset <SOURCE> --mode alcf-batch-collect "
         f"-o {output_dir} --collect-batch-output <ALCF_OUTPUT_PATH>"
     )
@@ -221,6 +276,19 @@ def _run_alcf_batch_submit(
         "folder containing output .jsonl files, to fold into judge artifacts."
     ),
 )
+@click.option(
+    "--max-batch-mb",
+    default=9,
+    show_default=True,
+    type=click.FloatRange(min=0.001),
+    help=(
+        "[alcf-batch-submit] Maximum size in MB per request JSONL chunk. "
+        "When all requests fit within this limit a single batch_requests.jsonl "
+        "is written; otherwise numbered chunk files are written and one batch "
+        "job is submitted per chunk. Default (9 MB) stays comfortably "
+        "under the ALCF 10 MB payload limit."
+    ),
+)
 def agentic_judge_dataset(
     source: Path,
     model: str,
@@ -242,6 +310,7 @@ def agentic_judge_dataset(
     batch_input_file: str | None,
     batch_output_folder: str | None,
     collect_batch_output: Path | None,
+    max_batch_mb: float,
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
     output_dir = output_dir or Path(str(source) + "_judged")
@@ -296,6 +365,7 @@ def agentic_judge_dataset(
             timeout=timeout,
             batch_input_file=batch_input_file,
             batch_output_folder=batch_output_folder,
+            max_batch_bytes=int(max_batch_mb * 1_000_000),
         )
         return
 

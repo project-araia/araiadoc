@@ -84,6 +84,108 @@ def write_batch_request_file(
     return total_bytes
 
 
+def derive_chunk_input_path(template: str, index: int) -> str:
+    """Derive a numbered ALCF input path from a template path.
+
+    The stem of the template path is suffixed with ``_<index:03d>`` so that a
+    template of ``/eagle/.../input.jsonl`` becomes ``/eagle/.../input_000.jsonl``
+    for index 0, ``/eagle/.../input_001.jsonl`` for index 1, and so on.
+    """
+    p = Path(template)
+    return str(p.with_name(f"{p.stem}_{index:03d}{p.suffix}"))
+
+
+_CHUNK_OVERSIZE_WARNING = (
+    "Warning: request line for custom_id {custom_id!r} is {line_bytes} bytes, "
+    "which exceeds --max-batch-bytes ({max_bytes}). It will be placed alone in "
+    "its own chunk but may still be rejected by the ALCF endpoint."
+)
+
+
+def write_batch_request_chunks(
+    jobs: list[dict[str, Any]],
+    output_dir: Path,
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_bytes: int,
+) -> list[dict[str, Any]]:
+    """Write batch request JSONL chunk files; return a list of chunk descriptors.
+
+    When all requests fit within *max_bytes*, a **single** file named
+    ``batch_requests.jsonl`` is written (backward-compatible with the pre-chunking
+    behaviour).  When more than one chunk is needed, files are written as
+    ``batch_requests_000.jsonl``, ``batch_requests_001.jsonl``, etc.
+
+    Each returned descriptor is a dict with keys:
+      ``index``        – 0-based chunk index (``None`` for the single-file case)
+      ``path``         – :class:`~pathlib.Path` of the written file
+      ``num_requests`` – number of request lines in this chunk
+      ``num_bytes``    – total byte size of the chunk file
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # First pass: build all lines so we know whether we need more than one chunk.
+    lines: list[tuple[str, bytes]] = []
+    for job in jobs:
+        line = build_batch_request_line(job, model=model, temperature=temperature, max_tokens=max_tokens)
+        encoded = line.encode("utf-8")
+        line_bytes = len(encoded)
+        if line_bytes > max_bytes:
+            click.echo(
+                _CHUNK_OVERSIZE_WARNING.format(
+                    custom_id=job["key"],
+                    line_bytes=line_bytes,
+                    max_bytes=max_bytes,
+                )
+            )
+        lines.append((line, encoded))
+
+    # Partition into chunks.
+    chunks: list[list[tuple[str, bytes]]] = []
+    current: list[tuple[str, bytes]] = []
+    current_bytes = 0
+    for line, encoded in lines:
+        line_bytes = len(encoded)
+        if current and current_bytes + line_bytes > max_bytes:
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append((line, encoded))
+        current_bytes += line_bytes
+    if current:
+        chunks.append(current)
+
+    single = len(chunks) == 1
+
+    descriptors: list[dict[str, Any]] = []
+    for idx, chunk_lines in enumerate(chunks):
+        if single:
+            path = output_dir / "batch_requests.jsonl"
+            index_label = None
+        else:
+            path = output_dir / f"batch_requests_{idx:03d}.jsonl"
+            index_label = idx
+
+        chunk_bytes = 0
+        with path.open("w", encoding="utf-8") as f:
+            for line, encoded in chunk_lines:
+                f.write(line)
+                chunk_bytes += len(encoded)
+
+        descriptors.append(
+            {
+                "index": index_label,
+                "path": path,
+                "num_requests": len(chunk_lines),
+                "num_bytes": chunk_bytes,
+            }
+        )
+
+    return descriptors
+
+
 def write_batch_manifest(jobs: list[dict[str, Any]], manifest_path: Path) -> None:
     """Persist a custom_id -> doc identity map so collect can rebuild rows."""
     manifest = {
