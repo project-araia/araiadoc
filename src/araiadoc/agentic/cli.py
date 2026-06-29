@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import click
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from araiadoc.agentic.alcf_batch import (
+    BatchQuotaExceeded,
     collect_alcf_batch_output,
+    count_active_batches,
     submit_alcf_batch,
     write_batch_manifest,
     write_batch_request_chunks,
@@ -17,7 +20,7 @@ from araiadoc.agentic.constants import DEFAULT_BASE_URL, DEFAULT_MODEL, VALID_DE
 from araiadoc.agentic.docs import doc_input_sha256, iter_sectionized_docs
 from araiadoc.agentic.jobs import prepare_doc_jobs
 from araiadoc.agentic.runners import run_requests_mode
-from araiadoc.agentic.util import load_json, sha256_text
+from araiadoc.agentic.util import atomic_write_json, load_json, sha256_text
 
 
 def parse_keep_decisions(value: str) -> set[str]:
@@ -44,6 +47,8 @@ def _run_alcf_batch_submit(
     batch_input_file: str | None,
     batch_output_folder: str | None,
     max_batch_bytes: int,
+    max_active_batches: int,
+    poll_interval: float,
 ) -> None:
     """Build the request JSONL chunk(s) + manifest, then submit ALCF batch job(s).
 
@@ -57,6 +62,12 @@ def _run_alcf_batch_submit(
     ``batch_requests.jsonl`` is written (backward-compatible). Otherwise
     numbered chunk files (``batch_requests_000.jsonl``, …) are written and one
     batch is submitted per chunk, all sharing the same output folder.
+
+    ALCF caps each user to a small number of *active* (pending/running) batches.
+    Submissions are therefore throttled to *max_active_batches*: before each
+    POST the gateway is polled (every *poll_interval* seconds) until a slot is
+    free. Submitted chunks are recorded in ``batch_submit_checkpoint.json`` so a
+    re-run resumes where it left off instead of double-submitting.
 
     Remote input paths are resolved by joining *batch_input_dir* with each
     chunk's LOCAL filename, so the files you copy to ALCF keep their names. The
@@ -138,40 +149,143 @@ def _run_alcf_batch_submit(
         remote_inputs = [batch_input_file]
 
     endpoint = base_url.rstrip("/") + "/batches"
-    if not multi_chunk:
-        click.echo(f"Submitting ALCF batch job to {endpoint} ...")
-        response = submit_alcf_batch(
+
+    # Resume: skip chunks already submitted in a prior run.
+    submit_ckpt_path = output_dir / "batch_submit_checkpoint.json"
+    submit_ckpt = load_json(submit_ckpt_path, {"submitted": {}})
+    submitted: dict = dict(submit_ckpt.get("submitted", {}))
+
+    def _record(remote_input: str, response: dict) -> None:
+        submitted[remote_input] = {
+            "batch_id": response.get("batch_id") or response.get("id"),
+            "status": response.get("status"),
+            "submitted_at": time_now(),
+        }
+        atomic_write_json(submit_ckpt_path, {"submitted": submitted})
+
+    # Also reconcile against the gateway: any chunk whose remote input_file
+    # already appears in the user's batch list was submitted by an earlier run
+    # (possibly before checkpointing existed) — adopt it so we don't double-submit.
+    try:
+        from araiadoc.agentic.alcf_batch import list_alcf_batches
+
+        existing = list_alcf_batches(base_url=base_url, api_key=api_key, timeout=timeout)
+        by_input = {str(b.get("input_file")): b for b in existing if b.get("input_file")}
+        for ri in remote_inputs:
+            if ri not in submitted and ri in by_input:
+                b = by_input[ri]
+                submitted[ri] = {
+                    "batch_id": b.get("batch_id") or b.get("id"),
+                    "status": b.get("status"),
+                    "submitted_at": b.get("created_at"),
+                    "adopted_from_gateway": True,
+                }
+        if submitted:
+            atomic_write_json(submit_ckpt_path, {"submitted": submitted})
+    except click.UsageError as e:
+        click.echo(f"(warning: could not reconcile with gateway batch list: {e})")
+
+    pending = [(c, ri) for c, ri in zip(chunks, remote_inputs) if ri not in submitted]
+    already = len(remote_inputs) - len(pending)
+    if already:
+        click.echo(
+            f"Resuming: {already}/{len(remote_inputs)} chunk(s) already submitted (per {submit_ckpt_path.name})."
+        )
+    if not pending:
+        click.echo("All chunks already submitted. Nothing to do.")
+    else:
+        click.echo(
+            f"Submitting {len(pending)} ALCF batch job(s) to {endpoint} "
+            f"(max {max_active_batches} active at a time, shared output folder) ..."
+        )
+
+    for chunk, remote_input in pending:
+        _wait_for_active_slot(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            max_active_batches=max_active_batches,
+            poll_interval=poll_interval,
+        )
+        label = f"Chunk {chunk['index']:03d}" if chunk["index"] is not None else "Batch"
+        click.echo(f"\n  {label}: {chunk['num_requests']} requests ({chunk['num_bytes']} bytes) -> {remote_input}")
+        response = _submit_with_quota_backoff(
             base_url=base_url,
             api_key=api_key,
             model=model,
-            input_file=remote_inputs[0],
+            input_file=remote_input,
             output_folder_path=batch_output_folder,
             timeout=timeout,
+            poll_interval=poll_interval,
         )
         click.echo(json.dumps(response, indent=2))
-    else:
-        click.echo(f"Submitting {len(chunks)} ALCF batch jobs to {endpoint} (one per chunk, shared output folder) ...")
-        for chunk, remote_input in zip(chunks, remote_inputs):
-            click.echo(
-                f"\n  Chunk {chunk['index']:03d}: {chunk['num_requests']} requests "
-                f"({chunk['num_bytes']} bytes) -> {remote_input}"
-            )
-            response = submit_alcf_batch(
-                base_url=base_url,
-                api_key=api_key,
-                model=model,
-                input_file=remote_input,
-                output_folder_path=batch_output_folder,
-                timeout=timeout,
-            )
-            click.echo(json.dumps(response, indent=2))
-        click.echo(f"\nSubmitted {len(chunks)} batch jobs.")
+        _record(remote_input, response)
 
+    submitted_count = len([1 for ri in remote_inputs if ri in submitted])
+    click.echo(f"\nSubmitted {submitted_count}/{len(remote_inputs)} batch job(s) total.")
     click.echo(
         "\nWhen the job(s) complete, copy the output back and run:\n"
         f"  araiadoc agentic-judge-dataset <SOURCE> --mode alcf-batch-collect "
         f"-o {output_dir} --collect-batch-output <ALCF_OUTPUT_PATH>"
     )
+
+
+def time_now() -> str:
+    """Wrapper so tests can monkeypatch the timestamp without importing util."""
+    from araiadoc.agentic.util import now_iso
+
+    return now_iso()
+
+
+def _wait_for_active_slot(
+    *,
+    base_url: str,
+    api_key: str,
+    timeout: float,
+    max_active_batches: int,
+    poll_interval: float,
+) -> None:
+    """Block until the user's active-batch count is below *max_active_batches*."""
+    while True:
+        try:
+            active = count_active_batches(base_url=base_url, api_key=api_key, timeout=timeout)
+        except click.UsageError as e:
+            # Listing failed; warn and proceed (the submit itself still guards via quota backoff).
+            click.echo(f"  (warning: could not query active batches: {e}); proceeding.")
+            return
+        if active < max_active_batches:
+            return
+        click.echo(
+            f"  {active} active batch(es) >= limit {max_active_batches}; "
+            f"waiting {poll_interval:.0f}s for a slot to free ..."
+        )
+        time.sleep(poll_interval)
+
+
+def _submit_with_quota_backoff(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    input_file: str,
+    output_folder_path: str,
+    timeout: float,
+    poll_interval: float,
+) -> dict:
+    """Submit one batch, retrying on quota_exceeded after waiting for a slot."""
+    while True:
+        try:
+            return submit_alcf_batch(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                input_file=input_file,
+                output_folder_path=output_folder_path,
+                timeout=timeout,
+            )
+        except BatchQuotaExceeded:
+            click.echo(f"  quota full on submit; waiting {poll_interval:.0f}s and retrying ...")
+            time.sleep(poll_interval)
 
 
 @click.command("agentic-judge-dataset")
@@ -320,6 +434,27 @@ def _run_alcf_batch_submit(
         "under the ALCF 10 MB payload limit."
     ),
 )
+@click.option(
+    "--max-active-batches",
+    default=2,
+    show_default=True,
+    type=click.IntRange(1),
+    help=(
+        "[alcf-batch-submit] Maximum number of active (pending/running) ALCF "
+        "batches at once. Submission is throttled to stay within this; ALCF "
+        "currently caps users at 2 active batches."
+    ),
+)
+@click.option(
+    "--poll-interval",
+    default=30.0,
+    show_default=True,
+    type=click.FloatRange(1.0),
+    help=(
+        "[alcf-batch-submit] Seconds to wait between polling the ALCF gateway "
+        "for a free active-batch slot when throttling submissions."
+    ),
+)
 def agentic_judge_dataset(
     source: Path,
     model: str,
@@ -343,6 +478,8 @@ def agentic_judge_dataset(
     batch_output_folder: str | None,
     collect_batch_output: Path | None,
     max_batch_mb: float,
+    max_active_batches: int,
+    poll_interval: float,
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
     output_dir = output_dir or Path(str(source) + "_judged")
@@ -399,6 +536,8 @@ def agentic_judge_dataset(
             batch_input_file=batch_input_file,
             batch_output_folder=batch_output_folder,
             max_batch_bytes=int(max_batch_mb * 1_000_000),
+            max_active_batches=max_active_batches,
+            poll_interval=poll_interval,
         )
         return
 

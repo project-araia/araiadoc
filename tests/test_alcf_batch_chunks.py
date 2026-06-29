@@ -6,8 +6,13 @@ import json
 from pathlib import Path
 
 from araiadoc.agentic.alcf_batch import (
+    ACTIVE_BATCH_STATUSES,
+    BatchQuotaExceeded,
+    _batches_list_base,
     build_batch_request_line,
+    count_active_batches,
     derive_chunk_input_path,
+    list_alcf_batches,
     write_batch_request_chunks,
 )
 
@@ -317,3 +322,132 @@ class TestWriteBatchRequestChunksOversizedLine:
     def test_empty_job_list_returns_empty_chunks(self, tmp_path):
         chunks = write_batch_request_chunks([], tmp_path, model="m", temperature=0.0, max_tokens=8, max_bytes=9_000_000)
         assert chunks == []
+
+
+# ---------------------------------------------------------------------------
+# Batch list / active-count / quota helpers
+# ---------------------------------------------------------------------------
+
+
+class TestBatchesListBase:
+    def test_strips_cluster_framework_segment(self):
+        base = "https://inference-api.alcf.anl.gov/resource_server/sophia/vllm/v1"
+        assert _batches_list_base(base) == "https://inference-api.alcf.anl.gov/resource_server/v1"
+
+    def test_trailing_slash_tolerated(self):
+        base = "https://inference-api.alcf.anl.gov/resource_server/sophia/vllm/v1/"
+        assert _batches_list_base(base) == "https://inference-api.alcf.anl.gov/resource_server/v1"
+
+    def test_no_resource_server_marker_falls_back(self):
+        base = "https://example.com/custom/v1"
+        assert _batches_list_base(base) == "https://example.com/custom/v1"
+
+
+class TestActiveBatchStatuses:
+    def test_pending_and_running_are_active(self):
+        assert ACTIVE_BATCH_STATUSES == frozenset({"pending", "running"})
+
+
+class _FakeResp:
+    def __init__(self, status_code, payload=None, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            import json as _json
+
+            raise _json.JSONDecodeError("no json", "", 0)
+        return self._payload
+
+
+class TestListAndCountActive:
+    def _patch_httpx_get(self, monkeypatch, resp):
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: resp)
+
+    def test_count_active_counts_pending_and_running_only(self, monkeypatch):
+        payload = [
+            {"batch_id": "1", "status": "pending"},
+            {"batch_id": "2", "status": "running"},
+            {"batch_id": "3", "status": "completed"},
+            {"batch_id": "4", "status": "failed"},
+        ]
+        self._patch_httpx_get(monkeypatch, _FakeResp(200, payload))
+        n = count_active_batches(base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", timeout=5)
+        assert n == 2
+
+    def test_list_unwraps_dict_shapes(self, monkeypatch):
+        payload = {"batches": [{"batch_id": "1", "status": "pending"}]}
+        self._patch_httpx_get(monkeypatch, _FakeResp(200, payload))
+        out = list_alcf_batches(base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", timeout=5)
+        assert out == [{"batch_id": "1", "status": "pending"}]
+
+    def test_list_non_json_returns_empty(self, monkeypatch):
+        self._patch_httpx_get(monkeypatch, _FakeResp(200, None, text="oops"))
+        out = list_alcf_batches(base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", timeout=5)
+        assert out == []
+
+    def test_list_error_status_raises(self, monkeypatch):
+        import click
+
+        self._patch_httpx_get(monkeypatch, _FakeResp(500, None, text="server error"))
+        try:
+            list_alcf_batches(base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", timeout=5)
+        except click.UsageError as e:
+            assert "list failed" in str(e)
+        else:
+            raise AssertionError("expected UsageError")
+
+
+class TestSubmitQuotaDetection:
+    def _patch_httpx_post(self, monkeypatch, resp):
+        import httpx
+
+        monkeypatch.setattr(httpx, "post", lambda *a, **k: resp)
+
+    def test_quota_message_raises_quota_exceeded(self, monkeypatch):
+        from araiadoc.agentic.alcf_batch import submit_alcf_batch
+
+        resp = _FakeResp(
+            400,
+            None,
+            text='{"error": {"code": "quota_exceeded", "message": "Quota of 2 active batch(es) per user exceeded."}}',
+        )
+        self._patch_httpx_post(monkeypatch, resp)
+        try:
+            submit_alcf_batch(
+                base_url="https://x/resource_server/sophia/vllm/v1",
+                api_key="k",
+                model="m",
+                input_file="/eagle/in.jsonl",
+                output_folder_path="/eagle/out/",
+                timeout=5,
+            )
+        except BatchQuotaExceeded:
+            pass
+        else:
+            raise AssertionError("expected BatchQuotaExceeded")
+
+    def test_other_400_raises_usage_error(self, monkeypatch):
+        import click
+
+        from araiadoc.agentic.alcf_batch import submit_alcf_batch
+
+        resp = _FakeResp(400, None, text='{"error": "bad input file path"}')
+        self._patch_httpx_post(monkeypatch, resp)
+        try:
+            submit_alcf_batch(
+                base_url="https://x/resource_server/sophia/vllm/v1",
+                api_key="k",
+                model="m",
+                input_file="/eagle/in.jsonl",
+                output_folder_path="/eagle/out/",
+                timeout=5,
+            )
+        except click.UsageError:
+            pass
+        else:
+            raise AssertionError("expected UsageError")
