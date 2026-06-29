@@ -1,0 +1,311 @@
+q = """
+(
+(
+-- GROUP 1: Wireline Communications
+"wireline" OR
+"telephone network" OR
+"telephone infrastructure" OR
+"PSTN" OR
+"landline" OR
+"copper line" OR
+"copper plant" OR
+"central office" OR
+"local exchange carrier" OR
+"ILEC" OR
+"CLEC" OR
+"interexchange carrier" OR
+"long-distance carrier" OR
+"fiber optic network" OR
+"fiber optic cable" OR
+"fiber-to-the-home" OR
+"FTTH" OR
+"fiber-to-the-premises" OR
+"FTTP" OR
+"fiber-to-the-node" OR
+"FTTN" OR
+"dark fiber" OR
+"fiber backbone" OR
+"metro fiber" OR
+"long-haul fiber" OR
+"DSL" OR
+"digital subscriber line" OR
+"VoIP" OR
+"voice over IP" OR
+"voice over internet protocol"
+)
+OR
+(
+-- GROUP 2: Wireless Communications
+"wireless network" OR
+"wireless carrier" OR
+"wireless infrastructure" OR
+"cellular network" OR
+"cellular infrastructure" OR
+"cellular tower" OR
+"cell tower" OR
+"cell site" OR
+"base station" OR
+"radio access network" OR
+"RAN" OR
+"macrocell" OR
+"small cell" OR
+"distributed antenna system" OR
+"DAS" OR
+"mobile network operator" OR
+"MNO" OR
+"5G" OR
+"4G" OR
+"LTE" OR
+"long-term evolution" OR
+"3G" OR
+"GSM" OR
+"CDMA" OR
+"spectrum allocation" OR
+"radio spectrum" OR
+"licensed spectrum" OR
+"unlicensed spectrum" OR
+"Wi-Fi" OR
+"WiFi" OR
+"wireless backhaul" OR
+"microwave backhaul" OR
+"fixed wireless" OR
+"mobile broadband"
+)
+OR
+(
+-- GROUP 3: Satellite Communications
+"satellite communication" OR
+"satellite communications" OR
+"satellite network" OR
+"satellite infrastructure" OR
+"communications satellite" OR
+"telecommunications satellite" OR
+"geostationary satellite" OR
+"GEO satellite" OR
+"low earth orbit satellite" OR
+"LEO satellite" OR
+"medium earth orbit satellite" OR
+"MEO satellite" OR
+"satellite constellation" OR
+"satellite broadband" OR
+"satellite internet" OR
+"VSAT" OR
+"very small aperture terminal" OR
+"satellite ground station" OR
+"earth station" OR
+"satellite gateway" OR
+"satellite uplink" OR
+"satellite downlink" OR
+"satellite teleport" OR
+"Starlink" OR
+"OneWeb" OR
+"Iridium" OR
+"Inmarsat" OR
+"Viasat"
+)
+OR
+(
+-- GROUP 4: Cable
+"cable operator" OR
+"cable system operator" OR
+"multiple system operator" OR
+"MSO" OR
+"cable television" OR
+"CATV" OR
+"hybrid fiber-coax" OR
+"hybrid fiber coaxial" OR
+"HFC network" OR
+"coaxial cable network" OR
+"DOCSIS" OR
+"cable modem" OR
+"cable headend" OR
+"cable broadband"
+)
+OR
+(
+-- GROUP 5: Broadcasting
+"broadcast television" OR
+"television broadcasting" OR
+"broadcast radio" OR
+"radio broadcasting" OR
+"AM radio" OR
+"FM radio" OR
+"broadcast tower" OR
+"transmission tower broadcasting" OR
+"broadcast transmitter" OR
+"television station" OR
+"radio station" OR
+"public broadcasting" OR
+"PBS" OR
+"NPR" OR
+"emergency alert system" OR
+"EAS broadcast" OR
+"ATSC" OR
+"Advanced Television Systems Committee" OR
+"digital television" OR
+"DTV transition" OR
+"low power FM" OR
+"LPFM" OR
+"shortwave broadcasting"
+)
+OR
+(
+-- GROUP 6: IT Infrastructure
+"data center" OR
+"colocation facility" OR
+"server farm" OR
+"internet exchange point" OR
+"IXP" OR
+"internet backbone" OR
+"tier 1 network" OR
+"tier-1 ISP" OR
+"BGP routing" OR
+"border gateway protocol" OR
+"DNS" OR
+"Domain Name System" OR
+"root server" OR
+"content delivery network" OR
+"CDN infrastructure" OR
+"cloud infrastructure" OR
+"cloud computing infrastructure" OR
+"cloud service provider" OR
+"hyperscaler" OR
+"submarine cable" OR
+"undersea cable" OR
+"transoceanic cable" OR
+"network operations center" OR
+"NOC" OR
+"telehouse" OR
+"carrier hotel" OR
+"network peering" OR
+"internet service provider" OR
+"ISP infrastructure" OR
+"edge computing infrastructure"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to communications
+-- and IT infrastructure
+"communications infrastructure" OR
+"telecommunications infrastructure" OR
+"telecom infrastructure" OR
+"telecommunications network" OR
+"telecom network" OR
+"communications network" OR
+"communications system" OR
+"communications sector" OR
+"telecommunications sector" OR
+"ICT infrastructure" OR
+"information and communications technology" OR
+"broadband infrastructure" OR
+"broadband network" OR
+"broadband deployment" OR
+"broadband access" OR
+"internet infrastructure" OR
+"internet service" OR
+"network operator" OR
+"telecommunications service" OR
+"FCC" OR
+"Federal Communications Commission" OR
+"NTIA" OR
+"National Telecommunications and Information Administration" OR
+"ISP" OR
+"internet service provider" OR
+"data center" OR
+"cloud infrastructure" OR
+"IT infrastructure" OR
+"cellular network" OR
+"wireless network" OR
+"wireline network" OR
+"satellite communication" OR
+"submarine cable" OR
+"undersea cable" OR
+"5G" OR
+"LTE"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Biological / medical (animal communication, neural signaling)
+"animal communication" OR
+"interspecies communication" OR
+"chemical communication" OR
+"pheromone communication" OR
+"bird song" OR
+"whale song" OR
+"primate vocalization" OR
+"neural signaling" OR
+"cell signaling" OR
+"synaptic transmission" OR
+"neurotransmitter" OR
+"axonal" OR
+"protein structure" OR
+"gene expression" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical" OR
+"oncology" OR
+"tumor" OR
+"pathogen" OR
+-- Social science communication research
+"interpersonal communication" OR
+"organizational communication" OR
+"intercultural communication" OR
+"health communication" OR
+"science communication" OR
+"political communication" OR
+"mass communication theory" OR
+"media studies" OR
+-- Software engineering / programming / ML algorithms (filters general CS noise)
+"software engineering" OR
+"compiler design" OR
+"software architecture" OR
+"object-oriented programming" OR
+"functional programming" OR
+-- Theoretical computer science
+"computational complexity" OR
+"algorithmic complexity" OR
+"NP-hard" OR
+"NP-complete" OR
+"theoretical computer science" OR
+-- Pure signal processing / information theory
+"channel capacity theorem" OR
+"Shannon capacity" OR
+"information theory bound" OR
+-- Astronomy / astrophysics (e.g., for "satellite," "spectrum")
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+"redshift" OR
+"stellar spectrum" OR
+"astronomical spectrum" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+-- Atmospheric science (filters "cloud" misuse)
+"cloud microphysics" OR
+"cloud condensation nuclei" OR
+"cumulus cloud" OR
+"stratus cloud" OR
+-- Pure materials science
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+)
+"""

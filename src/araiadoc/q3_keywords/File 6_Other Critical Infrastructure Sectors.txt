@@ -1,0 +1,328 @@
+q = """
+(
+(
+-- GROUP 1: Commercial Facilities
+"commercial facility" OR
+"commercial building" OR
+"commercial real estate" OR
+"shopping mall" OR
+"shopping center" OR
+"retail facility" OR
+"retail center" OR
+"office building" OR
+"office tower" OR
+"high-rise building" OR
+"high rise building" OR
+"hotel facility" OR
+"lodging facility" OR
+"convention center" OR
+"sports stadium" OR
+"sports arena" OR
+"entertainment venue" OR
+"amusement park" OR
+"theme park" OR
+"casino facility" OR
+"public assembly facility" OR
+"mass gathering venue" OR
+"commercial facilities sector"
+)
+OR
+(
+-- GROUP 2: Defense Industrial Base
+"defense industrial base" OR
+"DIB facility" OR
+"defense contractor facility" OR
+"defense manufacturing facility" OR
+"defense industrial facility" OR
+"munitions facility" OR
+"munitions plant" OR
+"ammunition plant" OR
+"ordnance facility" OR
+"weapons production facility" OR
+"defense supply chain" OR
+"defense logistics" OR
+"military depot" OR
+"arsenal facility" OR
+"shipyard naval" OR
+"naval shipyard" OR
+"defense aerospace facility" OR
+"aerospace defense facility" OR
+"defense industrial capacity" OR
+"defense production capacity"
+)
+OR
+(
+-- GROUP 3: Emergency Services
+"emergency services sector" OR
+"fire station" OR
+"fire department facility" OR
+"police station" OR
+"law enforcement facility" OR
+"emergency medical services facility" OR
+"EMS facility" OR
+"ambulance station" OR
+"emergency operations center" OR
+"EOC facility" OR
+"public safety answering point" OR
+"PSAP" OR
+"911 call center" OR
+"emergency dispatch center" OR
+"search and rescue facility" OR
+"hazmat response" OR
+"emergency response infrastructure" OR
+"first responder infrastructure" OR
+"public safety infrastructure" OR
+"public safety communications"
+)
+OR
+(
+-- GROUP 4: Financial Services
+"financial services sector" OR
+"financial infrastructure" OR
+"financial market infrastructure" OR
+"banking infrastructure" OR
+"payment system infrastructure" OR
+"payment network" OR
+"clearing house" OR
+"clearinghouse" OR
+"central counterparty" OR
+"securities exchange" OR
+"stock exchange" OR
+"trading floor" OR
+"financial data center" OR
+"banking data center" OR
+"ATM network" OR
+"automated teller machine network" OR
+"interbank network" OR
+"SWIFT network" OR
+"Fedwire" OR
+"CHIPS payment" OR
+"ACH network" OR
+"financial sector resilience" OR
+"financial sector cybersecurity"
+)
+OR
+(
+-- GROUP 5: Food & Agriculture
+"food and agriculture sector" OR
+"food sector" OR
+"agriculture sector" OR
+"food processing facility" OR
+"food processing plant" OR
+"food manufacturing facility" OR
+"food manufacturing plant" OR
+"meat processing facility" OR
+"meat processing plant" OR
+"meat packing plant" OR
+"poultry processing facility" OR
+"dairy processing facility" OR
+"grain elevator" OR
+"grain storage facility" OR
+"grain silo" OR
+"food storage facility" OR
+"cold storage facility" OR
+"refrigerated warehouse" OR
+"food distribution center" OR
+"food distribution facility" OR
+"agricultural infrastructure" OR
+"farm infrastructure" OR
+"livestock facility" OR
+"feedlot" OR
+"slaughter house" OR
+"slaughterhouse" OR
+"food supply chain" OR
+"agricultural supply chain" OR
+"food security infrastructure" OR
+"food safety infrastructure"
+)
+OR
+(
+-- GROUP 6: Government Facilities
+"government facility" OR
+"government building" OR
+"federal building" OR
+"federal facility" OR
+"municipal facility" OR
+"courthouse" OR
+"capitol building" OR
+"government office building" OR
+"national monument" OR
+"national memorial" OR
+"national landmark" OR
+"public building" OR
+"embassy facility" OR
+"consulate facility" OR
+"correctional facility" OR
+"detention facility" OR
+"prison facility" OR
+"jail facility" OR
+"election infrastructure" OR
+"polling place infrastructure" OR
+"voting system infrastructure" OR
+"government facilities sector" OR
+"K-12 school facility" OR
+"public school facility" OR
+"university facility" OR
+"campus infrastructure" OR
+"educational facility infrastructure"
+)
+OR
+(
+-- GROUP 7: Healthcare & Public Health
+"healthcare and public health sector" OR
+"healthcare sector" OR
+"public health sector" OR
+"hospital facility" OR
+"hospital infrastructure" OR
+"medical facility infrastructure" OR
+"healthcare facility infrastructure" OR
+"healthcare infrastructure" OR
+"public health infrastructure" OR
+"medical center facility" OR
+"clinic facility" OR
+"outpatient facility" OR
+"long-term care facility" OR
+"nursing home facility" OR
+"skilled nursing facility" OR
+"blood supply infrastructure" OR
+"medical supply chain" OR
+"pharmaceutical supply chain" OR
+"medical device supply chain" OR
+"vaccine supply chain" OR
+"public health laboratory" OR
+"strategic national stockpile" OR
+"hospital surge capacity" OR
+"healthcare resilience" OR
+"hospital resilience"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to public service
+-- and institutional infrastructure
+"critical infrastructure" OR
+"infrastructure resilience" OR
+"infrastructure protection" OR
+"facility infrastructure" OR
+"commercial facilities sector" OR
+"defense industrial base" OR
+"emergency services sector" OR
+"financial services sector" OR
+"food and agriculture sector" OR
+"government facilities sector" OR
+"healthcare and public health sector" OR
+"healthcare sector" OR
+"financial sector" OR
+"defense sector" OR
+"public health infrastructure" OR
+"healthcare infrastructure" OR
+"hospital infrastructure" OR
+"financial infrastructure" OR
+"financial market infrastructure" OR
+"payment system infrastructure" OR
+"food infrastructure" OR
+"agricultural infrastructure" OR
+"defense infrastructure" OR
+"emergency response infrastructure" OR
+"public safety infrastructure" OR
+"government facility" OR
+"federal facility" OR
+"election infrastructure" OR
+"DHS" OR
+"Department of Homeland Security" OR
+"CISA" OR
+"Cybersecurity and Infrastructure Security Agency"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Clinical medicine / medical research (huge false-positive domain for healthcare)
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmacokinetic" OR
+"pharmacodynamic" OR
+"drug efficacy" OR
+"clinical outcome" OR
+"surgical outcome" OR
+"diagnostic accuracy" OR
+"treatment efficacy" OR
+"oncology treatment" OR
+"tumor biology" OR
+"cancer treatment" OR
+"epidemiological study" OR
+"cohort study" OR
+"case-control study" OR
+"meta-analysis" OR
+-- Basic biology / biomedical research
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"neural circuit" OR
+"synaptic" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"pathogen virulence" OR
+-- Financial economics / quantitative finance theory
+"asset pricing" OR
+"portfolio optimization" OR
+"option pricing" OR
+"derivative pricing" OR
+"financial econometrics" OR
+"market microstructure" OR
+"behavioral finance" OR
+"corporate finance theory" OR
+-- Agricultural science / food science research
+"crop yield model" OR
+"crop genetics" OR
+"plant breeding" OR
+"soil microbiome" OR
+"food chemistry" OR
+"food microbiology" OR
+"sensory evaluation" OR
+"agronomic trial" OR
+-- Military operations research / weapons research
+"weapon system design" OR
+"weapons effectiveness" OR
+"missile defense" OR
+"combat operation" OR
+"military doctrine" OR
+"warfare strategy" OR
+-- Public administration / political science
+"public administration theory" OR
+"political theory" OR
+"electoral behavior" OR
+"voter turnout" OR
+"public policy theory" OR
+-- Pure social science / education research
+"educational outcome" OR
+"student achievement" OR
+"pedagogy" OR
+"curriculum design" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+-- Pure materials science
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+)
+"""

@@ -1,0 +1,194 @@
+q = """
+(
+(
+-- GROUP 1: Chemical Sector
+"chemical plant" OR
+"chemical facility" OR
+"chemical manufacturing plant" OR
+"chemical manufacturing facility" OR
+"petrochemical plant" OR
+"petrochemical facility" OR
+"petrochemical complex" OR
+"chemical processing facility" OR
+"chemical production facility" OR
+"chemical storage facility" OR
+"bulk chemical storage" OR
+"hazardous chemical storage" OR
+"chemical warehouse" OR
+"chemical terminal" OR
+"chemical distribution facility" OR
+"hazardous chemical" OR
+"chemical release" OR
+"chemical spill" OR
+"chemical accident" OR
+"chemical incident" OR
+"process safety" OR
+"PSM" OR
+"RMP facility" OR
+"highly hazardous chemical" OR
+"extremely hazardous substance" OR
+"chemical security" OR
+"Chemical Facility Anti-Terrorism Standards" OR
+"CFATS" OR
+"toxic inhalation hazard" OR
+"chlorine facility" OR
+"ammonia facility" OR
+"anhydrous ammonia facility" OR
+"chemical tank" OR
+"chemical storage tank" OR
+"chemical pipeline" OR
+"hazardous chemical transport" OR
+"chemical rail transport" OR
+"chemical sector"
+)
+OR
+(
+-- GROUP 2: Critical Manufacturing
+"critical manufacturing" OR
+"manufacturing facility" OR
+"manufacturing plant" OR
+"industrial facility" OR
+"industrial plant" OR
+"manufacturing infrastructure" OR
+"industrial infrastructure" OR
+"primary metal manufacturing" OR
+"steel mill" OR
+"steelmaking facility" OR
+"iron and steel facility" OR
+"aluminum smelter" OR
+"aluminum plant" OR
+"copper smelter" OR
+"foundry" OR
+"smelting facility" OR
+"refining facility" OR
+"metal refining" OR
+"machinery manufacturing facility" OR
+"heavy equipment manufacturing" OR
+"electrical equipment manufacturing" OR
+"transportation equipment manufacturing" OR
+"automotive manufacturing plant" OR
+"automotive assembly plant" OR
+"vehicle assembly plant" OR
+"aerospace manufacturing facility" OR
+"shipbuilding facility" OR
+"shipyard" OR
+"semiconductor fabrication facility" OR
+"semiconductor fab" OR
+"semiconductor foundry" OR
+"chip fabrication facility" OR
+"wafer fabrication" OR
+"manufacturing supply chain" OR
+"industrial supply chain" OR
+"manufacturing capacity" OR
+"industrial capacity" OR
+"manufacturing resilience" OR
+"industrial resilience" OR
+"reshoring manufacturing" OR
+"onshoring manufacturing" OR
+"domestic manufacturing"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to industrial
+-- and process facility infrastructure
+"chemical facility" OR
+"chemical plant" OR
+"chemical sector" OR
+"chemical manufacturing" OR
+"petrochemical" OR
+"critical manufacturing" OR
+"manufacturing facility" OR
+"manufacturing plant" OR
+"industrial facility" OR
+"industrial plant" OR
+"manufacturing infrastructure" OR
+"industrial infrastructure" OR
+"manufacturing sector" OR
+"industrial sector" OR
+"steel mill" OR
+"smelter" OR
+"foundry" OR
+"semiconductor fabrication" OR
+"shipyard" OR
+"process facility" OR
+"process plant" OR
+"processing plant" OR
+"production facility"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Basic chemistry research / lab chemistry (massive false-positive domain)
+"polymerization kinetics" OR
+"reaction mechanism" OR
+"reaction kinetics" OR
+"catalytic mechanism" OR
+"catalyst design" OR
+"organic synthesis" OR
+"asymmetric synthesis" OR
+"total synthesis" OR
+"synthetic pathway" OR
+"synthetic methodology" OR
+"reagent" OR
+"organometallic" OR
+"density functional theory" OR
+"DFT calculation" OR
+"ab initio" OR
+"molecular dynamics simulation" OR
+"computational chemistry" OR
+"quantum chemistry" OR
+"spectroscopic analysis" OR
+"NMR spectroscopy" OR
+"mass spectrometry analysis" OR
+"crystallography" OR
+"X-ray diffraction" OR
+-- Materials science (synthesis, characterization)
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot" OR
+"nanomaterial synthesis" OR
+"nanocomposite" OR
+"graphene synthesis" OR
+"carbon nanotube" OR
+"metal-organic framework" OR
+"MOF synthesis" OR
+"polymer synthesis" OR
+"polymer characterization" OR
+-- Biological / medical
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical drug" OR
+"oncology" OR
+"tumor" OR
+"pathogen" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+"redshift" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider"
+)
+"""

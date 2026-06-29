@@ -1,0 +1,375 @@
+q = """
+(
+(
+-- GROUP 1: Interdependencies
+"infrastructure interdependency" OR
+"infrastructure interdependencies" OR
+"interdependent infrastructure" OR
+"interdependent systems" OR
+"sector interdependency" OR
+"cross-sector interdependency" OR
+"cross-infrastructure dependency" OR
+"infrastructure coupling" OR
+"coupled infrastructure" OR
+"infrastructure dependency" OR
+"system of systems" OR
+"system-of-systems" OR
+"lifeline interdependency"
+)
+OR
+(
+-- GROUP 2: Cascading Failures
+"cascading failure" OR
+"cascading impact" OR
+"cascading disruption" OR
+"cascading effect" OR
+"cascading consequence" OR
+"failure propagation" OR
+"disruption propagation" OR
+"propagating failure" OR
+"interdependent failure" OR
+"cross-sector cascade" OR
+"common cause failure"
+)
+OR
+(
+-- GROUP 3: Resilience (incl. Risk and Vulnerability)
+"infrastructure resilience" OR
+"system resilience" OR
+"sector resilience" OR
+"resilience assessment" OR
+"resilience planning" OR
+"resilience strategy" OR
+"resilience metric" OR
+"resilience framework" OR
+"resilience investment" OR
+"resilience benefit" OR
+"infrastructure vulnerability" OR
+"system vulnerability" OR
+"vulnerability assessment" OR
+"infrastructure risk" OR
+"risk assessment" OR
+"hazard assessment" OR
+"threat assessment" OR
+"consequence analysis" OR
+"all-hazards" OR
+"all hazards" OR
+"adaptive capacity" OR
+"absorptive capacity" OR
+"recovery capacity" OR
+"climate adaptation" OR
+"climate resilience" OR
+"disaster preparedness" OR
+"business continuity" OR
+"continuity of operations"
+)
+OR
+(
+-- GROUP 4: Restoration and Recovery
+"infrastructure restoration" OR
+"system restoration" OR
+"service restoration" OR
+"infrastructure recovery" OR
+"post-disaster recovery" OR
+"disaster recovery" OR
+"recovery planning" OR
+"restoration planning" OR
+"recovery strategy" OR
+"restoration strategy" OR
+"recovery prioritization" OR
+"restoration prioritization" OR
+"recovery time" OR
+"restoration time" OR
+"build back better"
+)
+OR
+(
+-- GROUP 5: Policy and Regulation
+"infrastructure policy" OR
+"infrastructure regulation" OR
+"infrastructure governance" OR
+"regulatory framework" OR
+"resilience policy" OR
+"resilience regulation" OR
+"sector-specific agency" OR
+"sector risk management agency" OR
+"national infrastructure protection plan" OR
+"NIPP" OR
+"presidential policy directive 21" OR
+"PPD-21" OR
+"national security memorandum" OR
+"executive order critical infrastructure" OR
+"critical infrastructure designation"
+)
+OR
+(
+-- GROUP 6: Supply Chains
+"supply chain disruption" OR
+"supply chain resilience" OR
+"supply chain risk" OR
+"supply chain vulnerability" OR
+"supply chain security" OR
+"supply chain dependency" OR
+"critical supply chain" OR
+"infrastructure supply chain" OR
+"component supply chain" OR
+"single point of failure" OR
+"single source supplier" OR
+"sole source supplier" OR
+"supply chain bottleneck"
+)
+OR
+(
+-- GROUP 7: Asset Management and Aging Infrastructure
+"asset management" OR
+"aging infrastructure" OR
+"infrastructure aging" OR
+"infrastructure condition" OR
+"condition assessment" OR
+"asset condition" OR
+"asset life" OR
+"asset replacement" OR
+"deferred maintenance" OR
+"maintenance backlog" OR
+"infrastructure investment gap" OR
+"infrastructure deficit" OR
+"infrastructure renewal" OR
+"infrastructure modernization" OR
+"life-cycle cost" OR
+"life cycle cost" OR
+"asset prioritization"
+)
+OR
+(
+-- GROUP 8: Cyber-Physical Security
+"cyber-physical security" OR
+"cyber physical security" OR
+"cyber-physical system" OR
+"cyber physical system" OR
+"infrastructure cybersecurity" OR
+"OT cybersecurity" OR
+"operational technology security" OR
+"ICS security" OR
+"industrial control system security" OR
+"SCADA security" OR
+"infrastructure cyber attack" OR
+"infrastructure cyberattack" OR
+"physical security infrastructure" OR
+"infrastructure threat" OR
+"threat to critical infrastructure" OR
+"sabotage of infrastructure" OR
+"physical attack on infrastructure"
+)
+OR
+(
+-- GROUP 9: Workforce
+"infrastructure workforce" OR
+"utility workforce" OR
+"skilled trades workforce" OR
+"infrastructure operator training"
+)
+OR
+(
+-- GROUP 10: Federal Funding and Programs
+"FEMA" OR
+"Federal Emergency Management Agency" OR
+"hazard mitigation grant" OR
+"hazard mitigation plan" OR
+"BRIC" OR
+"Building Resilient Infrastructure and Communities" OR
+"community development block grant" OR
+"disaster declaration" OR
+"public assistance program" OR
+"infrastructure investment" OR
+"Bipartisan Infrastructure Law" OR
+"IIJA" OR
+"Infrastructure Investment and Jobs Act" OR
+"Inflation Reduction Act infrastructure" OR
+"federal infrastructure funding" OR
+"infrastructure grant program"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to critical infrastructure
+-- General CI framing
+"critical infrastructure" OR
+"lifeline infrastructure" OR
+"infrastructure system" OR
+"infrastructure resilience" OR
+"interdependent infrastructure" OR
+"interdependent system" OR
+-- Sector framing
+"energy system" OR
+"energy infrastructure" OR
+"power system" OR
+"water system" OR
+"water infrastructure" OR
+"transportation system" OR
+"transportation infrastructure" OR
+"communications system" OR
+"communications infrastructure" OR
+-- Sector names (CISA 16)
+"chemical sector" OR
+"commercial facilities sector" OR
+"communications sector" OR
+"critical manufacturing sector" OR
+"dams sector" OR
+"defense industrial base" OR
+"emergency services sector" OR
+"energy sector" OR
+"financial services sector" OR
+"food and agriculture sector" OR
+"government facilities sector" OR
+"healthcare and public health sector" OR
+"information technology sector" OR
+"nuclear sector" OR
+"transportation sector" OR
+"water sector" OR
+"wastewater sector" OR
+-- Named subsectors
+"electricity subsector" OR
+"electric subsector" OR
+"electricity system" OR
+"electric system" OR
+"electricity infrastructure" OR
+"electric infrastructure" OR
+"oil and natural gas subsector" OR
+"natural gas system" OR
+"natural gas infrastructure" OR
+"petroleum system" OR
+"petroleum infrastructure" OR
+"drinking water subsector" OR
+"wastewater subsector" OR
+"wastewater system" OR
+"wastewater infrastructure" OR
+"stormwater subsector" OR
+"stormwater system" OR
+"stormwater infrastructure" OR
+"aviation subsector" OR
+"highway and motor carrier subsector" OR
+"maritime subsector" OR
+"mass transit subsector" OR
+"mass transit system" OR
+"mass transit infrastructure" OR
+"passenger rail subsector" OR
+"passenger rail system" OR
+"passenger rail infrastructure" OR
+"freight rail subsector" OR
+"freight rail system" OR
+"freight rail infrastructure" OR
+"pipeline subsector" OR
+"pipeline infrastructure" OR
+"postal and shipping subsector" OR
+"wireline subsector" OR
+"wireless subsector" OR
+"satellite subsector" OR
+"cable subsector" OR
+"broadcasting subsector" OR
+"broadcasting system"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Psychology / mental health (resilience, recovery, vulnerability misuse)
+"psychological resilience" OR
+"emotional resilience" OR
+"resilience in children" OR
+"trauma recovery" OR
+"addiction recovery" OR
+"mental health recovery" OR
+"psychological vulnerability" OR
+"emotional vulnerability" OR
+-- Ecology / ecosystem (cascading, resilience, recovery in non-infrastructure contexts)
+"ecological resilience" OR
+"ecosystem resilience" OR
+"ecological recovery" OR
+"ecosystem recovery" OR
+"trophic cascade" OR
+"food web cascade" OR
+"ecological cascade" OR
+"species recovery" OR
+"habitat recovery" OR
+"ecological vulnerability" OR
+-- Biological / medical (cascading signals, supply chain in cells)
+"signaling cascade" OR
+"biochemical cascade" OR
+"protein cascade" OR
+"complement cascade" OR
+"coagulation cascade" OR
+"apoptotic cascade" OR
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"neural circuit" OR
+"synaptic" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical drug" OR
+"oncology" OR
+"tumor" OR
+"pathogen virulence" OR
+-- Organizational / management research (asset management, workforce, supply chain misuse)
+"organizational resilience theory" OR
+"organizational recovery" OR
+"human resource management" OR
+"talent management" OR
+"employee engagement" OR
+"organizational behavior" OR
+"operations management theory" OR
+-- Finance / economics theory (asset, risk in non-infrastructure contexts)
+"asset pricing" OR
+"portfolio optimization" OR
+"option pricing" OR
+"derivative pricing" OR
+"financial econometrics" OR
+"market microstructure" OR
+"behavioral finance" OR
+"corporate finance theory" OR
+"capital asset pricing" OR
+-- Social network analysis / abstract network theory
+"social network analysis" OR
+"complex network theory" OR
+"random graph theory" OR
+"scale-free network" OR
+"small-world network" OR
+"network science theory" OR
+-- Pure CS / cybersecurity research (unrelated to infrastructure cyber)
+"software vulnerability" OR
+"web application security" OR
+"cryptographic protocol" OR
+"penetration testing methodology" OR
+"malware analysis" OR
+"intrusion detection algorithm" OR
+"machine learning security" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+"redshift" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+-- Pure materials science
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+)
+"""

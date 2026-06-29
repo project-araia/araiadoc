@@ -1,0 +1,384 @@
+q = """
+(
+(
+-- GROUP 1: Aviation
+"airport" OR
+"airfield" OR
+"runway" OR
+"taxiway" OR
+"air traffic control" OR
+"air traffic management" OR
+"ATC tower" OR
+"control tower" OR
+"airspace" OR
+"NAS" OR
+"FAA" OR
+"Federal Aviation Administration" OR
+"commercial aviation" OR
+"civil aviation" OR
+"general aviation" OR
+"air carrier" OR
+"airline operation" OR
+"passenger aviation" OR
+"cargo aviation" OR
+"air cargo" OR
+"airfreight" OR
+"aircraft" OR
+"airliner" OR
+"jetliner" OR
+"flight operation" OR
+"flight delay" OR
+"flight cancellation" OR
+"jet bridge" OR
+"jetway" OR
+"aviation fuel" OR
+"jet fuel" OR
+"deicing operation"
+)
+OR
+(
+-- GROUP 2: Highway & Motor Carrier
+"highway" OR
+"freeway" OR
+"expressway" OR
+"arterial road" OR
+"roadway" OR
+"road network" OR
+"road infrastructure" OR
+"pavement" OR
+"road bridge" OR
+"bridge deck" OR
+"bridge condition" OR
+"bridge inspection" OR
+"structurally deficient bridge" OR
+"functionally obsolete bridge" OR
+"road tunnel" OR
+"culvert" OR
+"overpass" OR
+"interchange" OR
+"intersection" OR
+"traffic signal" OR
+"intelligent transportation system" OR
+"ITS infrastructure" OR
+"connected vehicle infrastructure" OR
+"trucking" OR
+"motor carrier" OR
+"freight trucking" OR
+"long-haul trucking" OR
+"commercial truck" OR
+"heavy truck" OR
+"freight corridor" OR
+"truck stop" OR
+"weigh station" OR
+"FHWA" OR
+"Federal Highway Administration" OR
+"FMCSA" OR
+"Federal Motor Carrier Safety Administration" OR
+"road closure"
+)
+OR
+(
+-- GROUP 3: Maritime Transportation
+"seaport" OR
+"port terminal" OR
+"marine terminal" OR
+"container terminal" OR
+"port infrastructure" OR
+"port operation" OR
+"port facility" OR
+"harbor" OR
+"deepwater port" OR
+"inland port" OR
+"port authority" OR
+"USACE port" OR
+"navigation channel" OR
+"shipping channel" OR
+"navigable waterway" OR
+"inland waterway" OR
+"intracoastal waterway" OR
+"waterway infrastructure" OR
+"lock and dam" OR
+"navigation lock" OR
+"shipping lock" OR
+"dredging" OR
+"channel dredging" OR
+"port dredging" OR
+"merchant vessel" OR
+"cargo vessel" OR
+"container ship" OR
+"bulk carrier" OR
+"oil tanker" OR
+"chemical tanker" OR
+"LNG carrier" OR
+"roll-on roll-off" OR
+"ro-ro vessel" OR
+"barge" OR
+"tugboat" OR
+"towboat" OR
+"vessel traffic" OR
+"maritime shipping" OR
+"ocean shipping" OR
+"coastal shipping" OR
+"shortsea shipping" OR
+"port congestion" OR
+"port resilience" OR
+"USCG" OR
+"US Coast Guard" OR
+"MARAD" OR
+"Maritime Administration"
+)
+OR
+(
+-- GROUP 4: Mass Transit & Passenger Rail
+"mass transit" OR
+"public transit" OR
+"public transportation" OR
+"transit agency" OR
+"transit operator" OR
+"bus rapid transit" OR
+"BRT" OR
+"transit bus" OR
+"city bus" OR
+"transit fleet" OR
+"bus depot" OR
+"bus terminal" OR
+"transit center" OR
+"light rail" OR
+"streetcar" OR
+"trolley" OR
+"tram" OR
+"subway" OR
+"metro rail" OR
+"heavy rail transit" OR
+"commuter rail" OR
+"regional rail" OR
+"passenger rail" OR
+"high-speed rail" OR
+"high speed rail" OR
+"Amtrak" OR
+"rail station" OR
+"passenger station" OR
+"transit station" OR
+"rail platform" OR
+"rolling stock" OR
+"rail signaling" OR
+"positive train control" OR
+"PTC" OR
+"FTA" OR
+"Federal Transit Administration" OR
+"FRA" OR
+"Federal Railroad Administration" OR
+"transit ridership" OR
+"transit infrastructure"
+)
+OR
+(
+-- GROUP 5: Freight Rail
+"freight rail" OR
+"freight railroad" OR
+"freight train" OR
+"Class I railroad" OR
+"short line railroad" OR
+"shortline railroad" OR
+"regional railroad" OR
+"rail freight" OR
+"intermodal rail" OR
+"intermodal terminal" OR
+"intermodal yard" OR
+"rail yard" OR
+"classification yard" OR
+"switching yard" OR
+"rail siding" OR
+"railroad track" OR
+"rail line" OR
+"rail corridor" OR
+"mainline track" OR
+"branch line" OR
+"track infrastructure" OR
+"track maintenance" OR
+"rail bridge" OR
+"railroad bridge" OR
+"rail tunnel" OR
+"railroad tunnel" OR
+"locomotive" OR
+"freight car" OR
+"tank car" OR
+"hopper car" OR
+"boxcar" OR
+"unit train" OR
+"hazmat by rail" OR
+"crude by rail"
+)
+OR
+(
+-- GROUP 6: Pipeline (transportation framing; ONG pipelines also in File 1)
+"oil pipeline" OR
+"gas pipeline" OR
+"crude pipeline" OR
+"petroleum pipeline" OR
+"product pipeline" OR
+"hazardous liquid pipeline" OR
+"interstate pipeline" OR
+"intrastate pipeline" OR
+"transmission pipeline" OR
+"gathering pipeline" OR
+"distribution pipeline" OR
+"pipeline network" OR
+"pipeline infrastructure" OR
+"pipeline transportation" OR
+"pipeline transport" OR
+"pipeline operator" OR
+"pipeline integrity" OR
+"pipeline safety" OR
+"pipeline rupture" OR
+"pipeline leak" OR
+"pipeline corrosion" OR
+"pipeline inspection" OR
+"in-line inspection" OR
+"smart pig" OR
+"pipeline pig" OR
+"compressor station" OR
+"pumping station" OR
+"PHMSA" OR
+"Pipeline and Hazardous Materials Safety Administration"
+)
+OR
+(
+-- GROUP 7: Postal & Shipping
+"postal service" OR
+"USPS" OR
+"United States Postal Service" OR
+"mail delivery" OR
+"mail processing" OR
+"postal facility" OR
+"mail sorting" OR
+"parcel delivery" OR
+"parcel service" OR
+"package delivery" OR
+"last-mile delivery" OR
+"last mile delivery" OR
+"courier service" OR
+"express shipping" OR
+"FedEx" OR
+"UPS" OR
+"DHL" OR
+"shipping hub" OR
+"sortation facility" OR
+"sorting facility" OR
+"fulfillment center"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to transportation systems,
+-- transportation infrastructure, and transportation operations
+"transportation system" OR
+"transportation infrastructure" OR
+"transportation network" OR
+"transportation sector" OR
+"transport infrastructure" OR
+"transport network" OR
+"transport system" OR
+"freight transportation" OR
+"freight transport" OR
+"freight network" OR
+"freight movement" OR
+"freight system" OR
+"passenger transportation" OR
+"passenger transport" OR
+"intermodal transportation" OR
+"multimodal transportation" OR
+"supply chain logistics" OR
+"logistics network" OR
+"logistics infrastructure" OR
+"aviation" OR
+"airport" OR
+"airline" OR
+"aircraft" OR
+"highway" OR
+"roadway" OR
+"motor carrier" OR
+"trucking" OR
+"maritime" OR
+"port" OR
+"seaport" OR
+"waterway" OR
+"vessel" OR
+"shipping" OR
+"rail" OR
+"railroad" OR
+"railway" OR
+"transit" OR
+"pipeline" OR
+"postal" OR
+"USPS" OR
+"parcel delivery" OR
+"package delivery" OR
+"DOT" OR
+"Department of Transportation"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Biological / medical (transport phenomena in cells)
+"molecular transport" OR
+"ion transport" OR
+"active transport" OR
+"passive transport" OR
+"membrane transport" OR
+"vesicle transport" OR
+"axonal transport" OR
+"protein transport" OR
+"electron transport chain" OR
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"neural circuit" OR
+"synaptic" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical" OR
+"oncology" OR
+"tumor" OR
+"pathogen" OR
+-- Animal migration / behavior (false positives for "transport," "migration," "corridor")
+"animal migration" OR
+"bird migration" OR
+"fish migration" OR
+"wildlife corridor" OR
+"animal behavior" OR
+-- Abstract supply chain / network theory
+"supply chain optimization model" OR
+"vehicle routing problem" OR
+"traveling salesman" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+"redshift" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+-- Pure materials science
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+)
+"""

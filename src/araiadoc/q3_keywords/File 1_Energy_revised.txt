@@ -1,0 +1,588 @@
+q = """
+(
+(
+-- GROUP 1: Electric Utility Identity & Structure
+"electric utility" OR
+"electric cooperative" OR
+"electric co-op" OR
+"rural electric" OR
+"municipal utility" OR
+"municipal electric" OR
+"public utility" OR
+"public power" OR
+"investor-owned utility" OR
+"investor owned utility" OR
+"power utility" OR
+"load-serving entity" OR
+"load serving entity" OR
+"distribution utility" OR
+"vertically integrated utility" OR
+"service territory" OR
+"ratepayer"
+)
+OR
+(
+-- GROUP 2: Grid Infrastructure — Transmission & Distribution
+"power grid" OR
+"electric grid" OR
+"electrical grid" OR
+"electricity grid" OR
+"transmission line" OR
+"transmission system" OR
+"transmission network" OR
+"transmission infrastructure" OR
+"distribution line" OR
+"distribution system" OR
+"distribution feeder" OR
+"overhead line" OR
+"overhead conductor" OR
+"underground cable" OR
+"power line" OR
+"high voltage transmission" OR
+"transmission tower" OR
+"transmission corridor" OR
+"distribution pole" OR
+"utility pole" OR
+"power pole" OR
+"lattice tower" OR
+"conductor sag" OR
+"ampacity" OR
+"dynamic line rating" OR
+"reconductoring" OR
+"grid hardening" OR
+"undergrounding" OR
+"substation" OR
+"power transformer" OR
+"distribution transformer" OR
+"high-voltage transformer" OR
+"high voltage transformer" OR
+"transformer loading" OR
+"transformer winding" OR
+"switchgear" OR
+"circuit breaker" OR
+"recloser" OR
+"voltage regulator" OR
+"capacitor bank" OR
+"grid modernization" OR
+"grid resilience" OR
+"grid reliability" OR
+"smart grid" OR
+"microgrid" OR
+"distribution automation" OR
+"advanced metering infrastructure" OR
+"SCADA" OR
+"supervisory control and data acquisition"
+)
+OR
+(
+-- GROUP 3: Power Generation
+"power plant" OR
+"power station" OR
+"power generation" OR
+"generating station" OR
+"electricity generation" OR
+"electric generation" OR
+"thermal power plant" OR
+"thermal generation" OR
+"coal plant" OR
+"coal-fired power" OR
+"coal generator" OR
+"natural gas plant" OR
+"gas turbine" OR
+"combined cycle" OR
+"combustion turbine" OR
+"hydroelectric" OR
+"hydropower" OR
+"pumped storage" OR
+"solar power plant" OR
+"photovoltaic power" OR
+"solar farm" OR
+"utility-scale solar" OR
+"distributed solar" OR
+"rooftop solar" OR
+"wind power" OR
+"wind generation" OR
+"wind farm" OR
+"wind turbine" OR
+"offshore wind" OR
+"onshore wind" OR
+"geothermal plant" OR
+"geothermal power" OR
+"battery storage" OR
+"grid-scale storage" OR
+"battery energy storage" OR
+"distributed energy resource" OR
+"distributed generation" OR
+"cogeneration" OR
+"combined heat and power" OR
+"peaking plant" OR
+"baseload generation" OR
+"capacity factor" OR
+"renewable generation" OR
+"resource adequacy"
+)
+OR
+(
+-- GROUP 4: Grid Operations, Reliability & Outage Management
+"power outage" OR
+"electric outage" OR
+"electricity outage" OR
+"power interruption" OR
+"service restoration" OR
+"outage management" OR
+"outage duration" OR
+"outage frequency" OR
+"customer outage" OR
+"widespread outage" OR
+"major event day" OR
+"SAIDI" OR
+"System Average Interruption Duration Index" OR
+"SAIFI" OR
+"System Average Interruption Frequency Index" OR
+"CAIDI" OR
+"Customer Average Interruption Duration Index" OR
+"MAIFI" OR
+"Momentary Average Interruption Frequency Index" OR
+"reliability index" OR
+"system reliability" OR
+"electric reliability" OR
+"power system reliability" OR
+"bulk power system" OR
+"power system operation" OR
+"grid operation" OR
+"system operator" OR
+"economic dispatch" OR
+"unit commitment" OR
+"frequency regulation" OR
+"voltage stability" OR
+"power quality" OR
+"power system stability" OR
+"islanding" OR
+"black start" OR
+"load shedding" OR
+"blackout" OR
+"cascading outage" OR
+"NERC" OR
+"North American Electric Reliability Corporation"
+)
+OR
+(
+-- GROUP 5: Resource Planning, Load Forecasting & Markets
+"integrated resource plan" OR
+"integrated resource planning" OR
+"capacity expansion" OR
+"generation planning" OR
+"transmission planning" OR
+"distribution planning" OR
+"system planning" OR
+"electric infrastructure planning" OR
+"power infrastructure planning" OR
+"load forecast" OR
+"load forecasting" OR
+"peak demand" OR
+"peak load" OR
+"peak shaving" OR
+"load growth" OR
+"load duration curve" OR
+"capacity planning" OR
+"reserve margin" OR
+"planning reserve" OR
+"loss-of-load" OR
+"expected unserved energy" OR
+"capacity market" OR
+"electricity market" OR
+"wholesale electricity market" OR
+"ancillary services" OR
+"locational marginal price" OR
+"interconnection queue" OR
+"hosting capacity" OR
+"DER integration" OR
+"distributed energy integration" OR
+"renewable integration" OR
+"inverter-based resource" OR
+"grid-forming inverter" OR
+"critical load" OR
+"critical facility power"
+)
+OR
+(
+-- GROUP 6: Asset Management & Vegetation Management
+"infrastructure aging" OR
+"aging electric infrastructure" OR
+"aging grid infrastructure" OR
+"equipment failure" OR
+"equipment reliability" OR
+"preventive maintenance" OR
+"predictive maintenance" OR
+"condition-based maintenance" OR
+"line sagging" OR
+"vegetation management" OR
+"tree trimming" OR
+"right-of-way" OR
+"right of way" OR
+"tree-caused outage" OR
+"vegetation contact" OR
+"tree encroachment" OR
+"wildfire mitigation plan" OR
+"public safety power shutoff" OR
+"PSPS" OR
+"de-energization" OR
+"utility-caused wildfire" OR
+"utility wildfire" OR
+"downed wire" OR
+"downed conductor" OR
+"pole failure" OR
+"crossarm failure" OR
+"insulator failure" OR
+"lightning arrester" OR
+"surge arrester" OR
+"conductor corrosion" OR
+"pole corrosion" OR
+"conductor ice loading" OR
+"line icing" OR
+"galloping conductor" OR
+"aeolian vibration"
+)
+OR
+(
+-- GROUP 7: Demand Side, Electrification & Energy Efficiency
+"demand response" OR
+"demand-side management" OR
+"demand side management" OR
+"interruptible load" OR
+"curtailable load" OR
+"weatherization" OR
+"building electrification" OR
+"transportation electrification" OR
+"vehicle electrification" OR
+"EV charging" OR
+"behind-the-meter" OR
+"behind the meter" OR
+"net energy metering" OR
+"time-of-use rate" OR
+"critical peak pricing" OR
+"load flexibility" OR
+"flexible load" OR
+"virtual power plant"
+)
+OR
+(
+-- GROUP 8: Regulation & Standards (light touch)
+"public utility commission" OR
+"public service commission" OR
+"utility regulation" OR
+"rate case" OR
+"rate design" OR
+"performance-based regulation" OR
+"reliability standard" OR
+"NERC standard" OR
+"NERC reliability" OR
+"interconnection standard" OR
+"grid code" OR
+"renewable portfolio standard" OR
+"clean energy standard" OR
+"NESC" OR
+"national electrical safety code"
+)
+OR
+(
+-- GROUP 9: Oil & Natural Gas — Upstream
+"oil and gas" OR
+"oil & gas" OR
+"oil and natural gas" OR
+"petroleum system" OR
+"petroleum industry" OR
+"petroleum sector" OR
+"upstream oil" OR
+"upstream gas" OR
+"oil exploration" OR
+"gas exploration" OR
+"oil production" OR
+"natural gas production" OR
+"hydrocarbon production" OR
+"oil well" OR
+"gas well" OR
+"hydraulic fracturing" OR
+"fracking" OR
+"horizontal drilling" OR
+"shale oil" OR
+"shale gas" OR
+"tight oil" OR
+"tight gas" OR
+"unconventional oil" OR
+"unconventional gas" OR
+"offshore drilling" OR
+"offshore platform" OR
+"offshore oil" OR
+"offshore gas" OR
+"oil rig" OR
+"drilling rig" OR
+"wellhead" OR
+"oil field" OR
+"oilfield" OR
+"gas field" OR
+"oil reservoir" OR
+"gas reservoir" OR
+"reservoir engineering" OR
+"enhanced oil recovery" OR
+"production well"
+)
+OR
+(
+-- GROUP 10: Oil & Natural Gas — Pipelines
+"oil pipeline" OR
+"gas pipeline" OR
+"crude pipeline" OR
+"petroleum pipeline" OR
+"product pipeline" OR
+"interstate pipeline" OR
+"intrastate pipeline" OR
+"transmission pipeline" OR
+"gathering pipeline" OR
+"distribution pipeline" OR
+"pipeline network" OR
+"pipeline infrastructure" OR
+"pipeline transportation" OR
+"pipeline transport" OR
+"pipeline operator" OR
+"pipeline integrity" OR
+"pipeline safety" OR
+"pipeline rupture" OR
+"pipeline leak" OR
+"pipeline corrosion" OR
+"pipeline inspection" OR
+"in-line inspection" OR
+"smart pig" OR
+"pipeline pig" OR
+"compressor station" OR
+"pumping station" OR
+"PHMSA" OR
+"Pipeline and Hazardous Materials Safety Administration"
+)
+OR
+(
+-- GROUP 11: Oil & Natural Gas — Midstream & Downstream
+"oil terminal" OR
+"gas terminal" OR
+"LNG terminal" OR
+"LNG export" OR
+"LNG import" OR
+"liquefied natural gas" OR
+"natural gas liquefaction" OR
+"natural gas regasification" OR
+"natural gas storage" OR
+"underground gas storage" OR
+"strategic petroleum reserve" OR
+"oil storage" OR
+"crude storage" OR
+"refinery" OR
+"refining capacity" OR
+"petroleum refining" OR
+"natural gas processing" OR
+"gas processing plant" OR
+"oil tanker" OR
+"crude tanker" OR
+"petroleum transport" OR
+"natural gas distribution" OR
+"local distribution company" OR
+"gas utility" OR
+"natural gas utility"
+)
+OR
+(
+-- GROUP 12: Nuclear Energy Infrastructure
+"nuclear power plant" OR
+"nuclear power station" OR
+"nuclear generating station" OR
+"nuclear reactor" OR
+"commercial reactor" OR
+"power reactor" OR
+"light water reactor" OR
+"pressurized water reactor" OR
+"boiling water reactor" OR
+"PWR" OR
+"BWR" OR
+"small modular reactor" OR
+"SMR" OR
+"microreactor" OR
+"advanced reactor" OR
+"generation IV reactor" OR
+"gen IV reactor" OR
+"high temperature reactor" OR
+"molten salt reactor" OR
+"fast reactor" OR
+"sodium-cooled reactor" OR
+"reactor core" OR
+"reactor vessel" OR
+"reactor coolant" OR
+"reactor containment" OR
+"containment building" OR
+"spent fuel pool" OR
+"spent nuclear fuel" OR
+"used nuclear fuel" OR
+"nuclear fuel cycle" OR
+"nuclear fuel fabrication" OR
+"uranium enrichment" OR
+"uranium conversion" OR
+"reprocessing facility" OR
+"nuclear reprocessing" OR
+"high-level waste" OR
+"low-level waste" OR
+"radioactive waste" OR
+"nuclear waste" OR
+"waste repository" OR
+"geologic repository" OR
+"interim storage" OR
+"dry cask storage" OR
+"nuclear safety" OR
+"reactor safety" OR
+"nuclear regulatory" OR
+"NRC" OR
+"Nuclear Regulatory Commission" OR
+"nuclear safeguards" OR
+"nuclear material control"
+)
+OR
+(
+-- GROUP 13: Hydroelectric Dams (energy-side dams)
+"hydroelectric dam" OR
+"hydropower dam" OR
+"hydroelectric facility" OR
+"hydroelectric station" OR
+"hydropower facility" OR
+"hydropower plant" OR
+"pumped storage facility" OR
+"pumped-storage hydropower" OR
+"pumped storage hydropower" OR
+"run-of-river hydropower" OR
+"run of river hydropower" OR
+"penstock" OR
+"hydroelectric turbine" OR
+"hydropower turbine" OR
+"powerhouse"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to energy systems,
+-- power infrastructure, oil/gas/nuclear infrastructure
+"electricity" OR
+"electric power" OR
+"power system" OR
+"power grid" OR
+"energy system" OR
+"electric system" OR
+"electricity grid" OR
+"electric grid" OR
+"electric utility" OR
+"energy infrastructure" OR
+"energy sector" OR
+"energy supply" OR
+"generation infrastructure" OR
+"transmission infrastructure" OR
+"distribution infrastructure" OR
+"substation" OR
+"electric service" OR
+"megawatt" OR
+"kilowatt" OR
+"voltage" OR
+"kilowatt-hour" OR
+"kWh" OR
+"megawatt-hour" OR
+"MWh" OR
+"gigawatt" OR
+"feeder" OR
+"powerline" OR
+"power line" OR
+"electrification" OR
+"grid-connected" OR
+"grid connected" OR
+"off-grid" OR
+"bulk electric" OR
+"interconnection" OR
+"ISO" OR
+"independent system operator" OR
+"RTO" OR
+"regional transmission organization" OR
+"utility-scale" OR
+"behind-the-meter" OR
+"oil and gas" OR
+"oil & gas" OR
+"oil and natural gas" OR
+"natural gas" OR
+"crude oil" OR
+"petroleum" OR
+"hydrocarbon" OR
+"refinery" OR
+"petroleum pipeline" OR
+"ONG pipeline" OR
+"oil pipeline" OR
+"gas pipeline" OR
+"LNG" OR
+"liquefied natural gas" OR
+"oilfield" OR
+"oil field" OR
+"gas field" OR
+"nuclear power" OR
+"nuclear energy" OR
+"nuclear reactor" OR
+"reactor" OR
+"nuclear fuel" OR
+"radioactive" OR
+"hydroelectric" OR
+"hydropower"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Biological / medical
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"neural circuit" OR
+"synaptic" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical" OR
+"oncology" OR
+"tumor" OR
+"pathogen" OR
+-- Chemical engineering / lab chemistry (non-infrastructure)
+"polymerization" OR
+"distillation column" OR
+"catalytic cracking" OR
+"reaction kinetics" OR
+"molar concentration" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+"dark matter" OR
+"dark energy" OR
+"redshift" OR
+-- Particle / high-energy physics (filters basic nuclear physics noise)
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+"quantum chromodynamics" OR
+"standard model of particle physics" OR
+-- Pure materials science (non-power context)
+"thin film deposition" OR
+"sputter" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+)
+"""

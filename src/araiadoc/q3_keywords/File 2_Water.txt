@@ -1,0 +1,333 @@
+q = """
+(
+(
+-- GROUP 1: Drinking Water Utility & Identity
+"drinking water utility" OR
+"water utility" OR
+"public water system" OR
+"community water system" OR
+"water co-op" OR
+"water cooperative" OR
+"municipal water" OR
+"municipal water system" OR
+"water provider" OR
+"water service provider" OR
+"water purveyor" OR
+"water authority" OR
+"water district" OR
+"investor-owned water utility" OR
+"private water utility" OR
+"rural water system" OR
+"small water system" OR
+"water supplier"
+)
+OR
+(
+-- GROUP 2: Drinking Water Infrastructure & Treatment
+"drinking water infrastructure" OR
+"potable water" OR
+"water treatment plant" OR
+"drinking water treatment" OR
+"water treatment facility" OR
+"water purification" OR
+"water filtration" OR
+"slow sand filtration" OR
+"membrane filtration" OR
+"reverse osmosis" OR
+"water disinfection" OR
+"chlorination" OR
+"UV disinfection" OR
+"ozonation" OR
+"water distribution system" OR
+"water distribution network" OR
+"water main" OR
+"water mains" OR
+"distribution main" OR
+"transmission main" OR
+"water pipeline" OR
+"water pipe" OR
+"water service line" OR
+"lead service line" OR
+"water meter" OR
+"water hydrant" OR
+"fire hydrant" OR
+"pumping station" OR
+"water pump station" OR
+"booster pump" OR
+"pressure zone" OR
+"water storage tank" OR
+"finished water storage" OR
+"water tower" OR
+"elevated tank" OR
+"clear well" OR
+"raw water" OR
+"finished water" OR
+"source water" OR
+"water source" OR
+"water intake" OR
+"groundwater well" OR
+"drinking water well" OR
+"municipal well" OR
+"production well" OR
+"water well" OR
+"wellhead" OR
+"aquifer" OR
+"groundwater supply" OR
+"groundwater management" OR
+"non-revenue water" OR
+"water loss" OR
+"pipe break" OR
+"pipe burst"
+)
+OR
+(
+-- GROUP 3: Drinking Water Quality & Regulation
+"drinking water quality" OR
+"water quality monitoring" OR
+"safe drinking water" OR
+"Safe Drinking Water Act" OR
+"SDWA" OR
+"maximum contaminant level" OR
+"MCL" OR
+"lead and copper rule" OR
+"disinfection byproduct" OR
+"PFAS in drinking water" OR
+"per- and polyfluoroalkyl substance" OR
+"per and polyfluoroalkyl substance" OR
+"cyanotoxin in drinking water" OR
+"harmful algal bloom" OR
+"source water protection" OR
+"watershed protection"
+)
+OR
+(
+-- GROUP 4: Wastewater Utility & Infrastructure
+"wastewater utility" OR
+"wastewater system" OR
+"wastewater infrastructure" OR
+"sewer system" OR
+"sewerage system" OR
+"sewerage infrastructure" OR
+"sanitary sewer" OR
+"combined sewer" OR
+"combined sewer overflow" OR
+"CSO" OR
+"sanitary sewer overflow" OR
+"SSO" OR
+"sewer main" OR
+"sewer pipe" OR
+"sewer line" OR
+"sewer collection system" OR
+"wastewater collection" OR
+"wastewater conveyance" OR
+"sewer pumping station" OR
+"sewer lift station" OR
+"wastewater lift station" OR
+"force main" OR
+"interceptor sewer" OR
+"manhole" OR
+"WWTP" OR
+"publicly owned treatment works" OR
+"POTW" OR
+"water reclamation facility" OR
+"wastewater reclamation" OR
+"wastewater treatment" OR
+"sewage treatment" OR
+"primary treatment" OR
+"secondary treatment" OR
+"tertiary treatment" OR
+"activated sludge" OR
+"trickling filter" OR
+"membrane bioreactor" OR
+"nutrient removal" OR
+"biological nutrient removal" OR
+"effluent discharge" OR
+"effluent treatment" OR
+"sewage sludge" OR
+"biosolids" OR
+"sludge management" OR
+"anaerobic digestion" OR
+"water reuse" OR
+"water recycling" OR
+"reclaimed water" OR
+"recycled water" OR
+"indirect potable reuse" OR
+"direct potable reuse" OR
+"NPDES permit" OR
+"Clean Water Act"
+)
+OR
+(
+-- GROUP 5: Stormwater Infrastructure
+"stormwater system" OR
+"stormwater infrastructure" OR
+"stormwater management" OR
+"stormwater drainage" OR
+"stormwater conveyance" OR
+"stormwater runoff" OR
+"urban runoff" OR
+"storm drain" OR
+"storm sewer" OR
+"MS4" OR
+"detention basin" OR
+"retention basin" OR
+"detention pond" OR
+"retention pond" OR
+"stormwater pond" OR
+"green infrastructure" OR
+"low impact development" OR
+"low-impact development" OR
+"permeable pavement" OR
+"bioswale" OR
+"rain garden" OR
+"infiltration trench" OR
+"culvert" OR
+"drainage system" OR
+"drainage infrastructure" OR
+"urban drainage" OR
+"urban flooding" OR
+"pluvial flooding"
+)
+OR
+(
+-- GROUP 6: Water-side Dams, Reservoirs, Levees & Flood Control
+"flood control dam" OR
+"flood control reservoir" OR
+"water supply reservoir" OR
+"water supply dam" OR
+"municipal reservoir" OR
+"impoundment" OR
+"earthen dam" OR
+"concrete dam" OR
+"arch dam" OR
+"gravity dam" OR
+"embankment dam" OR
+"dam safety" OR
+"dam failure" OR
+"dam breach" OR
+"dam break" OR
+"dam removal" OR
+"dam rehabilitation" OR
+"high-hazard dam" OR
+"high hazard dam" OR
+"aging dam" OR
+"dam inspection" OR
+"emergency action plan" OR
+"levee" OR
+"flood wall" OR
+"floodwall" OR
+"flood gate" OR
+"floodgate" OR
+"spillway" OR
+"reservoir operation" OR
+"reservoir storage" OR
+"reservoir management" OR
+"flood control infrastructure" OR
+"flood risk management infrastructure"
+)
+OR
+(
+-- GROUP 7: Water Sector Resilience & Operations
+"water system resilience" OR
+"water utility resilience" OR
+"water infrastructure resilience" OR
+"wastewater resilience" OR
+"water service interruption" OR
+"water outage" OR
+"boil water advisory" OR
+"boil water notice" OR
+"water supply disruption" OR
+"water sector vulnerability" OR
+"water sector risk"
+)
+)
+AND
+(
+-- CONTEXTUAL ANCHOR: ensures documents relate to
+-- water/wastewater infrastructure and utilities
+"water utility" OR
+"water sector" OR
+"water infrastructure" OR
+"water system" OR
+"drinking water" OR
+"potable water" OR
+"public water system" OR
+"municipal water" OR
+"water service" OR
+"water supply" OR
+"water distribution" OR
+"water treatment" OR
+"wastewater" OR
+"sewer" OR
+"sewerage" OR
+"sewage" OR
+"stormwater" OR
+"storm sewer" OR
+"storm drain" OR
+"reservoir" OR
+"dam" OR
+"levee" OR
+"flood control" OR
+"water reuse" OR
+"reclaimed water" OR
+"groundwater"
+)
+NOT
+(
+-- EXCLUSIONS: Remove major false-positive domains
+-- Biological / medical (e.g., aquatic ecology, biology of water organisms)
+"protein structure" OR
+"gene expression" OR
+"amino acid" OR
+"cell signaling" OR
+"genome" OR
+"genomic" OR
+"transcriptome" OR
+"metabolome" OR
+"clinical trial" OR
+"randomized controlled trial" OR
+"patient outcome" OR
+"drug delivery" OR
+"pharmaceutical" OR
+"oncology" OR
+"tumor" OR
+"pathogen virulence" OR
+-- Aquatic ecology / fisheries / oceanography research not focused on water infrastructure
+"phytoplankton" OR
+"zooplankton" OR
+"coral reef" OR
+"benthic community" OR
+"fish population" OR
+"fishery management" OR
+"fisheries management" OR
+"ocean circulation" OR
+"thermohaline" OR
+"ocean acidification" OR
+"marine ecosystem" OR
+-- Pure hydrology / atmospheric science (when not paired with infrastructure)
+"isotope hydrology" OR
+"paleohydrology" OR
+"paleoclimate" OR
+"cloud microphysics" OR
+-- Astronomy / astrophysics
+"stellar" OR
+"galactic" OR
+"exoplanet" OR
+"black hole" OR
+"neutron star" OR
+-- Particle / high-energy physics
+"hadron" OR
+"quark" OR
+"lepton" OR
+"boson" OR
+"particle accelerator" OR
+"collider" OR
+-- Pure materials science (non-infrastructure)
+"thin film deposition" OR
+"epitaxial growth" OR
+"nanoparticle synthesis" OR
+"quantum dot"
+-- Energy
+"oil reservoir"
+)
+"""
