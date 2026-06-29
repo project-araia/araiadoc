@@ -358,6 +358,11 @@ Options:
                                batch_requests.jsonl is written; otherwise numbered chunk files
                                (batch_requests_000.jsonl, …) are written and one batch job is
                                submitted per chunk.  [default: 9]
+  --max-active-batches INTEGER [alcf-batch-submit] Max active (pending/running) ALCF batches
+                               at once. Submission is throttled to stay within this; ALCF
+                               currently caps users at 2.  [default: 2]
+  --poll-interval FLOAT        [alcf-batch-submit] Seconds between polls for a free active-
+                               batch slot while throttling.  [default: 30.0]
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -370,10 +375,11 @@ SOURCE_judged/
   judge_summary.json
   judge_checkpoint.json
   failures.json
-  batch_requests.jsonl          # ALCF batch: single chunk (fits within --max-batch-bytes)
+  batch_requests.jsonl          # ALCF batch: single chunk (fits within --max-batch-mb)
   batch_requests_000.jsonl      # ALCF batch: first chunk when split across multiple chunks
   batch_requests_001.jsonl      # ALCF batch: second chunk, etc.
   batch_manifest.json           # ALCF batch: custom_id → doc map (always a single file)
+  batch_submit_checkpoint.json  # ALCF batch: remote input → batch_id, for resume/throttling
   kept/                         # only when --copy-kept is used
 ```
 
@@ -402,6 +408,8 @@ araiadoc agentic-judge-dataset data/all_weather_sectionized \
 The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: there is no file upload. A single `POST {base_url}/batches` references an input JSONL and an output folder that both live on **ALCF shared storage** (e.g. Eagle, `/eagle/argonne_tpc/...`), which the inference service reads and writes directly. Because of that, ALCF batch judging is split into two phases bracketing a file transfer to/from ALCF storage.
 
 **Payload limit:** ALCF caps each batch request at 10 MB. `--max-batch-mb` (default 9) keeps chunks safely under that limit. When the full corpus fits in one chunk a single `batch_requests.jsonl` is written (backward-compatible). When it doesn't, numbered chunk files (`batch_requests_000.jsonl`, `batch_requests_001.jsonl`, …) are written and one batch job is submitted per chunk, all sharing the same output folder. A single shared `batch_manifest.json` covers all chunks, and collect is unchanged — it already accepts a folder of output files.
+
+**Active-batch quota:** ALCF also limits each user to a small number of *active* (pending/running) batches (currently 2). Multi-chunk submission is therefore throttled to `--max-active-batches` (default 2): before each submit the gateway is polled every `--poll-interval` seconds until a slot frees, and a `quota_exceeded` rejection triggers an automatic back-off and retry rather than aborting. Submitted chunks are recorded in `batch_submit_checkpoint.json`, so re-running resumes where it left off instead of double-submitting — and it also reconciles against the live batch list (matching on `input_file`) to adopt batches submitted before checkpointing existed.
 
 1. **Submit.** First build the request JSONL chunk(s) and manifest locally (omitting ALCF paths stages files only and prints next steps):
 

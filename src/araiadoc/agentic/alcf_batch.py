@@ -200,6 +200,30 @@ def write_batch_manifest(jobs: list[dict[str, Any]], manifest_path: Path) -> Non
     atomic_write_json(manifest_path, manifest)
 
 
+# ALCF batch statuses that count against the "active batches per user" quota.
+ACTIVE_BATCH_STATUSES = frozenset({"pending", "running"})
+
+
+class BatchQuotaExceeded(Exception):
+    """Raised when ALCF rejects a submission because the active-batch quota is full."""
+
+
+def _batches_list_base(base_url: str) -> str:
+    """Derive the (cluster-agnostic) batches base URL used by list/status endpoints.
+
+    Create Batch lives under the cluster/framework prefix
+    (``…/resource_server/sophia/vllm/v1/batches``) but List/Retrieve/Status live
+    under the shorter ``…/resource_server/v1/batches``. Derive the latter by
+    truncating at ``/resource_server/`` when present; otherwise fall back to the
+    same base used for create.
+    """
+    marker = "/resource_server/"
+    idx = base_url.find(marker)
+    if idx != -1:
+        return base_url[: idx + len(marker)].rstrip("/") + "/v1"
+    return base_url.rstrip("/")
+
+
 def submit_alcf_batch(
     *,
     base_url: str,
@@ -209,7 +233,12 @@ def submit_alcf_batch(
     output_folder_path: str,
     timeout: float,
 ) -> dict[str, Any]:
-    """POST a batch job to the ALCF inference gateway and return its response."""
+    """POST a batch job to the ALCF inference gateway and return its response.
+
+    Raises :class:`BatchQuotaExceeded` if the gateway rejects the submission
+    because the per-user active-batch quota is full, so callers can back off and
+    retry rather than aborting the whole run.
+    """
     import httpx
 
     url = base_url.rstrip("/") + "/batches"
@@ -224,13 +253,63 @@ def submit_alcf_batch(
     }
     response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
     if response.status_code >= 400:
-        raise click.UsageError(
-            f"ALCF batch submission failed ({response.status_code}) at {url}:\n" f"{response.text[:2000]}"
-        )
+        body = response.text or ""
+        lowered = body.lower()
+        if response.status_code == 400 and ("quota" in lowered and "batch" in lowered):
+            raise BatchQuotaExceeded(body[:2000])
+        raise click.UsageError(f"ALCF batch submission failed ({response.status_code}) at {url}:\n" f"{body[:2000]}")
     try:
         return response.json()
     except json.JSONDecodeError:
         return {"raw_response": response.text}
+
+
+def list_alcf_batches(
+    *,
+    base_url: str,
+    api_key: str,
+    timeout: float,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """GET the user's batches from the ALCF gateway.
+
+    Returns a list of batch objects (each with at least ``batch_id`` and
+    ``status``). When *status* is given it is passed through as a ``?status=``
+    filter. Returns an empty list on any non-JSON / error response so callers can
+    treat "couldn't list" conservatively.
+    """
+    import httpx
+
+    url = _batches_list_base(base_url) + "/batches"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    params = {"status": status} if status else None
+    response = httpx.get(url, headers=headers, params=params, timeout=timeout)
+    if response.status_code >= 400:
+        raise click.UsageError(
+            f"ALCF batch list failed ({response.status_code}) at {url}:\n" f"{(response.text or '')[:2000]}"
+        )
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        return []
+    if isinstance(data, dict):
+        # Some gateways wrap the array; accept common shapes defensively.
+        for key in ("batches", "data", "results"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        return []
+    return data if isinstance(data, list) else []
+
+
+def count_active_batches(
+    *,
+    base_url: str,
+    api_key: str,
+    timeout: float,
+) -> int:
+    """Return how many of the user's batches are currently active (pending/running)."""
+    batches = list_alcf_batches(base_url=base_url, api_key=api_key, timeout=timeout)
+    return sum(1 for b in batches if str(b.get("status", "")).lower() in ACTIVE_BATCH_STATUSES)
 
 
 def _iter_batch_output_lines(output_path: Path):
