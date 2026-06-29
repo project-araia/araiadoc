@@ -340,10 +340,15 @@ Options:
   --copy-kept                  Copy documents with kept decisions into OUTPUT_DIR/kept.
   --keep-decisions TEXT        Comma-separated decisions copied by --copy-kept.  [default: relevant]
   --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
-  --batch-input-file TEXT      [alcf-batch-submit] ALCF path the service reads the
-                               request JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl).
-                               Used as a template when chunking: chunk N is submitted as
-                               <stem>_<NNN><suffix> (e.g. input_000.jsonl, input_001.jsonl).
+  --batch-input-dir TEXT       [alcf-batch-submit] ALCF folder you copied the request
+                               JSONL chunk file(s) into. Each chunk is submitted under the
+                               SAME filename the tool wrote locally (batch_requests.jsonl,
+                               or batch_requests_000.jsonl, …) — copy the files over without
+                               renaming. Preferred over --batch-input-file for multi-chunk runs.
+  --batch-input-file TEXT      [alcf-batch-submit] DEPRECATED for multi-chunk runs; use
+                               --batch-input-dir. Single ALCF path for a one-chunk run
+                               (e.g. /eagle/argonne_tpc/you/input.jsonl). Errors if the run
+                               produced more than one chunk.
   --batch-output-folder TEXT   [alcf-batch-submit] ALCF folder the service writes output to.
                                All chunks share the same output folder.
   --collect-batch-output PATH  [alcf-batch-collect] Path to the ALCF batch output .jsonl
@@ -407,7 +412,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
      --model google/gemma-3-27b-it
    ```
 
-   Copy the chunk file(s) from `data/all_weather_judged/` to ALCF storage (the tool prints exactly which files to copy), then submit — `--batch-input-file` is treated as a template: chunk *N* is submitted using `<stem>_<NNN><suffix>` (e.g. `/eagle/.../input_000.jsonl`):
+   Copy the chunk file(s) from `data/all_weather_judged/` into a single ALCF storage folder — **keep the filenames as-is, no renaming** — then submit, pointing `--batch-input-dir` at that folder. The tool submits one batch per chunk, reusing each chunk's filename (`batch_requests_000.jsonl`, …) under that folder:
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
@@ -415,11 +420,11 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
      --mode alcf-batch-submit -o data/all_weather_judged \
      --model google/gemma-3-27b-it \
      --api-key "$API_KEY" \
-     --batch-input-file /eagle/argonne_tpc/you/input.jsonl \
+     --batch-input-dir /eagle/argonne_tpc/you/requests/ \
      --batch-output-folder /eagle/argonne_tpc/you/output/
    ```
 
-   When a single chunk covers everything the path is used as-is (no `_000` suffix), preserving backward compatibility.
+   For a single-chunk run you may instead pass the legacy `--batch-input-file /eagle/.../input.jsonl` (one explicit path). It errors if the run produced more than one chunk — use `--batch-input-dir` in that case.
 
 2. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
 

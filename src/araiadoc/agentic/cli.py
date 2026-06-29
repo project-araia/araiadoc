@@ -8,7 +8,6 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 from araiadoc.agentic.alcf_batch import (
     collect_alcf_batch_output,
-    derive_chunk_input_path,
     submit_alcf_batch,
     write_batch_manifest,
     write_batch_request_chunks,
@@ -41,6 +40,7 @@ def _run_alcf_batch_submit(
     temperature: float,
     max_tokens: int,
     timeout: float,
+    batch_input_dir: str | None,
     batch_input_file: str | None,
     batch_output_folder: str | None,
     max_batch_bytes: int,
@@ -57,6 +57,10 @@ def _run_alcf_batch_submit(
     ``batch_requests.jsonl`` is written (backward-compatible). Otherwise
     numbered chunk files (``batch_requests_000.jsonl``, …) are written and one
     batch is submitted per chunk, all sharing the same output folder.
+
+    Remote input paths are resolved by joining *batch_input_dir* with each
+    chunk's LOCAL filename, so the files you copy to ALCF keep their names. The
+    legacy single-path *batch_input_file* is still accepted for one-chunk runs.
     """
     if not jobs:
         click.echo("No documents to submit (all completed or none discovered).")
@@ -85,28 +89,31 @@ def _run_alcf_batch_submit(
             click.echo(f"  {chunk['path'].name}: {chunk['num_requests']} requests, " f"{chunk['num_bytes']} bytes")
     click.echo(f"Wrote manifest to {manifest_path}")
 
-    if not batch_input_file or not batch_output_folder:
-        if len(chunks) == 1:
-            copy_hint = f"  1. Copy {chunks[0]['path']} to ALCF storage (e.g. /eagle/...).\n"
-            input_hint = "and --batch-output-folder set to the ALCF paths.\n"
+    multi_chunk = len(chunks) > 1
+    have_remote = (batch_input_dir or batch_input_file) and batch_output_folder
+
+    if not have_remote:
+        chunk_names = ", ".join(c["path"].name for c in chunks)
+        if multi_chunk:
+            copy_hint = (
+                f"  1. Copy all {len(chunks)} chunk files ({chunk_names}) into one "
+                "ALCF storage folder (no renaming).\n"
+            )
+            rerun_hint = (
+                "  2. Re-run with --mode alcf-batch-submit plus --batch-input-dir "
+                "<that ALCF folder> and --batch-output-folder <ALCF output folder>.\n"
+                "     One batch is submitted per chunk, reusing each chunk's filename.\n"
+            )
         else:
-            chunk_names = ", ".join(c["path"].name for c in chunks)
-            copy_hint = f"  1. Copy all chunk files ({chunk_names}) to ALCF storage.\n"
-            p = Path(batch_input_file) if batch_input_file else Path("/eagle/.../input.jsonl")
-            example_paths = ", ".join(derive_chunk_input_path(str(p), c["index"]) for c in chunks)
-            input_hint = (
-                "and --batch-output-folder set to the ALCF paths.\n"
-                f"     --batch-input-file is used as a template; chunks will be "
-                f"submitted as {example_paths}.\n"
+            copy_hint = f"  1. Copy {chunks[0]['path']} to ALCF storage (e.g. /eagle/...).\n"
+            rerun_hint = (
+                "  2. Re-run with --mode alcf-batch-submit plus --batch-input-dir "
+                "<ALCF folder> (or legacy --batch-input-file <ALCF path>) and "
+                "--batch-output-folder <ALCF output folder>.\n"
             )
         click.echo(
-            "\nNo --batch-input-file / --batch-output-folder provided, so the "
-            "batch was NOT submitted.\n"
-            "Next steps:\n"
-            + copy_hint
-            + "  2. Re-run with --mode alcf-batch-submit plus --batch-input-file "
-            + input_hint
-            + "  3. After the job(s) finish, copy the output back and run "
+            "\nNo ALCF input/output paths provided, so the batch was NOT submitted.\n"
+            "Next steps:\n" + copy_hint + rerun_hint + "  3. After the job(s) finish, copy the output back and run "
             "--mode alcf-batch-collect --collect-batch-output <path>."
         )
         return
@@ -114,35 +121,46 @@ def _run_alcf_batch_submit(
     if not api_key:
         raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
 
+    # Resolve each chunk's remote input path.
+    if batch_input_dir:
+        remote_dir = batch_input_dir.rstrip("/")
+        remote_inputs = [f"{remote_dir}/{c['path'].name}" for c in chunks]
+    else:
+        # Legacy single --batch-input-file path. Only valid for a single chunk:
+        # there is no unambiguous way to map one path onto many chunks.
+        if multi_chunk:
+            raise click.UsageError(
+                f"This run split into {len(chunks)} chunks, but --batch-input-file "
+                "is a single path. Use --batch-input-dir <ALCF folder> instead so "
+                "each chunk is submitted under its own filename "
+                f"({', '.join(c['path'].name for c in chunks)})."
+            )
+        remote_inputs = [batch_input_file]
+
     endpoint = base_url.rstrip("/") + "/batches"
-    if len(chunks) == 1:
+    if not multi_chunk:
         click.echo(f"Submitting ALCF batch job to {endpoint} ...")
-        chunk = chunks[0]
-        # Single chunk: use --batch-input-file as-is (backward compatible).
         response = submit_alcf_batch(
             base_url=base_url,
             api_key=api_key,
             model=model,
-            input_file=batch_input_file,
+            input_file=remote_inputs[0],
             output_folder_path=batch_output_folder,
             timeout=timeout,
         )
         click.echo(json.dumps(response, indent=2))
     else:
-        click.echo(
-            f"Submitting {len(chunks)} ALCF batch jobs to {endpoint} " f"(one per chunk, shared output folder) ..."
-        )
-        for chunk in chunks:
-            chunk_input = derive_chunk_input_path(batch_input_file, chunk["index"])
+        click.echo(f"Submitting {len(chunks)} ALCF batch jobs to {endpoint} (one per chunk, shared output folder) ...")
+        for chunk, remote_input in zip(chunks, remote_inputs):
             click.echo(
                 f"\n  Chunk {chunk['index']:03d}: {chunk['num_requests']} requests "
-                f"({chunk['num_bytes']} bytes) -> {chunk_input}"
+                f"({chunk['num_bytes']} bytes) -> {remote_input}"
             )
             response = submit_alcf_batch(
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
-                input_file=chunk_input,
+                input_file=remote_input,
                 output_folder_path=batch_output_folder,
                 timeout=timeout,
             )
@@ -252,12 +270,25 @@ def _run_alcf_batch_submit(
     help="Skip completed stable job keys from judge_checkpoint.json.",
 )
 @click.option(
+    "--batch-input-dir",
+    type=str,
+    help=(
+        "[alcf-batch-submit] ALCF filesystem folder you copied the request JSONL "
+        "chunk file(s) into (e.g. /eagle/argonne_tpc/you/requests/). The tool "
+        "submits one batch per chunk using the SAME filenames it wrote locally "
+        "(batch_requests.jsonl, or batch_requests_000.jsonl, …), so just copy the "
+        "files over without renaming. Preferred over --batch-input-file when "
+        "requests are split into multiple chunks."
+    ),
+)
+@click.option(
     "--batch-input-file",
     type=str,
     help=(
-        "[alcf-batch-submit] ALCF filesystem path the inference service will "
-        "read the request JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl). "
-        "The tool also writes a local copy to OUTPUT_DIR/batch_requests.jsonl."
+        "[alcf-batch-submit] DEPRECATED for multi-chunk runs; use --batch-input-dir. "
+        "ALCF filesystem path the inference service reads a SINGLE-chunk request "
+        "JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl). Errors if the run "
+        "produced more than one chunk."
     ),
 )
 @click.option(
@@ -307,6 +338,7 @@ def agentic_judge_dataset(
     copy_kept: bool,
     keep_decisions: str,
     resume: bool,
+    batch_input_dir: str | None,
     batch_input_file: str | None,
     batch_output_folder: str | None,
     collect_batch_output: Path | None,
@@ -363,6 +395,7 @@ def agentic_judge_dataset(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
+            batch_input_dir=batch_input_dir,
             batch_input_file=batch_input_file,
             batch_output_folder=batch_output_folder,
             max_batch_bytes=int(max_batch_mb * 1_000_000),
