@@ -342,9 +342,17 @@ Options:
   --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
   --batch-input-file TEXT      [alcf-batch-submit] ALCF path the service reads the
                                request JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl).
+                               Used as a template when chunking: chunk N is submitted as
+                               <stem>_<NNN><suffix> (e.g. input_000.jsonl, input_001.jsonl).
   --batch-output-folder TEXT   [alcf-batch-submit] ALCF folder the service writes output to.
+                               All chunks share the same output folder.
   --collect-batch-output PATH  [alcf-batch-collect] Path to the ALCF batch output .jsonl
                                file, or a folder of output .jsonl files.
+  --max-batch-mb FLOAT         [alcf-batch-submit] Maximum size in MB per request JSONL chunk.
+                               When all requests fit within this limit a single
+                               batch_requests.jsonl is written; otherwise numbered chunk files
+                               (batch_requests_000.jsonl, …) are written and one batch job is
+                               submitted per chunk.  [default: 9]
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -357,9 +365,11 @@ SOURCE_judged/
   judge_summary.json
   judge_checkpoint.json
   failures.json
-  batch_requests.jsonl   # only for ALCF batch modes
-  batch_manifest.json    # only for ALCF batch modes
-  kept/                  # only when --copy-kept is used
+  batch_requests.jsonl          # ALCF batch: single chunk (fits within --max-batch-bytes)
+  batch_requests_000.jsonl      # ALCF batch: first chunk when split across multiple chunks
+  batch_requests_001.jsonl      # ALCF batch: second chunk, etc.
+  batch_manifest.json           # ALCF batch: custom_id → doc map (always a single file)
+  kept/                         # only when --copy-kept is used
 ```
 
 Use `--dry-run --limit 3` first to inspect prompt payloads before spending inference time:
@@ -386,7 +396,9 @@ araiadoc agentic-judge-dataset data/all_weather_sectionized \
 
 The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: there is no file upload. A single `POST {base_url}/batches` references an input JSONL and an output folder that both live on **ALCF shared storage** (e.g. Eagle, `/eagle/argonne_tpc/...`), which the inference service reads and writes directly. Because of that, ALCF batch judging is split into two phases bracketing a file transfer to/from ALCF storage.
 
-1. **Submit.** First build the request JSONL and manifest locally (no ALCF paths submits nothing — it just stages files and prints next steps):
+**Payload limit:** ALCF caps each batch request at 10 MB. `--max-batch-mb` (default 9) keeps chunks safely under that limit. When the full corpus fits in one chunk a single `batch_requests.jsonl` is written (backward-compatible). When it doesn't, numbered chunk files (`batch_requests_000.jsonl`, `batch_requests_001.jsonl`, …) are written and one batch job is submitted per chunk, all sharing the same output folder. A single shared `batch_manifest.json` covers all chunks, and collect is unchanged — it already accepts a folder of output files.
+
+1. **Submit.** First build the request JSONL chunk(s) and manifest locally (omitting ALCF paths stages files only and prints next steps):
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
@@ -395,7 +407,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
      --model google/gemma-3-27b-it
    ```
 
-   Copy `data/all_weather_judged/batch_requests.jsonl` to ALCF storage, then submit the batch referencing the ALCF paths:
+   Copy the chunk file(s) from `data/all_weather_judged/` to ALCF storage (the tool prints exactly which files to copy), then submit — `--batch-input-file` is treated as a template: chunk *N* is submitted using `<stem>_<NNN><suffix>` (e.g. `/eagle/.../input_000.jsonl`):
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
@@ -407,18 +419,20 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
      --batch-output-folder /eagle/argonne_tpc/you/output/
    ```
 
-2. **Collect.** When the job finishes, copy the output back and fold it into the same judge artifacts. The `batch_manifest.json` written during submit maps each request `custom_id` back to its document:
+   When a single chunk covers everything the path is used as-is (no `_000` suffix), preserving backward compatibility.
+
+2. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
      --prompt prompts/climate_resilience_relevance.md \
      --mode alcf-batch-collect -o data/all_weather_judged \
      --model google/gemma-3-27b-it \
-     --collect-batch-output ./batch_output.jsonl \
+     --collect-batch-output /eagle/argonne_tpc/you/output/ \
      --copy-kept
    ```
 
-`--collect-batch-output` accepts either a single `.jsonl` file or a folder of `.jsonl` files. Output rows whose `custom_id` is missing from the manifest, and manifest entries with no matching output row, are recorded in `failures.json`.
+`--collect-batch-output` accepts either a single `.jsonl` file or a folder of `.jsonl` files (one per chunk is fine). Output rows whose `custom_id` is missing from the manifest, and manifest entries with no matching output row, are recorded in `failures.json`.
 
 Not all ALCF models support batch processing — see the [ALCF inference endpoints docs](https://docs.alcf.anl.gov/services/inference-endpoints/#available-models). When in doubt, request mode works everywhere.
 
