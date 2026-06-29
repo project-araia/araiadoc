@@ -3,9 +3,9 @@ risks, impacts, resilience, adaptation, preparedness, response, recovery, planni
 public health, community, infrastructure, or ecosystem implications.
 
 Definitions (as used in this context):
-- Climate: the weather and environmental conditions affecting people, communities, infrastructure, and ecosystems.
-- Hazard: an environmental circumstance or event that can harm people, communities, infrastructure, and ecosystems.
-- Resilience: the ability of communities, infrastructure, or ecosystems to withstand, recover from, or adapt to a weather/climate/environmental hazard.
+- Climate: the weather and environmental conditions affecting people, communities, infrastructure, and ecosystems. Includes temperature, air pressure, humidity, precipitation, and other weather-related factors.
+- Hazard: an environmental circumstance, event, danger, threat, or risk that can harm people, communities, infrastructure, and ecosystems.
+- Resilience: the ability of communities, infrastructure, or ecosystems to withstand, recover from, adjust, or adapt to a weather/climate/environmental hazard.
 - Adaptation: deliberate adjustments by people, communities, or systems in response to actual or expected weather/climate/environmental hazards.
 - Vulnerability: the degree to which people, communities, or systems are susceptible to harm from a weather/climate/environmental hazard.
 - Exposure: the presence of people, infrastructure, or ecosystems in locations subject to a weather/climate/environmental hazard.
@@ -25,18 +25,98 @@ THE CORE TEST — apply this first, before anything else. A document is RELEVANT
 If EITHER the hazard or the context is missing, weak, or only mentioned in passing, the document is NOT relevant (mark `maybe` or `irrelevant`).
 **Do not judge relevance from isolated keywords.**
 
-Weather, climate, and environmental hazard examples include:
+Weather, climate, and environmental hazard examples and definitions include:
 
-- extreme heat, heat waves, heat mortality, wet-bulb temperature, heat stress, high temperatures, heat index, urban heat islands, urban warming
-- extreme cold, cold waves, cold spells, freeze events, winter storms, frost, snowstorms, ice storms, blizzards
-- floods, flash floods, river floods, urban flooding, coastal flooding, compound flooding, inundation, storm surge, heavy precipitation, pluvial flooding, riverine flooding, extreme rainfall
-- drought, water scarcity, hydrologic drought, agricultural drought, meteorological drought, snow drought
-- wildfire, forest fire, bushfire, fire weather, wildland fire, wildfire smoke, smoke exposure
-- tropical cyclones, hurricanes, typhoons, cyclonic storms
-- convective storms, severe thunderstorms, hail, straight-line winds, downbursts, microbursts, tornadoes, extreme wind
-- sea level rise, coastal erosion, salinization, saltwater intrusion, ocean warming, marine heatwaves, ocean acidification
-- sea ice loss, glacial melt, permafrost thaw, snowmelt timing, arctic sea ice change
-- air quality degradation, particulate matter (PM2.5), dust storms, industrial pollution events linked to weather or climate
+Heat-related:
+- extreme heat: unusually high temperatures that stress people, systems, or ecosystems beyond normal tolerances. Often sustained over hours to days.
+- heat waves: prolonged periods of excessively hot weather, sometimes with high humidity, lasting several days or more.
+- heat mortality: deaths caused or hastened by exposure to extreme heat.
+- wet-bulb temperature: a combined measure of heat and humidity indicating the limit beyond which the human body can no longer cool itself by sweating. High wet-bulb values signal lethal heat conditions.
+- heat stress: physiological strain on people, animals, or crops from exposure to high temperatures.
+- high temperatures: elevated ambient temperatures that pose risks to health, infrastructure, or ecosystems.
+- heat index: a measure combining air temperature and humidity to express how hot it feels to the human body.
+- urban heat islands: localized warming in cities where built surfaces absorb and retain heat, making urban areas hotter than surrounding rural land.
+- urban warming: the broader trend of rising temperatures in urban environments driven by development and land-use change.
+
+Cold-related:
+- extreme cold: unusually low temperatures that threaten health, infrastructure, or ecosystems.
+- cold waves: prolonged periods of abnormally cold weather.
+- cold spells: shorter episodes of unusually cold temperatures.
+- freeze events: occurrences of temperatures dropping at or below freezing, damaging crops, water systems, or infrastructure.
+- winter storms: storms bringing snow, ice, freezing rain, or strong winds during cold seasons.
+- frost: the formation of ice crystals on surfaces when temperatures fall to freezing, which can harm vegetation and crops.
+- snowstorms: storms producing heavy snowfall that disrupt transportation, infrastructure, and daily life.
+- ice storms: storms depositing freezing rain that coats surfaces in ice, damaging power lines, trees, and infrastructure.
+- blizzards: severe snowstorms with strong winds and reduced visibility lasting an extended period.
+
+Flood-related:
+- floods: the overflow of water onto normally dry land, threatening people, property, and ecosystems.
+- flash floods: rapid, sudden flooding caused by intense rainfall or dam failure, with little warning time.
+- river floods: flooding when river levels exceed their banks due to prolonged or heavy precipitation or snowmelt.
+- urban flooding: flooding in built-up areas when drainage systems are overwhelmed by rainfall.
+- coastal flooding: inundation of low-lying coastal land by seawater, often from storm surge, tides, or sea level rise.
+- compound flooding: flooding from the simultaneous or successive occurrence of multiple drivers (e.g., heavy rain plus storm surge).
+- inundation: the submersion of land under water from any flooding source.
+- storm surge: an abnormal rise of seawater driven onshore by a storm's winds and low pressure, often during cyclones.
+- heavy precipitation: intense rainfall or snowfall over a short period that can trigger flooding.
+- pluvial flooding: surface-water flooding caused directly by rainfall overwhelming drainage, independent of rivers or coasts.
+- riverine flooding: flooding originating from rivers and streams overtopping their channels.
+- extreme rainfall: exceptionally high rainfall amounts or intensities that exceed typical conditions.
+
+Drought-related:
+- drought: a prolonged period of abnormally low precipitation or water availability that harms people, agriculture, or ecosystems.
+- water scarcity: insufficient availability of freshwater to meet human and ecological needs.
+- hydrologic drought: a deficit in surface and groundwater supplies such as reservoirs, rivers, and aquifers.
+- agricultural drought: a shortage of soil moisture sufficient to impair crop growth and yields.
+- meteorological drought: a deficit in precipitation relative to normal conditions over a given period.
+- snow drought: a deficit in snowpack accumulation or early snowmelt that reduces downstream water supply.
+
+Fire-related:
+- wildfire: an uncontrolled fire spreading through vegetation, threatening people, property, and ecosystems.
+- forest fire: a wildfire burning primarily in forested areas.
+- bushfire: a wildfire in shrubland or bush vegetation, a term common in Australia.
+- fire weather: weather conditions (heat, low humidity, wind, dryness) that promote the ignition and spread of fires.
+- wildland fire: a fire occurring in natural, undeveloped vegetated areas.
+- wildfire smoke: airborne smoke from wildfires that degrades air quality and harms health over wide areas.
+- smoke exposure: human or ecological exposure to harmful smoke, often from wildfires.
+
+Cyclonic storms:
+- tropical cyclones: rotating storm systems forming over warm tropical oceans, bringing strong winds, heavy rain, and surge.
+- hurricanes: tropical cyclones occurring in the Atlantic and eastern Pacific basins.
+- typhoons: tropical cyclones occurring in the western Pacific basin.
+- cyclonic storms: rotating low-pressure storm systems, including tropical and subtropical cyclones.
+
+Convective and wind hazards:
+- convective storms: storms driven by atmospheric convection, often producing heavy rain, lightning, hail, or strong winds.
+- severe thunderstorms: intense thunderstorms capable of damaging winds, large hail, or tornadoes.
+- hail: precipitation in the form of ice pellets that can damage crops, vehicles, and structures.
+- straight-line winds: damaging non-rotating winds produced by thunderstorm downdrafts.
+- downbursts: strong downward and outward bursts of wind from a thunderstorm that cause localized damage.
+- microbursts: small, intense downbursts affecting a limited area, hazardous to aviation and structures.
+- tornadoes: violently rotating columns of air extending from a thunderstorm to the ground, causing severe localized damage.
+- extreme wind: exceptionally strong winds from any source that threaten people, structures, or ecosystems.
+
+Coastal and ocean hazards:
+- sea level rise: the long-term increase in ocean surface height driven by warming and ice melt, raising coastal flood risk.
+- coastal erosion: the wearing away of shoreline land by waves, currents, storms, and rising seas.
+- salinization: the accumulation of salts in soil or freshwater, often from seawater intrusion, harming agriculture and water supply.
+- saltwater intrusion: the movement of seawater into freshwater aquifers or estuaries, contaminating water resources.
+- ocean warming: the rise in ocean temperatures, affecting marine ecosystems, weather, and sea level.
+- marine heatwaves: prolonged periods of unusually warm ocean temperatures that stress marine ecosystems.
+- ocean acidification: the decrease in ocean pH from absorbed carbon dioxide, harming shell-forming and marine life.
+
+Cryosphere hazards:
+- sea ice loss: the decline in extent or thickness of sea ice, affecting ecosystems, climate, and coastal exposure.
+- glacial melt: the accelerated melting of glaciers, contributing to sea level rise and altering water supply.
+- permafrost thaw: the thawing of permanently frozen ground, destabilizing infrastructure and releasing greenhouse gases.
+- snowmelt timing: shifts in when seasonal snow melts, altering water availability and flood timing.
+- arctic sea ice change: changes in Arctic sea ice extent and seasonality with broad climate and ecological consequences.
+
+Air quality hazards:
+- air quality degradation: a decline in air quality from pollutants, harming public health and visibility.
+- particulate matter (PM2.5): fine airborne particles small enough to penetrate the lungs and bloodstream, posing serious health risks.
+- dust storms: strong winds lifting large amounts of dust and sand, degrading air quality and visibility.
+- industrial pollution events linked to weather or climate: pollution releases or accumulations whose severity is driven or worsened by weather or climate conditions.
 
 Impact, risk, and response contexts include:
 
