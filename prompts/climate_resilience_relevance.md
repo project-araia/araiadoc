@@ -47,13 +47,13 @@ Cold-related:
 - frost: the formation of ice crystals on surfaces when temperatures fall to freezing, which can harm vegetation and crops.
 - snowstorms: storms producing heavy snowfall that disrupt transportation, infrastructure, and daily life.
 - ice storms: storms depositing freezing rain that coats surfaces in ice, damaging power lines, trees, and infrastructure.
-- blizzards: severe snowstorms with strong winds and reduced visibility lasting an extended period.
+- blizzards: severe snowstorms with strong winds, snow, and reduced visibility lasting an extended period.
 
 Flood-related:
 - floods: the overflow of water onto normally dry land, threatening people, property, and ecosystems.
 - flash floods: rapid, sudden flooding caused by intense rainfall or dam failure, with little warning time.
 - river floods: flooding when river levels exceed their banks due to prolonged or heavy precipitation or snowmelt.
-- urban flooding: flooding in built-up areas when drainage systems are overwhelmed by rainfall.
+- urban flooding: flooding in human-developed areas when drainage systems are overwhelmed by rainfall.
 - coastal flooding: inundation of low-lying coastal land by seawater, often from storm surge, tides, or sea level rise.
 - compound flooding: flooding from the simultaneous or successive occurrence of multiple drivers (e.g., heavy rain plus storm surge).
 - inundation: the submersion of land under water from any flooding source.
@@ -82,18 +82,18 @@ Fire-related:
 
 Cyclonic storms:
 - tropical cyclones: rotating storm systems forming over warm tropical oceans, bringing strong winds, heavy rain, and surge.
-- hurricanes: tropical cyclones occurring in the Atlantic and eastern Pacific basins.
-- typhoons: tropical cyclones occurring in the western Pacific basin.
+- hurricanes: tropical cyclones occurring in the Atlantic, Caribbean, Gulf of Mexico, and eastern Pacific basins.
+- typhoons: tropical cyclones occurring in the western Pacific basin or northern Indian Ocean.
 - cyclonic storms: rotating low-pressure storm systems, including tropical and subtropical cyclones.
 
 Convective and wind hazards:
-- convective storms: storms driven by atmospheric convection, often producing heavy rain, lightning, hail, or strong winds.
+- convective storms: storms driven by atmospheric convection (vertical transport of atmospheric properties), often producing heavy rain, lightning, hail, or strong winds.
 - severe thunderstorms: intense thunderstorms capable of damaging winds, large hail, or tornadoes.
-- hail: precipitation in the form of ice pellets that can damage crops, vehicles, and structures.
+- hail: precipitation in the form of ice pellets or balls that can damage crops, vehicles, and structures.
 - straight-line winds: damaging non-rotating winds produced by thunderstorm downdrafts.
 - downbursts: strong downward and outward bursts of wind from a thunderstorm that cause localized damage.
 - microbursts: small, intense downbursts affecting a limited area, hazardous to aviation and structures.
-- tornadoes: violently rotating columns of air extending from a thunderstorm to the ground, causing severe localized damage.
+- tornadoes: violently rotating columns of air extending to the ground, causing severe localized damage. long, funnel-shaped, made visible by condensation and debris.
 - extreme wind: exceptionally strong winds from any source that threaten people, structures, or ecosystems.
 
 Coastal and ocean hazards:
@@ -108,14 +108,14 @@ Coastal and ocean hazards:
 Cryosphere hazards:
 - sea ice loss: the decline in extent or thickness of sea ice, affecting ecosystems, climate, and coastal exposure.
 - glacial melt: the accelerated melting of glaciers, contributing to sea level rise and altering water supply.
-- permafrost thaw: the thawing of permanently frozen ground, destabilizing infrastructure and releasing greenhouse gases.
+- permafrost thaw: the thawing of permanently frozen ground, typically in Arctic or subarctic regions, destabilizing infrastructure and releasing greenhouse gases.
 - snowmelt timing: shifts in when seasonal snow melts, altering water availability and flood timing.
 - arctic sea ice change: changes in Arctic sea ice extent and seasonality with broad climate and ecological consequences.
 
 Air quality hazards:
 - air quality degradation: a decline in air quality from pollutants, harming public health and visibility.
 - particulate matter (PM2.5): fine airborne particles small enough to penetrate the lungs and bloodstream, posing serious health risks.
-- dust storms: strong winds lifting large amounts of dust and sand, degrading air quality and visibility.
+- dust storms: strong winds lifting large amounts of dust and sand particles, degrading air quality and visibility. Typical on normally-arable lands during periods of drought.
 - industrial pollution events linked to weather or climate: pollution releases or accumulations whose severity is driven or worsened by weather or climate conditions.
 
 Impact, risk, and response contexts include:
