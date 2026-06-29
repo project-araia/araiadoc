@@ -11,6 +11,8 @@ from araiadoc.agentic.alcf_batch import (
     BatchQuotaExceeded,
     collect_alcf_batch_output,
     count_active_batches,
+    discover_batch_request_chunks,
+    model_from_batch_request_chunks,
     submit_alcf_batch,
     write_batch_manifest,
     write_batch_request_chunks,
@@ -100,6 +102,93 @@ def _run_alcf_batch_submit(
             click.echo(f"  {chunk['path'].name}: {chunk['num_requests']} requests, " f"{chunk['num_bytes']} bytes")
     click.echo(f"Wrote manifest to {manifest_path}")
 
+    _submit_chunks(
+        chunks=chunks,
+        output_dir=output_dir,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout,
+        batch_input_dir=batch_input_dir,
+        batch_input_file=batch_input_file,
+        batch_output_folder=batch_output_folder,
+        max_active_batches=max_active_batches,
+        poll_interval=poll_interval,
+    )
+
+
+def _run_alcf_batch_resubmit(
+    *,
+    output_dir: Path,
+    api_key: str | None,
+    base_url: str,
+    timeout: float,
+    batch_input_dir: str | None,
+    batch_input_file: str | None,
+    batch_output_folder: str | None,
+    max_active_batches: int,
+    poll_interval: float,
+) -> None:
+    """Submit batch request chunks ALREADY written to *output_dir*, no regeneration.
+
+    This is the resume-friendly path: it reads ``batch_requests*.jsonl`` (and the
+    existing ``batch_manifest.json``) straight from *output_dir*, so SOURCE, the
+    prompt, the model's chunking, and ``--max-batch-mb`` are irrelevant — the
+    requests are already baked into the files. Combined with
+    ``batch_submit_checkpoint.json`` and gateway reconciliation, only the
+    not-yet-submitted chunks are POSTed.
+    """
+    chunks = discover_batch_request_chunks(output_dir)
+    if not chunks:
+        raise click.UsageError(
+            f"--resubmit-existing found no batch_requests*.jsonl in {output_dir}. "
+            "Run --mode alcf-batch-submit first (without --resubmit-existing) to build them."
+        )
+    if not (output_dir / "batch_manifest.json").exists():
+        raise click.UsageError(
+            f"No batch_manifest.json in {output_dir}; cannot collect later. "
+            "Rebuild with --mode alcf-batch-submit (without --resubmit-existing)."
+        )
+
+    submit_model = model_from_batch_request_chunks(chunks)
+    total_bytes = sum(c["num_bytes"] for c in chunks)
+    total_requests = sum(c["num_requests"] for c in chunks)
+    click.echo(
+        f"Resubmitting {len(chunks)} existing chunk(s) from {output_dir} "
+        f"({total_requests} requests, {total_bytes} bytes); no regeneration."
+    )
+    click.echo(f"Using model from existing request JSONL: {submit_model}")
+
+    _submit_chunks(
+        chunks=chunks,
+        output_dir=output_dir,
+        api_key=api_key,
+        base_url=base_url,
+        model=submit_model,
+        timeout=timeout,
+        batch_input_dir=batch_input_dir,
+        batch_input_file=batch_input_file,
+        batch_output_folder=batch_output_folder,
+        max_active_batches=max_active_batches,
+        poll_interval=poll_interval,
+    )
+
+
+def _submit_chunks(
+    *,
+    chunks: list,
+    output_dir: Path,
+    api_key: str | None,
+    base_url: str,
+    model: str,
+    timeout: float,
+    batch_input_dir: str | None,
+    batch_input_file: str | None,
+    batch_output_folder: str | None,
+    max_active_batches: int,
+    poll_interval: float,
+) -> None:
+    """Submit pre-built chunk descriptors to ALCF, throttled and resumable."""
     multi_chunk = len(chunks) > 1
     have_remote = (batch_input_dir or batch_input_file) and batch_output_folder
 
@@ -131,6 +220,15 @@ def _run_alcf_batch_submit(
 
     if not api_key:
         raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
+
+    # The ALCF inference service reads input_file / writes output on Sophia's
+    # filesystem, NOT the machine running this command. Relative paths resolve to
+    # nothing there and the batch fails almost immediately. Require absolute paths
+    # (ALCF further requires them to live under /eagle/argonne_tpc or another
+    # world-readable location).
+    _require_absolute_alcf_path("--batch-input-dir", batch_input_dir)
+    _require_absolute_alcf_path("--batch-input-file", batch_input_file)
+    _require_absolute_alcf_path("--batch-output-folder", batch_output_folder)
 
     # Resolve each chunk's remote input path.
     if batch_input_dir:
@@ -230,6 +328,30 @@ def _run_alcf_batch_submit(
     )
 
 
+def _require_absolute_alcf_path(flag: str, value: str | None) -> None:
+    """Reject relative ALCF paths, which the inference service can't resolve.
+
+    The batch service reads/writes these paths on Sophia's filesystem, so a
+    relative path (e.g. ``63_judged_input/``) silently produces batches that
+    fail almost immediately. ALCF additionally requires the location to be
+    world-readable, typically under ``/eagle/argonne_tpc``.
+    """
+    if value is None:
+        return
+    if not value.startswith("/"):
+        raise click.UsageError(
+            f"{flag} must be an ABSOLUTE path on ALCF storage (got {value!r}). "
+            "The inference service reads/writes this path on Sophia, not your "
+            "local machine, so relative paths fail. Use something under "
+            "/eagle/argonne_tpc/<you>/ (or another world-readable absolute path)."
+        )
+    if not value.startswith("/eagle/") and not value.startswith("/lus/"):
+        click.echo(
+            f"  (warning: {flag}={value} is absolute but not under /eagle or /lus; "
+            "ALCF batches usually require /eagle/argonne_tpc or a world-readable location.)"
+        )
+
+
 def time_now() -> str:
     """Wrapper so tests can monkeypatch the timestamp without importing util."""
     from araiadoc.agentic.util import now_iso
@@ -289,7 +411,7 @@ def _submit_with_quota_backoff(
 
 
 @click.command("agentic-judge-dataset")
-@click.argument("source", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument("source", required=False, type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option(
     "--model",
     default=DEFAULT_MODEL,
@@ -310,9 +432,11 @@ def _submit_with_quota_backoff(
 @click.option(
     "--prompt",
     "prompt_path",
-    required=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Rubric prompt file. Must emphasize a 0-3 score and corresponding relevance criteria.",
+    help=(
+        "Rubric prompt file. Must emphasize a 0-3 score and corresponding relevance "
+        "criteria. Required except with --resubmit-existing."
+    ),
 )
 @click.option(
     "--output-dir",
@@ -455,8 +579,19 @@ def _submit_with_quota_backoff(
         "for a free active-batch slot when throttling submissions."
     ),
 )
+@click.option(
+    "--resubmit-existing",
+    is_flag=True,
+    help=(
+        "[alcf-batch-submit] Submit the batch_requests*.jsonl already written to "
+        "--output-dir instead of regenerating them. Skips reading SOURCE / the "
+        "prompt / re-chunking; the submit model is derived from body.model inside "
+        "the existing JSONL, and --max-batch-mb is ignored. Use to resume after a "
+        "partial or failed submission without rebuilding."
+    ),
+)
 def agentic_judge_dataset(
-    source: Path,
+    source: Path | None,
     model: str,
     base_url: str,
     api_key: str | None,
@@ -480,13 +615,44 @@ def agentic_judge_dataset(
     max_batch_mb: float,
     max_active_batches: int,
     poll_interval: float,
+    resubmit_existing: bool,
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
+    # Resubmit-existing short-circuit: the requests are already baked into
+    # batch_requests*.jsonl in --output-dir, so we don't read SOURCE / the prompt
+    # / re-chunk. This must run before any prompt/source-dependent work below.
+    if resubmit_existing:
+        if mode != "alcf-batch-submit":
+            raise click.UsageError("--resubmit-existing is only valid with --mode alcf-batch-submit.")
+        if output_dir is None:
+            raise click.UsageError(
+                "--resubmit-existing requires --output-dir pointing at the dir with batch_requests*.jsonl."
+            )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        _run_alcf_batch_resubmit(
+            output_dir=output_dir,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            batch_input_dir=batch_input_dir,
+            batch_input_file=batch_input_file,
+            batch_output_folder=batch_output_folder,
+            max_active_batches=max_active_batches,
+            poll_interval=poll_interval,
+        )
+        return
+
+    if source is None:
+        raise click.UsageError("SOURCE is required (except with --resubmit-existing).")
     output_dir = output_dir or Path(str(source) + "_judged")
+
     source_resolved = source.resolve()
     output_resolved = output_dir.resolve(strict=False)
     if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
         raise click.UsageError("--output-dir must be outside SOURCE so judging never mutates or rereads its input.")
+
+    if prompt_path is None:
+        raise click.UsageError("--prompt is required (except with --resubmit-existing).")
 
     parsed_keep_decisions = parse_keep_decisions(keep_decisions)
     rubric = prompt_path.read_text(encoding="utf-8")

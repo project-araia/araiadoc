@@ -363,6 +363,11 @@ Options:
                                currently caps users at 2.  [default: 2]
   --poll-interval FLOAT        [alcf-batch-submit] Seconds between polls for a free active-
                                batch slot while throttling.  [default: 30.0]
+  --resubmit-existing          [alcf-batch-submit] Submit the batch_requests*.jsonl already
+                               written to --output-dir instead of regenerating them. Skips
+                               SOURCE / --prompt / re-chunking; derives the submit model from
+                               body.model in the JSONL (--max-batch-mb ignored). Use to resume
+                               after a partial/failed submission.
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -409,6 +414,8 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
 **Payload limit:** ALCF caps each batch request at 10 MB. `--max-batch-mb` (default 9) keeps chunks safely under that limit. When the full corpus fits in one chunk a single `batch_requests.jsonl` is written (backward-compatible). When it doesn't, numbered chunk files (`batch_requests_000.jsonl`, `batch_requests_001.jsonl`, …) are written and one batch job is submitted per chunk, all sharing the same output folder. A single shared `batch_manifest.json` covers all chunks, and collect is unchanged — it already accepts a folder of output files.
 
+**Absolute paths required:** `--batch-input-dir`, `--batch-input-file`, and `--batch-output-folder` must be **absolute** paths on ALCF storage (e.g. `/eagle/argonne_tpc/<you>/...`). The inference service reads/writes them on Sophia's filesystem, not the machine running this command, so a *relative* path like `63_judged_input/` resolves to nothing on the node and every batch fails within seconds (`status: failed`). The tool now rejects relative paths up front, and warns if an absolute path isn't under `/eagle` or `/lus`.
+
 **Active-batch quota:** ALCF also limits each user to a small number of *active* (pending/running) batches (currently 2). Multi-chunk submission is therefore throttled to `--max-active-batches` (default 2): before each submit the gateway is polled every `--poll-interval` seconds until a slot frees, and a `quota_exceeded` rejection triggers an automatic back-off and retry rather than aborting. Submitted chunks are recorded in `batch_submit_checkpoint.json`, so re-running resumes where it left off instead of double-submitting — and it also reconciles against the live batch list (matching on `input_file`) to adopt batches submitted before checkpointing existed.
 
 1. **Submit.** First build the request JSONL chunk(s) and manifest locally (omitting ALCF paths stages files only and prints next steps):
@@ -433,6 +440,16 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
    ```
 
    For a single-chunk run you may instead pass the legacy `--batch-input-file /eagle/.../input.jsonl` (one explicit path). It errors if the run produced more than one chunk — use `--batch-input-dir` in that case.
+
+   **Resuming a partial/failed submission.** Because the requests are already baked into `batch_requests*.jsonl` in `--output-dir`, you don't need to re-specify `SOURCE`, `--prompt`, `--model`, or `--max-batch-mb` to resubmit — pass `--resubmit-existing` instead. It reads the existing chunk files (and `batch_manifest.json`) straight from `--output-dir`, never regenerating them, derives the ALCF submit model from `body.model` inside the JSONL, and submits only chunks not already recorded in `batch_submit_checkpoint.json` (also reconciling against the live gateway batch list):
+
+   ```bash
+   araiadoc agentic-judge-dataset \
+     --mode alcf-batch-submit -o data/all_weather_judged \
+     --api-key "$API_KEY" --resubmit-existing \
+     --batch-input-dir /eagle/argonne_tpc/you/requests/ \
+     --batch-output-folder /eagle/argonne_tpc/you/output/
+   ```
 
 2. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
 

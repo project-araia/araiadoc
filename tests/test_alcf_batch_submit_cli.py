@@ -235,6 +235,102 @@ class TestSubmitStageOnly:
         assert len(sorted(output.glob("batch_requests_*.jsonl"))) >= 2
 
 
+class TestSubmitAbsolutePathValidation:
+    def _setup(self, tmp_path):
+        source = tmp_path / "63"
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _make_corpus(source, 2)
+        return source, output, prompt
+
+    def test_relative_input_dir_rejected(self, tmp_path, monkeypatch):
+        source, output, prompt = self._setup(tmp_path)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            _base_args(source, prompt, output, max_mb=9)
+            + [
+                "--api-key",
+                "secret",
+                "--batch-input-dir",
+                "63_judged_input/",  # relative — the real bug
+                "--batch-output-folder",
+                "/eagle/me/output/",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "ABSOLUTE path" in result.output
+        assert "--batch-input-dir" in result.output
+        assert calls == []  # never submitted
+
+    def test_relative_output_folder_rejected(self, tmp_path, monkeypatch):
+        source, output, prompt = self._setup(tmp_path)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            _base_args(source, prompt, output, max_mb=9)
+            + [
+                "--api-key",
+                "secret",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "./batches_output",  # relative
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "ABSOLUTE path" in result.output
+        assert "--batch-output-folder" in result.output
+        assert calls == []
+
+    def test_relative_input_file_rejected(self, tmp_path, monkeypatch):
+        source, output, prompt = self._setup(tmp_path)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            _base_args(source, prompt, output, max_mb=9)
+            + [
+                "--api-key",
+                "secret",
+                "--batch-input-file",
+                "input.jsonl",  # relative
+                "--batch-output-folder",
+                "/eagle/me/output/",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "ABSOLUTE path" in result.output
+        assert calls == []
+
+    def test_absolute_non_eagle_warns_but_submits(self, tmp_path, monkeypatch):
+        source, output, prompt = self._setup(tmp_path)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            _base_args(source, prompt, output, max_mb=9)
+            + [
+                "--api-key",
+                "secret",
+                "--batch-input-dir",
+                "/home/me/requests/",  # absolute but not /eagle or /lus
+                "--batch-output-folder",
+                "/home/me/output/",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "warning" in result.output
+        assert len(calls) == 1  # still submitted
+
+
 def _multichunk_args(source, prompt, output) -> list[str]:
     return _base_args(source, prompt, output, max_mb=0.003) + [
         "--api-key",
@@ -390,3 +486,203 @@ class TestSubmitResume:
         adopted = ckpt["submitted"]["/eagle/me/requests/batch_requests_000.jsonl"]
         assert adopted["batch_id"] == "gw-000"
         assert adopted.get("adopted_from_gateway") is True
+
+
+def _prebuild_chunks(output: Path, prompt: Path, n: int, monkeypatch, *, model: str | None = None) -> int:
+    """Run a normal stage-only submit to write chunk files, return chunk count."""
+    source = output.parent / "63src"
+    _make_corpus(source, n)
+    _patch_submit(monkeypatch)  # not used for staging, but harmless
+    args = _base_args(source, prompt, output, max_mb=0.003)
+    if model is not None:
+        args[args.index("--model") + 1] = model
+    res = CliRunner().invoke(
+        agentic_judge_dataset,
+        args,  # stage only (no remote paths)
+    )
+    assert res.exit_code == 0, res.output
+    return len(sorted(output.glob("batch_requests_*.jsonl")))
+
+
+class TestResubmitExisting:
+    def test_submits_existing_chunks_without_source_or_prompt(self, tmp_path, monkeypatch):
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        n_chunks = _prebuild_chunks(output, prompt, 12, monkeypatch)
+        assert n_chunks >= 2
+
+        calls = _patch_submit(monkeypatch, active=0)
+
+        # Note: NO source positional, NO --prompt, NO --model/--max-batch-mb.
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-submit",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--resubmit-existing",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "/eagle/me/output/",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "no regeneration" in result.output
+        assert len(calls) == n_chunks
+        submitted_inputs = {c["input_file"] for c in calls}
+        assert submitted_inputs == {
+            f"/eagle/me/requests/{p.name}" for p in sorted(output.glob("batch_requests_*.jsonl"))
+        }
+
+    def test_resubmit_uses_model_baked_into_existing_requests(self, tmp_path, monkeypatch):
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        original_model = "google/gemma-3-27b-it"
+        n_chunks = _prebuild_chunks(output, prompt, 12, monkeypatch, model=original_model)
+        assert n_chunks >= 2
+
+        calls = _patch_submit(monkeypatch, active=0)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-submit",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--resubmit-existing",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "/eagle/me/output/",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert f"Using model from existing request JSONL: {original_model}" in result.output
+        assert {c["model"] for c in calls} == {original_model}
+
+    def test_does_not_overwrite_existing_chunk_files(self, tmp_path, monkeypatch):
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _prebuild_chunks(output, prompt, 12, monkeypatch)
+
+        chunk0 = sorted(output.glob("batch_requests_*.jsonl"))[0]
+        before = chunk0.read_bytes()
+        mtime_before = chunk0.stat().st_mtime
+
+        _patch_submit(monkeypatch, active=0)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-submit",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--resubmit-existing",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "/eagle/me/output/",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert chunk0.read_bytes() == before
+        assert chunk0.stat().st_mtime == mtime_before
+
+    def test_errors_when_no_chunks_present(self, tmp_path, monkeypatch):
+        output = tmp_path / "empty_out"
+        _patch_submit(monkeypatch)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-submit",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--resubmit-existing",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "/eagle/me/output/",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "found no batch_requests" in result.output
+
+    def test_requires_output_dir(self, tmp_path, monkeypatch):
+        _patch_submit(monkeypatch)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-submit", "--api-key", "secret", "--resubmit-existing"],
+        )
+        assert result.exit_code != 0
+        assert "requires --output-dir" in result.output
+
+    def test_rejected_for_non_submit_mode(self, tmp_path, monkeypatch):
+        output = tmp_path / "out"
+        _patch_submit(monkeypatch)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-collect", "-o", str(output), "--resubmit-existing"],
+        )
+        assert result.exit_code != 0
+        assert "only valid with --mode alcf-batch-submit" in result.output
+
+    def test_resume_skips_already_submitted_existing_chunk(self, tmp_path, monkeypatch):
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        n_chunks = _prebuild_chunks(output, prompt, 12, monkeypatch)
+
+        # Pre-mark chunk 000 as submitted.
+        (output / "batch_submit_checkpoint.json").write_text(
+            json.dumps(
+                {"submitted": {"/eagle/me/requests/batch_requests_000.jsonl": {"batch_id": "old", "status": "pending"}}}
+            ),
+            encoding="utf-8",
+        )
+        calls = _patch_submit(monkeypatch, active=0)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-submit",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--resubmit-existing",
+                "--batch-input-dir",
+                "/eagle/me/requests/",
+                "--batch-output-folder",
+                "/eagle/me/output/",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(calls) == n_chunks - 1
+        assert "/eagle/me/requests/batch_requests_000.jsonl" not in {c["input_file"] for c in calls}

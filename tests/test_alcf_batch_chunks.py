@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from araiadoc.agentic.alcf_batch import (
     ACTIVE_BATCH_STATUSES,
     BatchQuotaExceeded,
@@ -12,7 +14,9 @@ from araiadoc.agentic.alcf_batch import (
     build_batch_request_line,
     count_active_batches,
     derive_chunk_input_path,
+    discover_batch_request_chunks,
     list_alcf_batches,
+    model_from_batch_request_chunks,
     write_batch_request_chunks,
 )
 
@@ -322,6 +326,89 @@ class TestWriteBatchRequestChunksOversizedLine:
     def test_empty_job_list_returns_empty_chunks(self, tmp_path):
         chunks = write_batch_request_chunks([], tmp_path, model="m", temperature=0.0, max_tokens=8, max_bytes=9_000_000)
         assert chunks == []
+
+
+# ---------------------------------------------------------------------------
+# discover_batch_request_chunks (resubmit-existing)
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverBatchRequestChunks:
+    def test_roundtrips_written_multichunk(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(6)]
+        one_line = _line_bytes(jobs[0])
+        written = write_batch_request_chunks(
+            jobs, tmp_path, model="m", temperature=0.0, max_tokens=8, max_bytes=one_line * 2
+        )
+        assert len(written) >= 2
+
+        found = discover_batch_request_chunks(tmp_path)
+        assert [c["index"] for c in found] == [c["index"] for c in written]
+        assert [c["path"].name for c in found] == [c["path"].name for c in written]
+        assert [c["num_requests"] for c in found] == [c["num_requests"] for c in written]
+        assert [c["num_bytes"] for c in found] == [c["num_bytes"] for c in written]
+
+    def test_single_file_has_none_index(self, tmp_path):
+        jobs = [_make_job("a"), _make_job("b")]
+        write_batch_request_chunks(jobs, tmp_path, model="m", temperature=0.0, max_tokens=8, max_bytes=9_000_000)
+        found = discover_batch_request_chunks(tmp_path)
+        assert len(found) == 1
+        assert found[0]["index"] is None
+        assert found[0]["path"].name == "batch_requests.jsonl"
+        assert found[0]["num_requests"] == 2
+
+    def test_prefers_numbered_over_single(self, tmp_path):
+        # Both a single and numbered files present -> numbered win.
+        (tmp_path / "batch_requests.jsonl").write_text('{"a":1}\n', encoding="utf-8")
+        (tmp_path / "batch_requests_000.jsonl").write_text('{"a":1}\n{"b":2}\n', encoding="utf-8")
+        found = discover_batch_request_chunks(tmp_path)
+        assert len(found) == 1
+        assert found[0]["index"] == 0
+        assert found[0]["num_requests"] == 2
+
+    def test_empty_dir_returns_empty(self, tmp_path):
+        assert discover_batch_request_chunks(tmp_path) == []
+
+    def test_indexes_parsed_and_sorted(self, tmp_path):
+        for name in ("batch_requests_002.jsonl", "batch_requests_000.jsonl", "batch_requests_001.jsonl"):
+            (tmp_path / name).write_text('{"x":1}\n', encoding="utf-8")
+        found = discover_batch_request_chunks(tmp_path)
+        assert [c["index"] for c in found] == [0, 1, 2]
+
+
+class TestModelFromBatchRequestChunks:
+    def test_returns_unique_embedded_model(self, tmp_path):
+        jobs = [_make_job("a"), _make_job("b")]
+        write_batch_request_chunks(
+            jobs, tmp_path, model="google/gemma-3-27b-it", temperature=0.0, max_tokens=8, max_bytes=9_000_000
+        )
+        chunks = discover_batch_request_chunks(tmp_path)
+        assert model_from_batch_request_chunks(chunks) == "google/gemma-3-27b-it"
+
+    def test_errors_on_mixed_models(self, tmp_path):
+        p = tmp_path / "batch_requests_000.jsonl"
+        p.write_text(
+            build_batch_request_line(_make_job("a"), model="m1", temperature=0.0, max_tokens=8)
+            + build_batch_request_line(_make_job("b"), model="m2", temperature=0.0, max_tokens=8),
+            encoding="utf-8",
+        )
+        chunks = discover_batch_request_chunks(tmp_path)
+        with pytest.raises(Exception, match="multiple models"):
+            model_from_batch_request_chunks(chunks)
+
+    def test_errors_on_missing_model(self, tmp_path):
+        p = tmp_path / "batch_requests.jsonl"
+        p.write_text('{"custom_id":"1","body":{}}\n', encoding="utf-8")
+        chunks = discover_batch_request_chunks(tmp_path)
+        with pytest.raises(Exception, match="Missing body.model"):
+            model_from_batch_request_chunks(chunks)
+
+    def test_errors_on_invalid_json(self, tmp_path):
+        p = tmp_path / "batch_requests.jsonl"
+        p.write_text("not json\n", encoding="utf-8")
+        chunks = discover_batch_request_chunks(tmp_path)
+        with pytest.raises(Exception, match="Invalid JSON"):
+            model_from_batch_request_chunks(chunks)
 
 
 # ---------------------------------------------------------------------------

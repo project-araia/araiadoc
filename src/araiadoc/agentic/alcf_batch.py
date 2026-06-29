@@ -186,6 +186,77 @@ def write_batch_request_chunks(
     return descriptors
 
 
+def discover_batch_request_chunks(output_dir: Path) -> list[dict[str, Any]]:
+    """Rebuild chunk descriptors from already-written request files in *output_dir*.
+
+    Mirrors the descriptor shape returned by :func:`write_batch_request_chunks`
+    (``index``, ``path``, ``num_requests``, ``num_bytes``) but reads the files
+    instead of regenerating them from jobs. Used by the resubmit-existing path so
+    a re-run doesn't need ``SOURCE`` / ``--prompt`` / ``--model`` / ``--max-batch-mb``.
+
+    Prefers numbered ``batch_requests_000.jsonl`` files when present; otherwise
+    falls back to a single ``batch_requests.jsonl`` (index ``None``).
+    """
+    numbered = sorted(output_dir.glob("batch_requests_[0-9][0-9][0-9].jsonl"))
+    descriptors: list[dict[str, Any]] = []
+    if numbered:
+        for path in numbered:
+            idx = int(path.stem.rsplit("_", 1)[1])
+            num_requests = sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+            descriptors.append(
+                {
+                    "index": idx,
+                    "path": path,
+                    "num_requests": num_requests,
+                    "num_bytes": path.stat().st_size,
+                }
+            )
+        return descriptors
+
+    single = output_dir / "batch_requests.jsonl"
+    if single.exists():
+        num_requests = sum(1 for line in single.read_text(encoding="utf-8").splitlines() if line.strip())
+        descriptors.append(
+            {
+                "index": None,
+                "path": single,
+                "num_requests": num_requests,
+                "num_bytes": single.stat().st_size,
+            }
+        )
+    return descriptors
+
+
+def model_from_batch_request_chunks(chunks: list[dict[str, Any]]) -> str:
+    """Return the unique request-body model embedded in existing chunk files.
+
+    The ALCF Create Batch payload also has a top-level ``model`` field. For
+    resubmit-existing, that value must be derived from the already-written JSONL
+    rather than from the CLI default; otherwise a resubmit without ``--model`` can
+    send a different model from the one baked into each request line.
+    """
+    models: set[str] = set()
+    for chunk in chunks:
+        path = chunk["path"]
+        with path.open(encoding="utf-8") as f:
+            for line_no, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise click.UsageError(f"Invalid JSON in {path} line {line_no}: {e}") from e
+                model = (item.get("body") or {}).get("model")
+                if not model:
+                    raise click.UsageError(f"Missing body.model in {path} line {line_no}")
+                models.add(str(model))
+    if not models:
+        raise click.UsageError("No request lines found in existing batch chunk files.")
+    if len(models) != 1:
+        raise click.UsageError("Existing batch request chunks contain multiple models: " + ", ".join(sorted(models)))
+    return next(iter(models))
+
+
 def write_batch_manifest(jobs: list[dict[str, Any]], manifest_path: Path) -> None:
     """Persist a custom_id -> doc identity map so collect can rebuild rows."""
     manifest = {
