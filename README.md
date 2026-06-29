@@ -366,7 +366,7 @@ Use `--dry-run --limit 3` first to inspect prompt payloads before spending infer
 
 ```bash
 araiadoc agentic-judge-dataset data/all_weather_sectionized \
-  --prompt prompts/resilience_relevance.md \
+  --prompt prompts/climate_resilience_relevance.md \
   --dry-run \
   --limit 3
 ```
@@ -377,7 +377,7 @@ Request mode uses OpenAI-compatible chat completions with bounded local concurre
 
 ```bash
 araiadoc agentic-judge-dataset data/all_weather_sectionized \
-  --prompt prompts/resilience_relevance.md \
+  --prompt prompts/climate_resilience_relevance.md \
   --api-key "$API_KEY" \
   --concurrency 4
 ```
@@ -390,7 +390,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
-     --prompt prompts/resilience_relevance.md \
+     --prompt prompts/climate_resilience_relevance.md \
      --mode alcf-batch-submit -o data/all_weather_judged \
      --model google/gemma-3-27b-it
    ```
@@ -399,7 +399,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
-     --prompt prompts/resilience_relevance.md \
+     --prompt prompts/climate_resilience_relevance.md \
      --mode alcf-batch-submit -o data/all_weather_judged \
      --model google/gemma-3-27b-it \
      --api-key "$API_KEY" \
@@ -411,7 +411,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
-     --prompt prompts/resilience_relevance.md \
+     --prompt prompts/climate_resilience_relevance.md \
      --mode alcf-batch-collect -o data/all_weather_judged \
      --model google/gemma-3-27b-it \
      --collect-batch-output ./batch_output.jsonl \
