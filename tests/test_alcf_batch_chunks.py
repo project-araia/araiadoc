@@ -1,0 +1,319 @@
+"""Tests for ALCF batch request chunking (write_batch_request_chunks, derive_chunk_input_path)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from araiadoc.agentic.alcf_batch import (
+    build_batch_request_line,
+    derive_chunk_input_path,
+    write_batch_request_chunks,
+)
+
+
+def _make_job(doc_id: str, prompt: str = "hello") -> dict:
+    return {
+        "key": doc_id,
+        "doc": {
+            "doc_id": doc_id,
+            "source_path": f"00/{doc_id}.json",
+            "title": f"title-{doc_id}",
+        },
+        "input_sha256": "x",
+        "prompt": prompt,
+    }
+
+
+def _line_bytes(job: dict) -> int:
+    return len(build_batch_request_line(job, model="m", temperature=0.0, max_tokens=8).encode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# derive_chunk_input_path
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveChunkInputPath:
+    def test_suffixes_stem_with_zero_padded_index(self):
+        result = derive_chunk_input_path("/eagle/argonne/input.jsonl", 0)
+        assert result == "/eagle/argonne/input_000.jsonl"
+
+    def test_index_pads_to_three_digits(self):
+        assert derive_chunk_input_path("/eagle/foo/bar.jsonl", 7) == "/eagle/foo/bar_007.jsonl"
+        assert derive_chunk_input_path("/eagle/foo/bar.jsonl", 42) == "/eagle/foo/bar_042.jsonl"
+        assert derive_chunk_input_path("/eagle/foo/bar.jsonl", 123) == "/eagle/foo/bar_123.jsonl"
+
+    def test_preserves_suffix_case(self):
+        result = derive_chunk_input_path("/eagle/foo/input.JSONL", 1)
+        assert result == "/eagle/foo/input_001.JSONL"
+
+    def test_preserves_parent_directory(self):
+        result = derive_chunk_input_path("/a/b/c/requests.jsonl", 5)
+        assert Path(result).parent == Path("/a/b/c")
+
+    def test_flat_filename_no_directory(self):
+        result = derive_chunk_input_path("input.jsonl", 0)
+        assert result == "input_000.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# write_batch_request_chunks — single-chunk (≤ max_bytes)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteBatchRequestChunksSingleChunk:
+    def test_small_corpus_writes_legacy_filename(self, tmp_path):
+        jobs = [_make_job("1"), _make_job("2")]
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=9_000_000,
+        )
+        assert len(chunks) == 1
+        assert chunks[0]["path"].name == "batch_requests.jsonl"
+        assert chunks[0]["index"] is None
+
+    def test_single_chunk_contains_all_requests(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(5)]
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=9_000_000,
+        )
+        lines = chunks[0]["path"].read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 5
+        custom_ids = {json.loads(li)["custom_id"] for li in lines}
+        assert custom_ids == {str(i) for i in range(5)}
+
+    def test_num_bytes_matches_file_size(self, tmp_path):
+        jobs = [_make_job("a"), _make_job("b")]
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=9_000_000,
+        )
+        assert chunks[0]["num_bytes"] == chunks[0]["path"].stat().st_size
+
+    def test_num_requests_matches_job_count(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(10)]
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=9_000_000,
+        )
+        assert chunks[0]["num_requests"] == 10
+
+
+# ---------------------------------------------------------------------------
+# write_batch_request_chunks — multi-chunk splitting
+# ---------------------------------------------------------------------------
+
+
+class TestWriteBatchRequestChunksMultiChunk:
+    def _tight_max_bytes(self, jobs: list[dict], jobs_per_chunk: int) -> int:
+        """Return a max_bytes that fits exactly jobs_per_chunk lines per chunk."""
+        # Sum of the first jobs_per_chunk lines, minus one byte so the next job
+        # forces a new chunk.
+        total = sum(_line_bytes(jobs[i]) for i in range(jobs_per_chunk))
+        # Subtracting 1 ensures the (jobs_per_chunk+1)-th job can't fit.
+        return total
+
+    def test_splits_into_numbered_files(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(4)]
+        # Each line is roughly the same size; fit exactly 2 per chunk.
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 2,
+        )
+        assert len(chunks) == 2
+        assert chunks[0]["path"].name == "batch_requests_000.jsonl"
+        assert chunks[1]["path"].name == "batch_requests_001.jsonl"
+
+    def test_index_labels_are_sequential_integers(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(6)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 2,
+        )
+        assert [c["index"] for c in chunks] == list(range(len(chunks)))
+
+    def test_all_requests_preserved_across_chunks(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(7)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 3,
+        )
+        all_ids: set[str] = set()
+        for chunk in chunks:
+            for line in chunk["path"].read_text(encoding="utf-8").splitlines():
+                all_ids.add(json.loads(line)["custom_id"])
+        assert all_ids == {str(i) for i in range(7)}
+
+    def test_total_request_count_equals_job_count(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(9)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 4,
+        )
+        assert sum(c["num_requests"] for c in chunks) == 9
+
+    def test_no_chunk_exceeds_max_bytes(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(10)]
+        one_line = _line_bytes(jobs[0])
+        max_bytes = one_line * 3
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=max_bytes,
+        )
+        for chunk in chunks:
+            assert chunk["num_bytes"] <= max_bytes
+
+    def test_num_bytes_matches_file_sizes_in_multi_chunk(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(6)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 2,
+        )
+        for chunk in chunks:
+            assert chunk["num_bytes"] == chunk["path"].stat().st_size
+
+    def test_three_way_split(self, tmp_path):
+        jobs = [_make_job(str(i)) for i in range(9)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 3,
+        )
+        assert len(chunks) == 3
+        for chunk in chunks:
+            assert chunk["num_requests"] == 3
+
+    def test_uneven_split_puts_remainder_in_last_chunk(self, tmp_path):
+        # 7 jobs, 3 per chunk → chunks of [3, 3, 1]
+        jobs = [_make_job(str(i)) for i in range(7)]
+        one_line = _line_bytes(jobs[0])
+        chunks = write_batch_request_chunks(
+            jobs,
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=one_line * 3,
+        )
+        assert [c["num_requests"] for c in chunks] == [3, 3, 1]
+
+
+# ---------------------------------------------------------------------------
+# write_batch_request_chunks — oversized single line
+# ---------------------------------------------------------------------------
+
+
+class TestWriteBatchRequestChunksOversizedLine:
+    def test_oversized_line_placed_alone_in_own_chunk(self, tmp_path, capsys):
+        job = _make_job("big", "x" * 500)
+        one_line = _line_bytes(job)
+        # Set max_bytes well below the single line size.
+        max_bytes = one_line // 2
+
+        chunks = write_batch_request_chunks(
+            [job],
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=max_bytes,
+        )
+        # Single job → still one chunk (no second job to split from).
+        assert len(chunks) == 1
+        lines = chunks[0]["path"].read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["custom_id"] == "big"
+
+    def test_oversized_line_emits_warning(self, tmp_path, capsys):
+        job = _make_job("big", "x" * 500)
+        one_line = _line_bytes(job)
+        max_bytes = one_line // 2
+
+        write_batch_request_chunks(
+            [job],
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=max_bytes,
+        )
+        # click.echo writes to stdout; capsys captures it.
+        captured = capsys.readouterr()
+        assert "Warning" in captured.out
+        assert "big" in captured.out
+
+    def test_oversized_line_in_multi_job_batch_goes_to_own_chunk(self, tmp_path):
+        small = _make_job("small", "hi")
+        big = _make_job("big", "x" * 500)
+        big_bytes = _line_bytes(big)
+        # max_bytes fits small but not big.
+        max_bytes = big_bytes - 1
+
+        chunks = write_batch_request_chunks(
+            [small, big],
+            tmp_path,
+            model="m",
+            temperature=0.0,
+            max_tokens=8,
+            max_bytes=max_bytes,
+        )
+        all_ids: list[str] = []
+        for chunk in chunks:
+            for line in chunk["path"].read_text(encoding="utf-8").splitlines():
+                all_ids.append(json.loads(line)["custom_id"])
+        assert set(all_ids) == {"small", "big"}
+
+    def test_empty_job_list_returns_empty_chunks(self, tmp_path):
+        chunks = write_batch_request_chunks([], tmp_path, model="m", temperature=0.0, max_tokens=8, max_bytes=9_000_000)
+        assert chunks == []
