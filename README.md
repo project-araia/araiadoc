@@ -322,8 +322,11 @@ Options:
   --model TEXT                 OpenAI-compatible chat model name.
   --base-url TEXT              OpenAI-compatible API base URL.
   --api-key TEXT               API key/token. Also read from API_KEY or OPENAI_API_KEY.
-  --prompt FILE                Rubric prompt file.  [required]
-  -o, --output-dir PATH        Directory for judgment artifacts. Defaults to SOURCE_judged.
+  --prompt FILE                Rubric prompt file. Required except with --resubmit-existing.
+  -o, --artifact-dir, --output-dir PATH
+                               Directory for araiadoc artifacts/work files (request chunks,
+                               manifest, checkpoints, results, summary). Defaults to
+                               SOURCE_judged. --output-dir is a legacy alias.
   --mode [requests|alcf-batch-submit|alcf-batch-collect]
                                requests: judge each document via chat completions.
                                alcf-batch-submit: build the request JSONL + manifest
@@ -340,17 +343,20 @@ Options:
   --copy-kept                  Copy documents with kept decisions into OUTPUT_DIR/kept.
   --keep-decisions TEXT        Comma-separated decisions copied by --copy-kept.  [default: relevant]
   --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
-  --batch-input-dir TEXT       [alcf-batch-submit] ALCF folder you copied the request
-                               JSONL chunk file(s) into. Each chunk is submitted under the
-                               SAME filename the tool wrote locally (batch_requests.jsonl,
-                               or batch_requests_000.jsonl, …) — copy the files over without
-                               renaming. Preferred over --batch-input-file for multi-chunk runs.
+  --batch-request-dir, --batch-input-dir TEXT
+                               [alcf-batch-submit] ALCF folder containing request JSONL chunk
+                               file(s) for the endpoint to read. Each chunk is submitted under
+                               the SAME filename the tool wrote locally (batch_requests.jsonl,
+                               or batch_requests_000.jsonl, …). --batch-input-dir is a legacy
+                               alias.
   --batch-input-file TEXT      [alcf-batch-submit] DEPRECATED for multi-chunk runs; use
-                               --batch-input-dir. Single ALCF path for a one-chunk run
+                               --batch-request-dir. Single ALCF path for a one-chunk run
                                (e.g. /eagle/argonne_tpc/you/input.jsonl). Errors if the run
                                produced more than one chunk.
-  --batch-output-folder TEXT   [alcf-batch-submit] ALCF folder the service writes output to.
-                               All chunks share the same output folder.
+  --batch-result-dir, --batch-output-folder TEXT
+                               [alcf-batch-submit] ALCF folder where the inference service
+                               writes batch result/progress files. --batch-output-folder is a
+                               legacy alias.
   --collect-batch-output PATH  [alcf-batch-collect] Path to the ALCF batch output .jsonl
                                file, or a folder of output .jsonl files.
   --max-batch-mb FLOAT         [alcf-batch-submit] Maximum size in MB per request JSONL chunk.
@@ -364,10 +370,10 @@ Options:
   --poll-interval FLOAT        [alcf-batch-submit] Seconds between polls for a free active-
                                batch slot while throttling.  [default: 30.0]
   --resubmit-existing          [alcf-batch-submit] Submit the batch_requests*.jsonl already
-                               written to --output-dir instead of regenerating them. Skips
-                               SOURCE / --prompt / re-chunking; derives the submit model from
-                               body.model in the JSONL (--max-batch-mb ignored). Use to resume
-                               after a partial/failed submission.
+                               written to --artifact-dir/--output-dir instead of regenerating
+                               them. Skips SOURCE / --prompt / re-chunking; derives the submit
+                               model from body.model in the JSONL (--max-batch-mb ignored). Use
+                               to resume after a partial/failed submission.
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -414,7 +420,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
 **Payload limit:** ALCF caps each batch request at 10 MB. `--max-batch-mb` (default 9) keeps chunks safely under that limit. When the full corpus fits in one chunk a single `batch_requests.jsonl` is written (backward-compatible). When it doesn't, numbered chunk files (`batch_requests_000.jsonl`, `batch_requests_001.jsonl`, …) are written and one batch job is submitted per chunk, all sharing the same output folder. A single shared `batch_manifest.json` covers all chunks, and collect is unchanged — it already accepts a folder of output files.
 
-**Absolute paths required:** `--batch-input-dir`, `--batch-input-file`, and `--batch-output-folder` must be **absolute** paths on ALCF storage (e.g. `/eagle/argonne_tpc/<you>/...`). The inference service reads/writes them on Sophia's filesystem, not the machine running this command, so a *relative* path like `63_judged_input/` resolves to nothing on the node and every batch fails within seconds (`status: failed`). The tool now rejects relative paths up front, and warns if an absolute path isn't under `/eagle` or `/lus`.
+**Absolute paths required:** `--batch-request-dir`, `--batch-input-file`, and `--batch-result-dir` must be **absolute** paths on ALCF storage (e.g. `/eagle/argonne_tpc/<you>/...`). The inference service reads/writes them on Sophia's filesystem, not the machine running this command, so a *relative* path like `63_judged_input/` resolves to nothing on the node and every batch fails within seconds (`status: failed`). The tool now rejects relative paths up front, and warns if an absolute path isn't under `/eagle` or `/lus`. Legacy aliases `--batch-input-dir` and `--batch-output-folder` are still accepted.
 
 **Active-batch quota:** ALCF also limits each user to a small number of *active* (pending/running) batches (currently 2). Multi-chunk submission is therefore throttled to `--max-active-batches` (default 2): before each submit the gateway is polled every `--poll-interval` seconds until a slot frees, and a `quota_exceeded` rejection triggers an automatic back-off and retry rather than aborting. Submitted chunks are recorded in `batch_submit_checkpoint.json`, so re-running resumes where it left off instead of double-submitting — and it also reconciles against the live batch list (matching on `input_file`) to adopt batches submitted before checkpointing existed.
 
@@ -423,32 +429,32 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
      --prompt prompts/climate_resilience_relevance.md \
-     --mode alcf-batch-submit -o data/all_weather_judged \
+     --mode alcf-batch-submit --artifact-dir data/all_weather_judged \
      --model google/gemma-3-27b-it
    ```
 
-   Copy the chunk file(s) from `data/all_weather_judged/` into a single ALCF storage folder — **keep the filenames as-is, no renaming** — then submit, pointing `--batch-input-dir` at that folder. The tool submits one batch per chunk, reusing each chunk's filename (`batch_requests_000.jsonl`, …) under that folder:
+   Copy the chunk file(s) from `data/all_weather_judged/` into a single ALCF storage folder — **keep the filenames as-is, no renaming** — then submit, pointing `--batch-request-dir` at that folder. The tool submits one batch per chunk, reusing each chunk's filename (`batch_requests_000.jsonl`, …) under that folder:
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
      --prompt prompts/climate_resilience_relevance.md \
-     --mode alcf-batch-submit -o data/all_weather_judged \
+     --mode alcf-batch-submit --artifact-dir data/all_weather_judged \
      --model google/gemma-3-27b-it \
      --api-key "$API_KEY" \
-     --batch-input-dir /eagle/argonne_tpc/you/requests/ \
-     --batch-output-folder /eagle/argonne_tpc/you/output/
+     --batch-request-dir /eagle/argonne_tpc/you/requests/ \
+     --batch-result-dir /eagle/argonne_tpc/you/output/
    ```
 
-   For a single-chunk run you may instead pass the legacy `--batch-input-file /eagle/.../input.jsonl` (one explicit path). It errors if the run produced more than one chunk — use `--batch-input-dir` in that case.
+   For a single-chunk run you may instead pass the legacy `--batch-input-file /eagle/.../input.jsonl` (one explicit path). It errors if the run produced more than one chunk — use `--batch-request-dir` in that case.
 
-   **Resuming a partial/failed submission.** Because the requests are already baked into `batch_requests*.jsonl` in `--output-dir`, you don't need to re-specify `SOURCE`, `--prompt`, `--model`, or `--max-batch-mb` to resubmit — pass `--resubmit-existing` instead. It reads the existing chunk files (and `batch_manifest.json`) straight from `--output-dir`, never regenerating them, derives the ALCF submit model from `body.model` inside the JSONL, and submits only chunks not already recorded in `batch_submit_checkpoint.json` (also reconciling against the live gateway batch list):
+   **Resuming a partial/failed submission.** Because the requests are already baked into `batch_requests*.jsonl` in `--artifact-dir`, you don't need to re-specify `SOURCE`, `--prompt`, `--model`, or `--max-batch-mb` to resubmit — pass `--resubmit-existing` instead. It reads the existing chunk files (and `batch_manifest.json`) straight from `--artifact-dir`, never regenerating them, derives the ALCF submit model from `body.model` inside the JSONL, and submits only chunks not already recorded in `batch_submit_checkpoint.json` (also reconciling against the live gateway batch list):
 
    ```bash
    araiadoc agentic-judge-dataset \
-     --mode alcf-batch-submit -o data/all_weather_judged \
+     --mode alcf-batch-submit --artifact-dir data/all_weather_judged \
      --api-key "$API_KEY" --resubmit-existing \
-     --batch-input-dir /eagle/argonne_tpc/you/requests/ \
-     --batch-output-folder /eagle/argonne_tpc/you/output/
+     --batch-request-dir /eagle/argonne_tpc/you/requests/ \
+     --batch-result-dir /eagle/argonne_tpc/you/output/
    ```
 
 2. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
@@ -456,7 +462,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
      --prompt prompts/climate_resilience_relevance.md \
-     --mode alcf-batch-collect -o data/all_weather_judged \
+     --mode alcf-batch-collect --artifact-dir data/all_weather_judged \
      --model google/gemma-3-27b-it \
      --collect-batch-output /eagle/argonne_tpc/you/output/ \
      --copy-kept
@@ -470,7 +476,7 @@ Not all ALCF models support batch processing — see the [ALCF inference endpoin
 
 Each result row in `judge_results.jsonl.gz` includes `doc_id`, `source_path`, title, model, base URL, prompt and input hashes, decision, score, rationale, raw response, parse status, and timestamp. Unparseable model responses are preserved as rows with `parsed=false` and `raw_response` for auditability.
 
-Resume is enabled by default. Completed work is keyed by source path, document ID, input hash, prompt hash, model, and base URL, so changing the prompt/model/endpoint/document content forces re-judgment. `--output-dir` must be outside `SOURCE` so the command cannot recurse into its own artifacts.
+Resume is enabled by default. Completed work is keyed by source path, document ID, input hash, prompt hash, model, and base URL, so changing the prompt/model/endpoint/document content forces re-judgment. `--artifact-dir` / `--output-dir` must be outside `SOURCE` so the command cannot recurse into its own artifacts.
 
 When `--copy-kept` is set, documents whose parsed decision is in `--keep-decisions` are copied to `OUTPUT_DIR/kept/` with relative paths preserved. The default keeps only `relevant`; use `--keep-decisions relevant,maybe` to also retain uncertain matches.
 

@@ -200,16 +200,16 @@ def _submit_chunks(
                 "ALCF storage folder (no renaming).\n"
             )
             rerun_hint = (
-                "  2. Re-run with --mode alcf-batch-submit plus --batch-input-dir "
-                "<that ALCF folder> and --batch-output-folder <ALCF output folder>.\n"
+                "  2. Re-run with --mode alcf-batch-submit plus --batch-request-dir "
+                "<that ALCF folder> and --batch-result-dir <ALCF result folder>.\n"
                 "     One batch is submitted per chunk, reusing each chunk's filename.\n"
             )
         else:
             copy_hint = f"  1. Copy {chunks[0]['path']} to ALCF storage (e.g. /eagle/...).\n"
             rerun_hint = (
-                "  2. Re-run with --mode alcf-batch-submit plus --batch-input-dir "
+                "  2. Re-run with --mode alcf-batch-submit plus --batch-request-dir "
                 "<ALCF folder> (or legacy --batch-input-file <ALCF path>) and "
-                "--batch-output-folder <ALCF output folder>.\n"
+                "--batch-result-dir <ALCF result folder>.\n"
             )
         click.echo(
             "\nNo ALCF input/output paths provided, so the batch was NOT submitted.\n"
@@ -226,9 +226,9 @@ def _submit_chunks(
     # nothing there and the batch fails almost immediately. Require absolute paths
     # (ALCF further requires them to live under /eagle/argonne_tpc or another
     # world-readable location).
-    _require_absolute_alcf_path("--batch-input-dir", batch_input_dir)
+    _require_absolute_alcf_path("--batch-request-dir", batch_input_dir)
     _require_absolute_alcf_path("--batch-input-file", batch_input_file)
-    _require_absolute_alcf_path("--batch-output-folder", batch_output_folder)
+    _require_absolute_alcf_path("--batch-result-dir", batch_output_folder)
 
     # Resolve each chunk's remote input path.
     if batch_input_dir:
@@ -240,7 +240,7 @@ def _submit_chunks(
         if multi_chunk:
             raise click.UsageError(
                 f"This run split into {len(chunks)} chunks, but --batch-input-file "
-                "is a single path. Use --batch-input-dir <ALCF folder> instead so "
+                "is a single path. Use --batch-request-dir <ALCF folder> instead so "
                 "each chunk is submitted under its own filename "
                 f"({', '.join(c['path'].name for c in chunks)})."
             )
@@ -411,7 +411,11 @@ def _submit_with_quota_backoff(
 
 
 @click.command("agentic-judge-dataset")
-@click.argument("source", required=False, type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "source",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
 @click.option(
     "--model",
     default=DEFAULT_MODEL,
@@ -439,10 +443,16 @@ def _submit_with_quota_backoff(
     ),
 )
 @click.option(
+    "--artifact-dir",
     "--output-dir",
     "-o",
+    "output_dir",
     type=click.Path(path_type=Path),
-    help="Directory for judgment artifacts. Defaults to SOURCE_judged.",
+    help=(
+        "Directory for araiadoc artifacts/work files (request chunks, manifest, "
+        "checkpoints, results, summary). Defaults to SOURCE_judged. "
+        "--output-dir is a legacy alias."
+    ),
 )
 @click.option(
     "--mode",
@@ -508,33 +518,37 @@ def _submit_with_quota_backoff(
     help="Skip completed stable job keys from judge_checkpoint.json.",
 )
 @click.option(
+    "--batch-request-dir",
     "--batch-input-dir",
+    "batch_input_dir",
     type=str,
     help=(
-        "[alcf-batch-submit] ALCF filesystem folder you copied the request JSONL "
-        "chunk file(s) into (e.g. /eagle/argonne_tpc/you/requests/). The tool "
-        "submits one batch per chunk using the SAME filenames it wrote locally "
-        "(batch_requests.jsonl, or batch_requests_000.jsonl, …), so just copy the "
-        "files over without renaming. Preferred over --batch-input-file when "
-        "requests are split into multiple chunks."
+        "[alcf-batch-submit] ALCF filesystem folder containing request JSONL "
+        "chunk file(s) for the endpoint to read (e.g. /eagle/.../requests/). "
+        "The tool submits one batch per chunk using the SAME filenames it wrote "
+        "locally (batch_requests.jsonl, or batch_requests_000.jsonl, …). "
+        "--batch-input-dir is a legacy alias."
     ),
 )
 @click.option(
     "--batch-input-file",
     type=str,
     help=(
-        "[alcf-batch-submit] DEPRECATED for multi-chunk runs; use --batch-input-dir. "
+        "[alcf-batch-submit] DEPRECATED for multi-chunk runs; use --batch-request-dir. "
         "ALCF filesystem path the inference service reads a SINGLE-chunk request "
         "JSONL from (e.g. /eagle/argonne_tpc/you/input.jsonl). Errors if the run "
         "produced more than one chunk."
     ),
 )
 @click.option(
+    "--batch-result-dir",
     "--batch-output-folder",
+    "batch_output_folder",
     type=str,
     help=(
-        "[alcf-batch-submit] ALCF filesystem folder the inference service will "
-        "write batch output to (e.g. /eagle/argonne_tpc/you/output/)."
+        "[alcf-batch-submit] ALCF filesystem folder where the inference service "
+        "writes batch result/progress files (e.g. /eagle/.../batch_results/). "
+        "--batch-output-folder is a legacy alias."
     ),
 )
 @click.option(
@@ -584,7 +598,7 @@ def _submit_with_quota_backoff(
     is_flag=True,
     help=(
         "[alcf-batch-submit] Submit the batch_requests*.jsonl already written to "
-        "--output-dir instead of regenerating them. Skips reading SOURCE / the "
+        "--artifact-dir/--output-dir instead of regenerating them. Skips reading SOURCE / the "
         "prompt / re-chunking; the submit model is derived from body.model inside "
         "the existing JSONL, and --max-batch-mb is ignored. Use to resume after a "
         "partial or failed submission without rebuilding."
@@ -619,14 +633,14 @@ def agentic_judge_dataset(
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
     # Resubmit-existing short-circuit: the requests are already baked into
-    # batch_requests*.jsonl in --output-dir, so we don't read SOURCE / the prompt
+    # batch_requests*.jsonl in --artifact-dir/--output-dir, so we don't read SOURCE / the prompt
     # / re-chunk. This must run before any prompt/source-dependent work below.
     if resubmit_existing:
         if mode != "alcf-batch-submit":
             raise click.UsageError("--resubmit-existing is only valid with --mode alcf-batch-submit.")
         if output_dir is None:
             raise click.UsageError(
-                "--resubmit-existing requires --output-dir pointing at the dir with batch_requests*.jsonl."
+                "--resubmit-existing requires --artifact-dir pointing at the dir with batch_requests*.jsonl."
             )
         output_dir.mkdir(parents=True, exist_ok=True)
         _run_alcf_batch_resubmit(
@@ -649,7 +663,9 @@ def agentic_judge_dataset(
     source_resolved = source.resolve()
     output_resolved = output_dir.resolve(strict=False)
     if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
-        raise click.UsageError("--output-dir must be outside SOURCE so judging never mutates or rereads its input.")
+        raise click.UsageError(
+            "--artifact-dir/--output-dir must be outside SOURCE so judging never mutates or rereads its input."
+        )
 
     if prompt_path is None:
         raise click.UsageError("--prompt is required (except with --resubmit-existing).")
@@ -713,7 +729,7 @@ def agentic_judge_dataset(
         if not manifest:
             raise click.UsageError(
                 f"No batch manifest found at {manifest_path}. Run "
-                "--mode alcf-batch-submit first (with the same --output-dir)."
+                "--mode alcf-batch-submit first (with the same --artifact-dir/--output-dir)."
             )
         if collect_batch_output is None:
             raise click.UsageError(
