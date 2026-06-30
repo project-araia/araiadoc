@@ -1,7 +1,7 @@
 """CLI-level tests for `agentic-judge-dataset --mode alcf-batch-submit`.
 
 Focus: how local request chunk files map onto remote ALCF input paths when
-submitting, via --batch-input-dir (preferred) and the legacy --batch-input-file.
+submitting, via --batch-request-dir (preferred) and the legacy --batch-input-file.
 """
 
 from __future__ import annotations
@@ -122,6 +122,41 @@ class TestSubmitSingleChunk:
         assert len(calls) == 1
         assert calls[0]["input_file"] == "/eagle/me/requests/batch_requests.jsonl"
 
+    def test_new_alias_names_work(self, tmp_path, monkeypatch):
+        source = tmp_path / "63"
+        output = tmp_path / "63_judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _make_corpus(source, 2)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                str(source),
+                "--prompt",
+                str(prompt),
+                "--mode",
+                "alcf-batch-submit",
+                "--artifact-dir",
+                str(output),
+                "--model",
+                "google/gemma-3-27b-it",
+                "--api-key",
+                "secret",
+                "--batch-request-dir",
+                "/eagle/me/requests/",
+                "--batch-result-dir",
+                "/eagle/me/results/",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (output / "batch_requests.jsonl").exists()
+        assert len(calls) == 1
+        assert calls[0]["input_file"] == "/eagle/me/requests/batch_requests.jsonl"
+        assert calls[0]["output_folder_path"] == "/eagle/me/results/"
+
 
 class TestSubmitMultiChunk:
     def _tiny_mb_for_multichunk(self) -> float:
@@ -208,7 +243,7 @@ class TestSubmitMultiChunk:
         )
 
         assert result.exit_code != 0
-        assert "--batch-input-dir" in result.output
+        assert "--batch-request-dir" in result.output
         assert calls == []  # nothing submitted
 
 
@@ -228,7 +263,7 @@ class TestSubmitStageOnly:
 
         assert result.exit_code == 0, result.output
         assert "NOT submitted" in result.output
-        assert "--batch-input-dir" in result.output
+        assert "--batch-request-dir" in result.output
         assert calls == []
         # Chunk files + manifest are still written for staging.
         assert (output / "batch_manifest.json").exists()
@@ -263,7 +298,7 @@ class TestSubmitAbsolutePathValidation:
 
         assert result.exit_code != 0
         assert "ABSOLUTE path" in result.output
-        assert "--batch-input-dir" in result.output
+        assert "--batch-request-dir" in result.output
         assert calls == []  # never submitted
 
     def test_relative_output_folder_rejected(self, tmp_path, monkeypatch):
@@ -285,7 +320,7 @@ class TestSubmitAbsolutePathValidation:
 
         assert result.exit_code != 0
         assert "ABSOLUTE path" in result.output
-        assert "--batch-output-folder" in result.output
+        assert "--batch-result-dir" in result.output
         assert calls == []
 
     def test_relative_input_file_rejected(self, tmp_path, monkeypatch):
@@ -637,7 +672,7 @@ class TestResubmitExisting:
             ["--mode", "alcf-batch-submit", "--api-key", "secret", "--resubmit-existing"],
         )
         assert result.exit_code != 0
-        assert "requires --output-dir" in result.output
+        assert "requires --artifact-dir/--output-dir" in result.output
 
     def test_rejected_for_non_submit_mode(self, tmp_path, monkeypatch):
         output = tmp_path / "out"

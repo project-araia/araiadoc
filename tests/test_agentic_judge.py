@@ -346,7 +346,7 @@ class TestAgenticJudgeCli:
         )
 
         assert result.exit_code != 0
-        assert "--output-dir must be outside SOURCE" in result.output
+        assert "--artifact-dir/--output-dir must be outside SOURCE" in result.output
 
     def test_request_mode_writes_results_and_copies_relevant(self, tmp_path, monkeypatch):
         source = tmp_path / "sectionized"
