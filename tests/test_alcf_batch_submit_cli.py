@@ -721,3 +721,97 @@ class TestResubmitExisting:
         assert result.exit_code == 0, result.output
         assert len(calls) == n_chunks - 1
         assert "/eagle/me/requests/batch_requests_000.jsonl" not in {c["input_file"] for c in calls}
+
+
+class TestBatchStatusMode:
+    def _write_submit_ckpt(self, output: Path, submitted: dict) -> None:
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "batch_submit_checkpoint.json").write_text(json.dumps({"submitted": submitted}), encoding="utf-8")
+
+    def test_requires_output_dir(self):
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-status", "--api-key", "secret"],
+        )
+        assert result.exit_code != 0
+        assert "requires --artifact-dir" in result.output
+
+    def test_errors_without_checkpoint(self, tmp_path):
+        output = tmp_path / "out"
+        output.mkdir()
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-status", "-o", str(output), "--api-key", "secret"],
+        )
+        assert result.exit_code != 0
+        assert "No submitted batches recorded" in result.output
+
+    def test_snapshot_reports_states(self, tmp_path, monkeypatch):
+        output = tmp_path / "out"
+        self._write_submit_ckpt(
+            output,
+            {
+                "/eagle/me/req/batch_requests_000.jsonl": {"batch_id": "b0", "status": "pending"},
+                "/eagle/me/req/batch_requests_001.jsonl": {"batch_id": "b1", "status": "pending"},
+            },
+        )
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            if batch_id == "b0":
+                return {"state": "completed", "batch_id": "b0"}
+            return {"state": "ongoing", "batch_id": "b1"}
+
+        import araiadoc.agentic.alcf_batch as alcf_batch_mod
+
+        monkeypatch.setattr(alcf_batch_mod, "get_alcf_batch_result", fake_get)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-status", "-o", str(output), "--api-key", "secret"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "completed=1" in result.output
+        assert "ongoing=1" in result.output
+        assert "b0" in result.output and "b1" in result.output
+
+    def test_reports_failed_message(self, tmp_path, monkeypatch):
+        output = tmp_path / "out"
+        self._write_submit_ckpt(
+            output,
+            {"/eagle/me/req/batch_requests_000.jsonl": {"batch_id": "b0", "status": "pending"}},
+        )
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            return {
+                "state": "failed",
+                "batch_id": batch_id,
+                "message": "Traceback ...\nFileNotFoundError: 63/x.jsonl",
+            }
+
+        import araiadoc.agentic.alcf_batch as alcf_batch_mod
+
+        monkeypatch.setattr(alcf_batch_mod, "get_alcf_batch_result", fake_get)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-status", "-o", str(output), "--api-key", "secret"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "failed=1" in result.output
+        assert "FileNotFoundError" in result.output
+        assert "1 batch(es) FAILED" in result.output
+
+    def test_requires_api_key(self, tmp_path, monkeypatch):
+        output = tmp_path / "out"
+        self._write_submit_ckpt(
+            output,
+            {"/eagle/me/req/batch_requests_000.jsonl": {"batch_id": "b0"}},
+        )
+        monkeypatch.delenv("API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            ["--mode", "alcf-batch-status", "-o", str(output)],
+        )
+        assert result.exit_code != 0
+        assert "api-key" in result.output.lower()

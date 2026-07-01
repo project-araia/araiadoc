@@ -13,6 +13,7 @@ from araiadoc.agentic.alcf_batch import (
     count_active_batches,
     discover_batch_request_chunks,
     model_from_batch_request_chunks,
+    poll_alcf_batch_results,
     submit_alcf_batch,
     write_batch_manifest,
     write_batch_request_chunks,
@@ -33,6 +34,95 @@ def parse_keep_decisions(value: str) -> set[str]:
     if not decisions:
         raise click.BadParameter("provide at least one decision")
     return decisions
+
+
+def _run_alcf_batch_status(
+    *,
+    output_dir: Path,
+    api_key: str | None,
+    base_url: str,
+    timeout: float,
+    poll_interval: float,
+    wait: bool,
+) -> None:
+    """Poll the ALCF gateway for the batches recorded in the submit checkpoint.
+
+    Reads ``batch_submit_checkpoint.json`` for the batch IDs written at submit
+    time, queries each ``/batches/<id>/result``, and prints a per-batch status
+    table. With ``wait`` it blocks until every batch reaches a terminal state.
+    """
+    if not api_key:
+        raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
+
+    submit_ckpt_path = output_dir / "batch_submit_checkpoint.json"
+    submit_ckpt = load_json(submit_ckpt_path, {"submitted": {}})
+    submitted: dict = dict(submit_ckpt.get("submitted", {}))
+    if not submitted:
+        raise click.UsageError(
+            f"No submitted batches recorded at {submit_ckpt_path}. Run "
+            "--mode alcf-batch-submit first (with the same --artifact-dir/--output-dir)."
+        )
+
+    # Map batch_id -> remote input path for readable reporting, skipping any
+    # entries that never got an id (e.g. a submission that errored before record).
+    id_to_input: dict[str, str] = {}
+    for remote_input, meta in submitted.items():
+        batch_id = meta.get("batch_id")
+        if batch_id:
+            id_to_input[str(batch_id)] = remote_input
+    batch_ids = list(id_to_input)
+    if not batch_ids:
+        raise click.UsageError(
+            f"{submit_ckpt_path} has submitted entries but none carry a batch_id; " "nothing to poll."
+        )
+
+    def _render(results: dict) -> None:
+        counts: dict[str, int] = {}
+        click.echo(f"\nBatch status ({len(results)}/{len(batch_ids)} polled):")
+        for batch_id in batch_ids:
+            res = results.get(batch_id)
+            if res is None:
+                continue
+            state = res.get("state", "unknown")
+            counts[state] = counts.get(state, 0) + 1
+            line = f"  [{state:>9}] {batch_id}  <- {id_to_input.get(batch_id, '?')}"
+            if state in ("failed", "unknown") and res.get("message"):
+                line += f"\n              {res['message'].strip().splitlines()[-1][:200]}"
+            click.echo(line)
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        click.echo(f"  => {summary}")
+
+    click.echo(
+        f"Polling {len(batch_ids)} batch(es) at {base_url_batches_result_hint(base_url)} "
+        f"({'waiting until all terminal' if wait else 'single snapshot'}) ..."
+    )
+    results = poll_alcf_batch_results(
+        base_url=base_url,
+        api_key=api_key,
+        batch_ids=batch_ids,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        wait=wait,
+        on_update=_render,
+    )
+
+    failed = [bid for bid in batch_ids if results.get(bid, {}).get("state") == "failed"]
+    completed = [bid for bid in batch_ids if results.get(bid, {}).get("state") == "completed"]
+    if failed:
+        click.echo(f"\n{len(failed)} batch(es) FAILED. Inspect their tracebacks above.")
+    if completed and not failed:
+        click.echo(
+            "\nAll polled batches completed. Copy the output folder back and run:\n"
+            f"  araiadoc agentic-judge-dataset <SOURCE> --mode alcf-batch-collect "
+            f"-o {output_dir} --collect-batch-output <ALCF_OUTPUT_PATH>"
+        )
+
+
+def base_url_batches_result_hint(base_url: str) -> str:
+    """Return the list/result base URL for display (mirrors alcf_batch derivation)."""
+    from araiadoc.agentic.alcf_batch import _batches_list_base
+
+    return _batches_list_base(base_url) + "/batches/<id>/result"
 
 
 def _run_alcf_batch_submit(
@@ -456,13 +546,15 @@ def _submit_with_quota_backoff(
 )
 @click.option(
     "--mode",
-    type=click.Choice(["requests", "alcf-batch-submit", "alcf-batch-collect"]),
+    type=click.Choice(["requests", "alcf-batch-submit", "alcf-batch-status", "alcf-batch-collect"]),
     default="requests",
     show_default=True,
     help=(
         "Mode: 'requests' judges each document via chat completions (works on "
         "any OpenAI-compatible endpoint). 'alcf-batch-submit' builds the batch "
         "request JSONL + manifest and POSTs an ALCF filesystem-based batch job. "
+        "'alcf-batch-status' polls the ALCF gateway for the batches recorded in "
+        "batch_submit_checkpoint.json (add --wait to block until all finish). "
         "'alcf-batch-collect' folds an ALCF batch output file/folder back into "
         "judge artifacts."
     ),
@@ -604,6 +696,15 @@ def _submit_with_quota_backoff(
         "partial or failed submission without rebuilding."
     ),
 )
+@click.option(
+    "--wait",
+    is_flag=True,
+    help=(
+        "[alcf-batch-status] Block and keep polling every --poll-interval seconds "
+        "until all recorded batches reach a terminal state (completed/failed) "
+        "instead of printing a single status snapshot and exiting."
+    ),
+)
 def agentic_judge_dataset(
     source: Path | None,
     model: str,
@@ -630,8 +731,25 @@ def agentic_judge_dataset(
     max_active_batches: int,
     poll_interval: float,
     resubmit_existing: bool,
+    wait: bool,
 ) -> None:
     """Judge relevance of a sectionized corpus with an OpenAI-compatible model."""
+    if mode == "alcf-batch-status":
+        if output_dir is None:
+            raise click.UsageError(
+                "--mode alcf-batch-status requires --artifact-dir pointing at the dir "
+                "with batch_submit_checkpoint.json."
+            )
+        _run_alcf_batch_status(
+            output_dir=output_dir,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            wait=wait,
+        )
+        return
+
     # Resubmit-existing short-circuit: the requests are already baked into
     # batch_requests*.jsonl in --artifact-dir/--output-dir, so we don't read SOURCE / the prompt
     # / re-chunk. This must run before any prompt/source-dependent work below.
@@ -640,7 +758,8 @@ def agentic_judge_dataset(
             raise click.UsageError("--resubmit-existing is only valid with --mode alcf-batch-submit.")
         if output_dir is None:
             raise click.UsageError(
-                "--resubmit-existing requires --artifact-dir pointing at the dir with batch_requests*.jsonl."
+                "--resubmit-existing requires --artifact-dir/--output-dir pointing at the dir "
+                "with batch_requests*.jsonl."
             )
         output_dir.mkdir(parents=True, exist_ok=True)
         _run_alcf_batch_resubmit(
