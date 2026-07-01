@@ -146,7 +146,7 @@ Common false positives to mark IRRELEVANT unless they explicitly connect to the 
 
 Important judging guidance:
 
-- **When uncertain between two scores, pick the LOWER one. Prefer precision over recall.**
+- **When uncertain between two scores, pick the LOWER one. Prefer precision (taking 'relevant' as positive) over recall.**
 - Positive descriptive test: ask "does this document describe what a weather/climate/environmental hazard does to people, systems, ecosystems, or institutions?"
   If yes, the hazard is real here. If the hazard is only cited as motivation and the rest of the document could proceed without it, the hazard is not substantive -> not relevant.
 - Judge only from the provided evidence. Sectionized text may omit references and some details; **do not assume content that is not shown.**
