@@ -383,6 +383,118 @@ def count_active_batches(
     return sum(1 for b in batches if str(b.get("status", "")).lower() in ACTIVE_BATCH_STATUSES)
 
 
+def get_alcf_batch_result(
+    *,
+    base_url: str,
+    api_key: str,
+    batch_id: str,
+    timeout: float,
+) -> dict[str, Any]:
+    """GET a single batch's result, classified into a stable status.
+
+    The ALCF gateway's ``/batches/<id>/result`` endpoint returns different HTTP
+    codes and error ``code`` values depending on the batch's lifecycle:
+
+    - not finished  -> HTTP 4xx with ``{"error": {"code": "batch_ongoing", ...}}``
+    - failed        -> HTTP 4xx with ``{"error": {"code": "batch_failed", ...}}``
+                       (``message`` carries the worker traceback)
+    - completed     -> HTTP 200 with the result payload
+
+    Rather than let ``batch_ongoing`` / ``batch_failed`` surface as a raw
+    ``UsageError`` (they are expected states, not tool bugs), this normalises the
+    response into ``{"state": ..., "batch_id": ..., ...}`` where ``state`` is one
+    of ``"completed"``, ``"ongoing"``, ``"failed"``, or ``"unknown"``.
+    """
+    import httpx
+
+    url = _batches_list_base(base_url) + f"/batches/{batch_id}/result"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = httpx.get(url, headers=headers, timeout=timeout)
+
+    body: Any
+    try:
+        body = response.json()
+    except json.JSONDecodeError:
+        body = {"raw_response": response.text}
+
+    if response.status_code < 400:
+        return {
+            "state": "completed",
+            "batch_id": batch_id,
+            "http_status": response.status_code,
+            "result": body,
+        }
+
+    code = ""
+    message = ""
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            code = str(err.get("code", "")).lower()
+            message = str(err.get("message", ""))
+
+    if code == "batch_ongoing":
+        state = "ongoing"
+    elif code == "batch_failed":
+        state = "failed"
+    else:
+        state = "unknown"
+
+    return {
+        "state": state,
+        "batch_id": batch_id,
+        "http_status": response.status_code,
+        "code": code,
+        "message": message,
+        "result": body,
+    }
+
+
+# Terminal (no longer changing) batch result states.
+TERMINAL_RESULT_STATES = frozenset({"completed", "failed"})
+
+
+def poll_alcf_batch_results(
+    *,
+    base_url: str,
+    api_key: str,
+    batch_ids: list[str],
+    timeout: float,
+    poll_interval: float,
+    wait: bool,
+    on_update=None,
+) -> dict[str, dict[str, Any]]:
+    """Fetch (and optionally wait on) results for many batch IDs.
+
+    Returns a mapping ``batch_id -> result dict`` (as produced by
+    :func:`get_alcf_batch_result`). When *wait* is true, keep polling until every
+    batch reaches a terminal state (``completed`` / ``failed``); otherwise return
+    after a single pass. ``on_update(results)`` is invoked after each pass so
+    callers can render progress.
+    """
+    import time
+
+    results: dict[str, dict[str, Any]] = {}
+    while True:
+        for batch_id in batch_ids:
+            if results.get(batch_id, {}).get("state") in TERMINAL_RESULT_STATES:
+                continue
+            results[batch_id] = get_alcf_batch_result(
+                base_url=base_url,
+                api_key=api_key,
+                batch_id=batch_id,
+                timeout=timeout,
+            )
+        if on_update is not None:
+            on_update(results)
+        if not wait:
+            return results
+        pending = [bid for bid in batch_ids if results.get(bid, {}).get("state") not in TERMINAL_RESULT_STATES]
+        if not pending:
+            return results
+        time.sleep(poll_interval)
+
+
 def _iter_batch_output_lines(output_path: Path):
     """Yield non-empty lines from a single file or all .jsonl files in a dir."""
     if output_path.is_dir():

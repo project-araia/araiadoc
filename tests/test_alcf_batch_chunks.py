@@ -15,8 +15,10 @@ from araiadoc.agentic.alcf_batch import (
     count_active_batches,
     derive_chunk_input_path,
     discover_batch_request_chunks,
+    get_alcf_batch_result,
     list_alcf_batches,
     model_from_batch_request_chunks,
+    poll_alcf_batch_results,
     write_batch_request_chunks,
 )
 
@@ -538,3 +540,121 @@ class TestSubmitQuotaDetection:
             pass
         else:
             raise AssertionError("expected UsageError")
+
+
+class TestGetBatchResult:
+    def _patch_get(self, monkeypatch, resp):
+        import httpx
+
+        captured = {}
+
+        def fake_get(url, *a, **k):
+            captured["url"] = url
+            return resp
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+        return captured
+
+    def test_completed_returns_result(self, monkeypatch):
+        self._patch_get(monkeypatch, _FakeResp(200, {"output_file": "/eagle/out/x.jsonl"}))
+        out = get_alcf_batch_result(
+            base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", batch_id="b1", timeout=5
+        )
+        assert out["state"] == "completed"
+        assert out["batch_id"] == "b1"
+        assert out["result"]["output_file"] == "/eagle/out/x.jsonl"
+
+    def test_ongoing_is_classified(self, monkeypatch):
+        payload = {"error": {"code": "batch_ongoing", "message": "Batch not completed yet."}}
+        self._patch_get(monkeypatch, _FakeResp(400, payload))
+        out = get_alcf_batch_result(
+            base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", batch_id="b1", timeout=5
+        )
+        assert out["state"] == "ongoing"
+
+    def test_failed_carries_message(self, monkeypatch):
+        payload = {"error": {"code": "batch_failed", "message": "Traceback ...\nFileNotFoundError: bad"}}
+        self._patch_get(monkeypatch, _FakeResp(400, payload))
+        out = get_alcf_batch_result(
+            base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", batch_id="b1", timeout=5
+        )
+        assert out["state"] == "failed"
+        assert "FileNotFoundError" in out["message"]
+
+    def test_unknown_error_code(self, monkeypatch):
+        payload = {"error": {"code": "weird_thing", "message": "??"}}
+        self._patch_get(monkeypatch, _FakeResp(500, payload))
+        out = get_alcf_batch_result(
+            base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", batch_id="b1", timeout=5
+        )
+        assert out["state"] == "unknown"
+
+    def test_uses_list_base_url(self, monkeypatch):
+        captured = self._patch_get(monkeypatch, _FakeResp(200, {}))
+        get_alcf_batch_result(
+            base_url="https://x/resource_server/sophia/vllm/v1", api_key="k", batch_id="b1", timeout=5
+        )
+        assert captured["url"] == "https://x/resource_server/v1/batches/b1/result"
+
+
+class TestPollBatchResults:
+    def test_single_pass_when_not_waiting(self, monkeypatch):
+        import araiadoc.agentic.alcf_batch as mod
+
+        calls = {"n": 0}
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            calls["n"] += 1
+            return {"state": "ongoing", "batch_id": batch_id}
+
+        monkeypatch.setattr(mod, "get_alcf_batch_result", fake_get)
+        out = poll_alcf_batch_results(
+            base_url="b", api_key="k", batch_ids=["a", "b"], timeout=5, poll_interval=0.01, wait=False
+        )
+        assert calls["n"] == 2
+        assert set(out) == {"a", "b"}
+
+    def test_wait_stops_when_all_terminal(self, monkeypatch):
+        import araiadoc.agentic.alcf_batch as mod
+
+        # First pass ongoing, second pass terminal.
+        seq = {"a": ["ongoing", "completed"], "b": ["ongoing", "failed"]}
+        idx = {"a": 0, "b": 0}
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            i = idx[batch_id]
+            idx[batch_id] = min(i + 1, len(seq[batch_id]) - 1)
+            return {"state": seq[batch_id][i], "batch_id": batch_id}
+
+        monkeypatch.setattr(mod, "get_alcf_batch_result", fake_get)
+        import time as _t
+
+        monkeypatch.setattr(_t, "sleep", lambda s: None)
+        out = poll_alcf_batch_results(
+            base_url="b", api_key="k", batch_ids=["a", "b"], timeout=5, poll_interval=0.01, wait=True
+        )
+        assert out["a"]["state"] == "completed"
+        assert out["b"]["state"] == "failed"
+
+    def test_terminal_batches_not_repolled(self, monkeypatch):
+        import araiadoc.agentic.alcf_batch as mod
+
+        calls = {"a": 0, "b": 0}
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            calls[batch_id] += 1
+            # 'a' terminal immediately, 'b' ongoing then completed.
+            if batch_id == "a":
+                return {"state": "completed", "batch_id": "a"}
+            return {"state": "ongoing" if calls["b"] == 1 else "completed", "batch_id": "b"}
+
+        monkeypatch.setattr(mod, "get_alcf_batch_result", fake_get)
+        import time as _t
+
+        monkeypatch.setattr(_t, "sleep", lambda s: None)
+        poll_alcf_batch_results(
+            base_url="b", api_key="k", batch_ids=["a", "b"], timeout=5, poll_interval=0.01, wait=True
+        )
+        # 'a' polled once (skipped after terminal), 'b' polled twice.
+        assert calls["a"] == 1
+        assert calls["b"] == 2
