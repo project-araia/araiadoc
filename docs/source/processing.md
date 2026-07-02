@@ -110,18 +110,35 @@ Use OpenAI-compatible models (or ALCF Sophia/vLLM endpoints) to judge the releva
 araiadoc agentic-judge-dataset SOURCE --prompt PROMPT_FILE [OPTIONS]
 ```
 
-- **Options:**
-  - `--model TEXT`: Model name.
-  - `--base-url TEXT`: Target API endpoint base URL.
+- **Key options:**
+  - `--model TEXT`: Model name (default: `openai/gpt-oss-20b`).
+  - `--base-url TEXT`: Target API endpoint base URL (default: ALCF Sophia/vLLM).
   - `--api-key TEXT`: API auth key (can also be read from `OPENAI_API_KEY` or `API_KEY`).
-  - `--mode [requests|provider-batch]`: Bounded concurrent direct API requests or asynchronous provider-side bulk batching.
-  - `--concurrency INTEGER`: Local request concurrency level (defaults to `4`).
+  - `--mode [requests|alcf-batch-submit|alcf-batch-status|alcf-batch-collect]`: Bounded concurrent direct API requests (`requests`, default), ALCF filesystem-based batch submission, batch status polling, or batch result collection.
+  - `--concurrency INTEGER`: Local request concurrency for `--mode requests` (default: `4`).
   - `--dry-run`: Renders and prints sample prompts to stdout without submitting calls to the model endpoint.
   - `--copy-kept`: Copies kept documents into `OUTPUT_DIR/kept/`.
+  - `--max-input-chars INTEGER`: Truncate document text fed into each prompt (default: `20000`).
+  - `--limit INTEGER`: Judge at most N documents.
 
-**Example:**
+See the [README](../../README.md#agentic-judge-dataset) for the full options reference and the complete ALCF batch workflow (chunked submission, absolute-path requirements, active-batch quota throttling, status polling with `--wait`, and result collection).
+
+**Example (request mode):**
 ```bash
 araiadoc agentic-judge-dataset data/all_weather_sectionized \
   --prompt prompts/weather_utility.md \
+  --api-key "$API_KEY" \
   --concurrency 4
+```
+
+**Example (ALCF batch — one-step submit on login node):**
+```bash
+araiadoc agentic-judge-dataset data/all_weather_sectionized \
+  --prompt prompts/weather_utility.md \
+  --mode alcf-batch-submit \
+  --artifact-dir /eagle/argonne_tpc/you/judged/ \
+  --model google/gemma-3-27b-it \
+  --api-key "$API_KEY" \
+  --batch-request-dir /eagle/argonne_tpc/you/judged/ \
+  --batch-result-dir /eagle/argonne_tpc/you/results/
 ```
