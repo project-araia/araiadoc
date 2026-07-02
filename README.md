@@ -316,64 +316,112 @@ Queries a local s2orc_v2 download using DuckDB. Use exactly one of `--source`, `
 ### Agentic judge dataset
 
 ```bash
-Usage: araiadoc agentic-judge-dataset [OPTIONS] SOURCE
+Usage: araiadoc agentic-judge-dataset [OPTIONS] [SOURCE]
 
 Options:
-  --model TEXT                 OpenAI-compatible chat model name.
-  --base-url TEXT              OpenAI-compatible API base URL.
-  --api-key TEXT               API key/token. Also read from API_KEY or OPENAI_API_KEY.
-  --prompt FILE                Rubric prompt file. Required except with --resubmit-existing.
+  --model TEXT                    OpenAI-compatible chat model name.
+                                  [default: openai/gpt-oss-20b]
+  --base-url TEXT                 OpenAI-compatible API base URL.  [default:
+                                  https://inference-api.alcf.anl.gov/resource_server/sophia/vllm/v1]
+  --api-key TEXT                  API key/token. Also read from API_KEY or
+                                  OPENAI_API_KEY.
+  --prompt FILE                   Rubric prompt file. Must emphasize a 0-3
+                                  score and corresponding relevance criteria.
+                                  Required except with --resubmit-existing.
   -o, --artifact-dir, --output-dir PATH
-                               Directory for araiadoc artifacts/work files (request chunks,
-                               manifest, checkpoints, results, summary). Defaults to
-                               SOURCE_judged. --output-dir is a legacy alias.
-  --mode [requests|alcf-batch-submit|alcf-batch-collect]
-                               requests: judge each document via chat completions.
-                               alcf-batch-submit: build the request JSONL + manifest
-                               and POST an ALCF filesystem-based batch job.
-                               alcf-batch-collect: fold an ALCF batch output file/folder
-                               back into judge artifacts.  [default: requests]
-  --concurrency INTEGER        Concurrent requests for --mode requests.  [default: 4]
-  --max-tokens INTEGER         Maximum generated tokens.  [default: 512]
-  --temperature FLOAT          Sampling temperature.  [default: 0.0]
-  --timeout FLOAT              Per-request timeout in seconds.  [default: 120.0]
-  --limit INTEGER              Judge at most N documents.
-  --dry-run                    Build and print prompt samples without calling the model.
-  --max-input-chars INTEGER    Maximum document payload characters per prompt.  [default: 20000]
-  --copy-kept                  Copy documents with kept decisions into OUTPUT_DIR/kept.
-  --keep-decisions TEXT        Comma-separated decisions copied by --copy-kept.  [default: relevant]
-  --resume / --no-resume       Skip completed stable job keys from judge_checkpoint.json.
+                                  Directory for araiadoc artifacts/work files
+                                  (request chunks, manifest, checkpoints,
+                                  results, summary). Defaults to SOURCE_judged.
+                                  --output-dir is a legacy alias.
+  --mode [requests|alcf-batch-submit|alcf-batch-status|alcf-batch-collect]
+                                  requests: judge each document via chat
+                                  completions (works on any OpenAI-compatible
+                                  endpoint). alcf-batch-submit: build the
+                                  batch request JSONL + manifest and POST an
+                                  ALCF filesystem-based batch job.
+                                  alcf-batch-status: poll the ALCF gateway for
+                                  the batches recorded in
+                                  batch_submit_checkpoint.json (add --wait to
+                                  block until all finish). alcf-batch-collect:
+                                  fold an ALCF batch output file/folder back
+                                  into judge artifacts.  [default: requests]
+  --concurrency INTEGER RANGE     Concurrent requests for --mode requests.
+                                  [default: 4; x>=1]
+  --max-tokens INTEGER RANGE      Maximum generated tokens.  [default: 512; x>=1]
+  --temperature FLOAT             Sampling temperature.  [default: 0.0]
+  --timeout FLOAT RANGE           Per-request timeout in seconds.
+                                  [default: 120.0; x>=1.0]
+  --limit INTEGER RANGE           Judge at most N documents. No limit by
+                                  default.  [x>=1]
+  --dry-run                       Build and print prompt samples without
+                                  calling the model.
+  --max-input-chars INTEGER RANGE
+                                  Maximum document payload characters included
+                                  in each prompt.  [default: 20000; x>=100]
+  --copy-kept                     Copy documents with kept decisions into
+                                  OUTPUT_DIR/kept.
+  --keep-decisions TEXT           Comma-separated decisions copied by
+                                  --copy-kept.  [default: relevant]
+  --resume / --no-resume          Skip completed stable job keys from
+                                  judge_checkpoint.json.  [default: resume]
   --batch-request-dir, --batch-input-dir TEXT
-                               [alcf-batch-submit] ALCF folder containing request JSONL chunk
-                               file(s) for the endpoint to read. Each chunk is submitted under
-                               the SAME filename the tool wrote locally (batch_requests.jsonl,
-                               or batch_requests_000.jsonl, …). --batch-input-dir is a legacy
-                               alias.
-  --batch-input-file TEXT      [alcf-batch-submit] DEPRECATED for multi-chunk runs; use
-                               --batch-request-dir. Single ALCF path for a one-chunk run
-                               (e.g. /eagle/argonne_tpc/you/input.jsonl). Errors if the run
-                               produced more than one chunk.
+                                  [alcf-batch-submit] ALCF filesystem folder
+                                  containing request JSONL chunk file(s) for
+                                  the endpoint to read (e.g.
+                                  /eagle/.../requests/). The tool submits one
+                                  batch per chunk using the SAME filenames it
+                                  wrote locally (batch_requests.jsonl, or
+                                  batch_requests_000.jsonl, …). --batch-input-
+                                  dir is a legacy alias.
+  --batch-input-file TEXT         [alcf-batch-submit] DEPRECATED for multi-
+                                  chunk runs; use --batch-request-dir. ALCF
+                                  filesystem path the inference service reads a
+                                  SINGLE-chunk request JSONL from (e.g.
+                                  /eagle/argonne_tpc/you/input.jsonl). Errors
+                                  if the run produced more than one chunk.
   --batch-result-dir, --batch-output-folder TEXT
-                               [alcf-batch-submit] ALCF folder where the inference service
-                               writes batch result/progress files. --batch-output-folder is a
-                               legacy alias.
-  --collect-batch-output PATH  [alcf-batch-collect] Path to the ALCF batch output .jsonl
-                               file, or a folder of output .jsonl files.
-  --max-batch-mb FLOAT         [alcf-batch-submit] Maximum size in MB per request JSONL chunk.
-                               When all requests fit within this limit a single
-                               batch_requests.jsonl is written; otherwise numbered chunk files
-                               (batch_requests_000.jsonl, …) are written and one batch job is
-                               submitted per chunk.  [default: 9]
-  --max-active-batches INTEGER [alcf-batch-submit] Max active (pending/running) ALCF batches
-                               at once. Submission is throttled to stay within this; ALCF
-                               currently caps users at 2.  [default: 2]
-  --poll-interval FLOAT        [alcf-batch-submit] Seconds between polls for a free active-
-                               batch slot while throttling.  [default: 30.0]
-  --resubmit-existing          [alcf-batch-submit] Submit the batch_requests*.jsonl already
-                               written to --artifact-dir/--output-dir instead of regenerating
-                               them. Skips SOURCE / --prompt / re-chunking; derives the submit
-                               model from body.model in the JSONL (--max-batch-mb ignored). Use
-                               to resume after a partial/failed submission.
+                                  [alcf-batch-submit] ALCF filesystem folder
+                                  where the inference service writes batch
+                                  result/progress files (e.g.
+                                  /eagle/.../batch_results/). --batch-output-
+                                  folder is a legacy alias.
+  --collect-batch-output PATH     [alcf-batch-collect] Path to the ALCF batch
+                                  output .jsonl file, or a folder containing
+                                  output .jsonl files, to fold into judge
+                                  artifacts.
+  --max-batch-mb FLOAT RANGE      [alcf-batch-submit] Maximum size in MB per
+                                  request JSONL chunk. When all requests fit
+                                  within this limit a single
+                                  batch_requests.jsonl is written; otherwise
+                                  numbered chunk files are written and one
+                                  batch job is submitted per chunk. Default
+                                  (9 MB) stays comfortably under the ALCF
+                                  10 MB payload limit.
+                                  [default: 9; x>=0.001]
+  --max-active-batches INTEGER RANGE
+                                  [alcf-batch-submit] Maximum number of active
+                                  (pending/running) ALCF batches at once.
+                                  Submission is throttled to stay within this;
+                                  ALCF currently caps users at 2 active
+                                  batches.  [default: 2; x>=1]
+  --poll-interval FLOAT RANGE     [alcf-batch-submit / alcf-batch-status]
+                                  Seconds to wait between polls (active-batch
+                                  slot check during submit; result check during
+                                  status --wait).  [default: 30.0; x>=1.0]
+  --resubmit-existing             [alcf-batch-submit] Submit the
+                                  batch_requests*.jsonl already written to
+                                  --artifact-dir/--output-dir instead of
+                                  regenerating them. Skips reading SOURCE /
+                                  the prompt / re-chunking; the submit model
+                                  is derived from body.model inside the
+                                  existing JSONL, and --max-batch-mb is
+                                  ignored. Use to resume after a partial or
+                                  failed submission without rebuilding.
+  --wait                          [alcf-batch-status] Block and keep polling
+                                  every --poll-interval seconds until all
+                                  recorded batches reach a terminal state
+                                  (completed/failed) instead of printing a
+                                  single status snapshot and exiting.
 ```
 
 Judges a sectionized corpus produced by `section-dataset-s2orc` or `section-dataset-v2`. Input documents are flat JSON files containing fields such as `title`, `abstract`, `introduction`, `methods`, and `results`. Corpus-level JSON files such as `sectionization_report.json`, `failures.json`, and checkpoints are skipped.
@@ -422,7 +470,7 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
 
 **Absolute paths required:** `--batch-request-dir`, `--batch-input-file`, and `--batch-result-dir` must be **absolute** paths on ALCF storage (e.g. `/eagle/argonne_tpc/<you>/...`). The inference service reads/writes them on Sophia's filesystem, not the machine running this command, so a *relative* path like `63_judged_input/` resolves to nothing on the node and every batch fails within seconds (`status: failed`). The tool now rejects relative paths up front, and warns if an absolute path isn't under `/eagle` or `/lus`. Legacy aliases `--batch-input-dir` and `--batch-output-folder` are still accepted.
 
-**Active-batch quota:** ALCF also limits each user to a small number of *active* (pending/running) batches (currently 2). Multi-chunk submission is therefore throttled to `--max-active-batches` (default 2): before each submit the gateway is polled every `--poll-interval` seconds until a slot frees, and a `quota_exceeded` rejection triggers an automatic back-off and retry rather than aborting. Submitted chunks are recorded in `batch_submit_checkpoint.json`, so re-running resumes where it left off instead of double-submitting — and it also reconciles against the live batch list (matching on `input_file`) to adopt batches submitted before checkpointing existed.
+**Active-batch quota:** ALCF also limits each user to a small number of *active* (pending/running) batches (currently 2). Multi-chunk submission is therefore throttled to `--max-active-batches` (default 2): before each submit the gateway is polled every `--poll-interval` seconds until a slot frees, and a `quota_exceeded` rejection triggers an automatic back-off and retry rather than aborting. Submitted chunks are recorded in `batch_submit_checkpoint.json`, so re-running resumes where it left off instead of double-submitting — and it also reconciles against the live batch list (matching on `input_file`) to adopt batches submitted before checkpointing existed. `--poll-interval` is also reused by `alcf-batch-status --wait` to control the result-check cadence.
 
 1. **Submit.** First build the request JSONL chunk(s) and manifest locally (omitting ALCF paths stages files only and prints next steps):
 
@@ -457,7 +505,46 @@ The ALCF inference gateway batch API is **not** the OpenAI Files/Batches API: th
      --batch-result-dir /eagle/argonne_tpc/you/output/
    ```
 
-2. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
+2. **Check status.** Poll the ALCF gateway for every batch recorded in `batch_submit_checkpoint.json` without leaving the terminal:
+
+   ```bash
+   # Single snapshot — print current state of all submitted batches and exit.
+   araiadoc agentic-judge-dataset \
+     --mode alcf-batch-status --artifact-dir data/all_weather_judged \
+     --api-key "$API_KEY"
+   ```
+
+   Each batch is classified into one of four states based on the gateway's `/batches/<id>/result` response:
+
+   | State | Meaning |
+   |---|---|
+   | `completed` | Results are ready in `--batch-result-dir`. |
+   | `ongoing` | Job is still running; results not ready yet. |
+   | `failed` | Job failed; the last line of the worker traceback is printed (e.g. `FileNotFoundError` for a bad path). |
+   | `unknown` | Unexpected error code from the gateway. |
+
+   Output looks like:
+   ```text
+   Batch status (3/3 polled):
+     [completed] b0a1c2d3-...  <- /eagle/.../batch_requests_000.jsonl
+     [  ongoing] b1e2f3a4-...  <- /eagle/.../batch_requests_001.jsonl
+     [   failed] b2c3d4e5-...  <- /eagle/.../batch_requests_002.jsonl
+                 FileNotFoundError: 'relative/path/input.jsonl'
+     => completed=1, failed=1, ongoing=1
+   ```
+
+   Add `--wait` to block until all batches finish, re-polling every `--poll-interval` seconds (default 30). Already-terminal batches are skipped on subsequent passes:
+
+   ```bash
+   araiadoc agentic-judge-dataset \
+     --mode alcf-batch-status --artifact-dir data/all_weather_judged \
+     --api-key "$API_KEY" \
+     --wait --poll-interval 60
+   ```
+
+   When all batches complete successfully the command prints the ready-to-run `alcf-batch-collect` command.
+
+3. **Collect.** When all jobs finish, copy the output back and fold it into the same judge artifacts. The single `batch_manifest.json` written during submit maps every `custom_id` across all chunks back to its document:
 
    ```bash
    araiadoc agentic-judge-dataset data/all_weather_sectionized \
