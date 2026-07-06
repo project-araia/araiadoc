@@ -3,13 +3,13 @@ risks, impacts, resilience, adaptation, preparedness, response, recovery, planni
 public health, community, infrastructure, or ecosystem implications.
 
 Definitions (as used in this context):
-- Climate: the weather and environmental conditions affecting people, communities, infrastructure, and ecosystems. Includes temperature, air pressure, humidity, precipitation, and other weather-related factors.
-- Hazard: an environmental circumstance, event, danger, threat, or risk that can harm people, communities, infrastructure, and ecosystems.
+- Climate: the long‑term patterns of weather and environmental conditions (such as temperature, humidity, and precipitation) that affect people, communities, infrastructure, and ecosystems.
+- Hazard: an environmental circumstance, process, event, or threat that can harm people, communities, infrastructure, or ecosystems.
 - Resilience: the ability of communities, infrastructure, or ecosystems to withstand, recover from, adjust, or adapt to a weather/climate/environmental hazard.
-- Adaptation: deliberate adjustments by people, communities, or systems in response to actual or expected weather/climate/environmental hazards.
+- Adaptation: adjustments by people, communities, or systems in response to actual or expected weather/climate/environmental hazards.
 - Vulnerability: the degree to which people, communities, or systems are susceptible to harm from a weather/climate/environmental hazard.
-- Exposure: the presence of people, infrastructure, or ecosystems in locations subject to a weather/climate/environmental hazard.
-- Risk: the likelihood or magnitude of harm to people, systems, or ecosystems from a weather/climate/environmental hazard. Risk in finance, engineering reliability, or medicine does not qualify.
+- Exposure: the presence of people, livelihoods, services, assets, infrastructure, or ecosystems in locations subject to a weather/climate/environmental hazard.
+- Risk: the potential for adverse consequences to people, systems, or ecosystems from a weather/climate/environmental hazard. Risk in finance, engineering reliability, or medicine does not qualify.
 - Mitigation: reducing harm or exposure from a weather/climate/environmental hazard (e.g., flood-proofing, heat action plans). General emissions reduction or carbon policy qualifies only when linked to hazard impacts. Reducing noise, costs, or business risks does not qualify.
 - Sustainability: long-term management of communities, infrastructure, or ecosystems in the face of weather/climate/environmental hazards. General environmental, economic, or corporate sustainability without a clear hazard link does not qualify.
 - Governance: institutional or policy arrangements for managing weather/climate/environmental hazard risk. Corporate governance, data governance, or AI governance do not qualify.
