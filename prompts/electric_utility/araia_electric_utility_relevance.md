@@ -11,7 +11,7 @@ Definitions (as used in this context):
 - Resilience: the ability of the power system or utility to withstand, recover from, or adapt to a disruptive event such as a storm, flood, wildfire, or extreme-temperature event.
 - Planning: utility resource, capacity, transmission, or distribution planning, including load and demand forecasting.
 - Regulation: institutional or policy arrangements governing utilities (e.g., public utility commissions, rate cases, reliability standards). Corporate, data, or AI governance do not qualify.
-- Risk: the likelihood or magnitude of harm to the power system, its customers, or the electricity service it provides. Pure financial risk, medical risk, or unrelated engineering reliability not tied to electricity service does not qualify.
+- Risk: the likelihood and/or magnitude of harm to the power system, its customers, or the electricity service it provides. Pure financial risk, medical risk, or unrelated engineering reliability not tied to electricity service does not qualify.
 
 THE CORE TEST — apply this first, before anything else. A document is RELEVANT only if it is true that:
 
