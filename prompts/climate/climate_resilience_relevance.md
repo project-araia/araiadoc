@@ -28,12 +28,10 @@ If EITHER the hazard or the context is missing, weak, or only mentioned in passi
 Weather, climate, and environmental hazard examples and definitions include:
 
 Heat-related:
-- extreme heat: unusually high temperatures that stress people, systems, or ecosystems beyond normal tolerances. Often sustained over hours to days.
-- heat waves: prolonged periods of excessively hot weather, sometimes with high humidity, lasting several days or more.
+- extreme heat / heat waves: a period of abnormally hot weather that stresses people, systems, or ecosystems beyond normal tolerances. Typically sustained over two days to months.
 - heat mortality: deaths caused or hastened by exposure to extreme heat.
 - wet-bulb temperature: a combined measure of heat and humidity indicating the limit beyond which the human body can no longer cool itself by sweating. High wet-bulb values signal lethal heat conditions.
 - heat stress: physiological strain on people, animals, or crops from exposure to high temperatures.
-- high temperatures: elevated ambient temperatures that pose risks to health, infrastructure, or ecosystems.
 - heat index: a measure combining air temperature and humidity to express how hot it feels to the human body.
 - urban heat islands: localized warming in cities where built surfaces absorb and retain heat, making urban areas hotter than surrounding rural land.
 - urban warming: the broader trend of rising temperatures in urban environments driven by development and land-use change.
@@ -50,14 +48,14 @@ Cold-related:
 - blizzards: severe snowstorms with strong winds, snow, and reduced visibility lasting an extended period.
 
 Flood-related:
-- floods: the overflow of water onto normally dry land, threatening people, property, and ecosystems.
+- floods: the overflow of water from a stream channel onto normally dry land, threatening people, property, and ecosystems.
 - flash floods: rapid, sudden flooding caused by intense rainfall or dam failure, with little warning time.
 - river floods: flooding when river levels exceed their banks due to prolonged or heavy precipitation or snowmelt.
 - urban flooding: flooding in human-developed areas when drainage systems are overwhelmed by rainfall.
 - coastal flooding: inundation of low-lying coastal land by seawater, often from storm surge, tides, or sea level rise.
 - compound flooding: flooding from the simultaneous or successive occurrence of multiple drivers (e.g., heavy rain plus storm surge).
 - inundation: the submersion of land under water from any flooding source.
-- storm surge: an abnormal rise of seawater driven onshore by a storm's winds and low pressure, often during cyclones.
+- storm surge: an abnormal rise of seawater driven onshore by a storm's winds and low pressure, above the predicted tide, often during cyclones.
 - heavy precipitation: intense rainfall or snowfall over a short period that can trigger flooding.
 - pluvial flooding: surface-water flooding caused directly by rainfall overwhelming drainage, independent of rivers or coasts.
 - riverine flooding: flooding originating from rivers and streams overtopping their channels.
