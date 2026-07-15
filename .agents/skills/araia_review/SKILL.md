@@ -161,7 +161,7 @@ For each file, load the JSON and pull:
 
 - `title`
 - list of section-header keys (everything that isn't `title`)
-- the first non-title section's text (truncated ~700 chars) as an
+- the first non-title section's text (truncated ~1000 chars) as an
   abstract-substitute, since the s2orc_v2 sectionizer promotes pre-header
   paragraphs into an `abstract` or `introduction` key.
 
