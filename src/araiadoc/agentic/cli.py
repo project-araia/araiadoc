@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,6 +77,75 @@ def parse_keep_decisions(value: str) -> set[str]:
     return decisions
 
 
+def _slug(value: str, *, default: str = "run", max_len: int = 64) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("._-")
+    return (slug or default)[:max_len].strip("._-") or default
+
+
+def _make_batch_run_dir(base_dir: Path, *, source: Path, model: str, num_jobs: int, prompt_sha256: str) -> Path:
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    source_slug = _slug(source.name, default="source", max_len=32)
+    model_slug = _slug(model.replace("/", "-"), default="model", max_len=48)
+    return base_dir / f"{stamp}_{source_slug}_{model_slug}_{num_jobs}docs_{prompt_sha256[:8]}"
+
+
+def _resolve_batch_run_dir(
+    *,
+    batch_base_dir: Path | None,
+    batch_run_dir: Path | None,
+    batch_run_name: str | None,
+    source: Path,
+    model: str,
+    num_jobs: int,
+    prompt_sha256: str,
+) -> Path:
+    if batch_run_dir is not None:
+        if batch_run_name:
+            raise click.UsageError("--batch-run-name can only be used with --batch-base-dir, not --batch-run-dir.")
+        if batch_base_dir is not None:
+            base = batch_base_dir.resolve(strict=False)
+            run = batch_run_dir.resolve(strict=False)
+            if run != base and not run.is_relative_to(base):
+                raise click.UsageError("--batch-run-dir must be inside --batch-base-dir when both are provided.")
+        return batch_run_dir
+    if batch_base_dir is None:
+        raise click.UsageError("--mode alcf-batch-run requires --batch-base-dir or --batch-run-dir.")
+    if batch_run_name:
+        return batch_base_dir / _slug(batch_run_name, default="run", max_len=96)
+    return _make_batch_run_dir(
+        batch_base_dir,
+        source=source,
+        model=model,
+        num_jobs=num_jobs,
+        prompt_sha256=prompt_sha256,
+    )
+
+
+def _discover_collect_batch_output(batch_result_dir: Path) -> Path:
+    if not batch_result_dir.exists():
+        raise click.UsageError(
+            f"No ALCF batch result directory found at {batch_result_dir}. "
+            "Wait for the batch to complete or pass --collect-batch-output explicitly."
+        )
+    if batch_result_dir.is_file():
+        return batch_result_dir
+    direct = sorted(batch_result_dir.glob("*.jsonl")) or sorted(batch_result_dir.glob("*.json"))
+    if direct:
+        return batch_result_dir
+    candidates = []
+    for child in sorted(p for p in batch_result_dir.iterdir() if p.is_dir()):
+        if sorted(child.glob("*.jsonl")) or sorted(child.glob("*.json")):
+            candidates.append(child)
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        return batch_result_dir
+    raise click.UsageError(
+        f"No .jsonl/.json batch output files found under {batch_result_dir}. "
+        "Pass --collect-batch-output if the service wrote elsewhere."
+    )
+
+
 def _run_alcf_batch_status(
     *,
     output_dir: Path,
@@ -84,7 +154,7 @@ def _run_alcf_batch_status(
     timeout: float,
     poll_interval: float,
     wait: bool,
-) -> None:
+) -> dict:
     """Poll the ALCF gateway for the batches recorded in the submit checkpoint.
 
     Reads ``batch_submit_checkpoint.json`` for the batch IDs written at submit
@@ -186,6 +256,7 @@ def _run_alcf_batch_status(
             f"  araiadoc agentic-judge-dataset <SOURCE> --mode alcf-batch-collect "
             f"-o {output_dir} --collect-batch-output <ALCF_OUTPUT_PATH>"
         )
+    return results
 
 
 def base_url_batches_result_hint(base_url: str) -> str:
@@ -544,6 +615,64 @@ def _wait_for_active_slot(
         time.sleep(poll_interval)
 
 
+def _write_judge_run_artifacts(
+    *,
+    stats: dict,
+    docs: list[dict],
+    source: Path,
+    output_dir: Path,
+    model: str,
+    base_url: str,
+    prompt_path: Path,
+    prompt_sha256: str,
+    mode: str,
+    keep_decisions: set[str],
+    copy_kept: bool,
+    jobs: list,
+    result_path: Path,
+    summary_path: Path,
+    failures_path: Path,
+    api_key_provided: bool,
+) -> None:
+    if stats["failures"]:
+        failures_path.write_text(json.dumps(stats["failures"], indent=2), encoding="utf-8")
+    elif failures_path.exists():
+        failures_path.unlink()
+    expected_input_hashes = {doc["source_path"]: doc_input_sha256(doc) for doc in docs}
+    cumulative = summarize_results_file(
+        result_path,
+        model=model,
+        base_url=base_url,
+        prompt_sha256=prompt_sha256,
+        expected_input_hashes=expected_input_hashes,
+    )
+    write_summary(
+        summary_path,
+        source=source,
+        output_dir=output_dir,
+        model=model,
+        base_url=base_url,
+        prompt_path=prompt_path,
+        prompt_sha256=prompt_sha256,
+        mode=mode,
+        keep_decisions=keep_decisions,
+        copy_kept=copy_kept,
+        total_discovered=len(docs),
+        total_attempted=cumulative["succeeded"] + stats["failed"],
+        total_succeeded=cumulative["succeeded"],
+        total_failed=stats["failed"],
+        decision_counts=cumulative["decision_counts"],
+        parse_failures=cumulative["parse_failures"],
+        current_run_attempted=len(jobs),
+        current_run_succeeded=stats["succeeded"],
+        current_run_failed=stats["failed"],
+        current_run_decision_counts=stats["decision_counts"],
+        current_run_parse_failures=stats["parse_failures"],
+        retries=4,
+        api_key_provided=api_key_provided,
+    )
+
+
 def _submit_with_quota_backoff(
     *,
     base_url: str,
@@ -616,7 +745,7 @@ def _submit_with_quota_backoff(
 )
 @click.option(
     "--mode",
-    type=click.Choice(["requests", "alcf-batch-submit", "alcf-batch-status", "alcf-batch-collect"]),
+    type=click.Choice(["requests", "alcf-batch-submit", "alcf-batch-status", "alcf-batch-collect", "alcf-batch-run"]),
     default="requests",
     show_default=True,
     help=(
@@ -626,7 +755,8 @@ def _submit_with_quota_backoff(
         "'alcf-batch-status' polls the ALCF gateway for the batches recorded in "
         "batch_submit_checkpoint.json (add --wait to block until all finish). "
         "'alcf-batch-collect' folds an ALCF batch output file/folder back into "
-        "judge artifacts."
+        "judge artifacts. 'alcf-batch-run' creates a timestamped run under "
+        "--batch-base-dir and performs submit/status/collect as one workflow."
     ),
 )
 @click.option(
@@ -678,6 +808,28 @@ def _submit_with_quota_backoff(
     default=True,
     show_default=True,
     help="Skip completed stable job keys from judge_checkpoint.json.",
+)
+@click.option(
+    "--batch-base-dir",
+    type=click.Path(path_type=Path),
+    help=(
+        "[alcf-batch-run] Service-accessible ALCF base directory. The tool creates "
+        "a timestamped run subdirectory here and uses it for request files, artifacts, "
+        "and batch_output/."
+    ),
+)
+@click.option(
+    "--batch-run-dir",
+    type=click.Path(path_type=Path),
+    help=(
+        "[alcf-batch-run] Explicit existing or new run directory to use instead of "
+        "auto-naming one under --batch-base-dir. Useful for resuming a known run."
+    ),
+)
+@click.option(
+    "--batch-run-name",
+    type=str,
+    help="[alcf-batch-run] Optional subdirectory name under --batch-base-dir.",
 )
 @click.option(
     "--batch-request-dir",
@@ -793,6 +945,9 @@ def agentic_judge_dataset(
     copy_kept: bool,
     keep_decisions: str,
     resume: bool,
+    batch_base_dir: Path | None,
+    batch_run_dir: Path | None,
+    batch_run_name: str | None,
     batch_input_dir: str | None,
     batch_input_file: str | None,
     batch_output_folder: str | None,
@@ -847,14 +1002,20 @@ def agentic_judge_dataset(
 
     if source is None:
         raise click.UsageError("SOURCE is required (except with --resubmit-existing).")
-    output_dir = output_dir or Path(str(source) + "_judged")
+    if mode == "alcf-batch-run" and output_dir is not None:
+        raise click.UsageError(
+            "Use --batch-base-dir or --batch-run-dir with --mode alcf-batch-run, not --artifact-dir/-o."
+        )
+    if mode != "alcf-batch-run":
+        output_dir = output_dir or Path(str(source) + "_judged")
 
     source_resolved = source.resolve()
-    output_resolved = output_dir.resolve(strict=False)
-    if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
-        raise click.UsageError(
-            "--artifact-dir/--output-dir must be outside SOURCE so judging never mutates or rereads its input."
-        )
+    if output_dir is not None:
+        output_resolved = output_dir.resolve(strict=False)
+        if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
+            raise click.UsageError(
+                "--artifact-dir/--output-dir must be outside SOURCE so judging never mutates or rereads its input."
+            )
 
     if prompt_path is None:
         raise click.UsageError("--prompt is required (except with --resubmit-existing).")
@@ -866,11 +1027,14 @@ def agentic_judge_dataset(
     if limit is not None:
         docs = docs[:limit]
 
-    checkpoint_path = output_dir / "judge_checkpoint.json"
-    result_path = output_dir / "judge_results.jsonl.gz"
-    summary_path = output_dir / "judge_summary.json"
-    failures_path = output_dir / "failures.json"
-    checkpoint = load_json(checkpoint_path, {"completed_keys": []}) if resume else {"completed_keys": []}
+    resume_output_dir = output_dir
+    if mode == "alcf-batch-run" and batch_run_dir is not None:
+        resume_output_dir = batch_run_dir
+    if resume_output_dir is not None:
+        checkpoint_path = resume_output_dir / "judge_checkpoint.json"
+        checkpoint = load_json(checkpoint_path, {"completed_keys": []}) if resume else {"completed_keys": []}
+    else:
+        checkpoint = {"completed_keys": []}
     completed_keys = set(checkpoint.get("completed_keys", []))
     jobs = prepare_doc_jobs(
         docs=docs,
@@ -891,7 +1055,119 @@ def agentic_judge_dataset(
             click.echo(job["prompt"])
         return
 
+    if mode == "alcf-batch-run":
+        output_dir = _resolve_batch_run_dir(
+            batch_base_dir=batch_base_dir,
+            batch_run_dir=batch_run_dir,
+            batch_run_name=batch_run_name,
+            source=source,
+            model=model,
+            num_jobs=len(jobs),
+            prompt_sha256=prompt_sha256,
+        )
+        output_resolved = output_dir.resolve(strict=False)
+        if output_resolved == source_resolved or output_resolved.is_relative_to(source_resolved):
+            raise click.UsageError(
+                "--batch-run-dir must be outside SOURCE so judging never mutates or rereads its input."
+            )
+        batch_output_dir = output_dir / "batch_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        click.echo("ALCF batch run directory:")
+        click.echo(f"  {output_dir}")
+        click.echo("ALCF batch result directory:")
+        click.echo(f"  {batch_output_dir}")
+        _run_alcf_batch_submit(
+            jobs=jobs,
+            output_dir=output_dir,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            batch_input_dir=str(output_dir),
+            batch_input_file=None,
+            batch_output_folder=str(batch_output_dir),
+            max_batch_bytes=int(max_batch_mb * 1_000_000),
+            max_active_batches=max_active_batches,
+            poll_interval=poll_interval,
+        )
+        if not wait:
+            click.echo("\nSubmitted ALCF batch run. Re-run with --batch-run-dir and --wait to poll and collect later.")
+            return
+        results = _run_alcf_batch_status(
+            output_dir=output_dir,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            wait=True,
+        )
+        failed = [bid for bid, res in results.items() if res.get("state") == "failed"]
+        incomplete = [bid for bid, res in results.items() if res.get("state") != "completed"]
+        if failed or incomplete:
+            raise click.UsageError("ALCF batch run did not complete successfully; skipping collect.")
+        collect_batch_output = collect_batch_output or _discover_collect_batch_output(batch_output_dir)
+        checkpoint_path = output_dir / "judge_checkpoint.json"
+        result_path = output_dir / "judge_results.jsonl.gz"
+        summary_path = output_dir / "judge_summary.json"
+        failures_path = output_dir / "failures.json"
+        checkpoint = load_json(checkpoint_path, {"completed_keys": []}) if resume else {"completed_keys": []}
+        completed_keys = set(checkpoint.get("completed_keys", []))
+        manifest = load_json(output_dir / "batch_manifest.json", {})
+        if not manifest:
+            raise click.UsageError(f"No batch manifest found at {output_dir / 'batch_manifest.json'} after submit.")
+        parsed_keep_decisions = parse_keep_decisions(keep_decisions)
+        with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
+            progress.log(f"Collecting ALCF batch output from {collect_batch_output}")
+            stats = collect_alcf_batch_output(
+                output_path=collect_batch_output,
+                manifest=manifest,
+                source=source,
+                output_dir=output_dir,
+                model=model,
+                base_url=base_url,
+                prompt_sha256=prompt_sha256,
+                copy_kept=copy_kept,
+                keep_decisions=parsed_keep_decisions,
+                completed_keys=completed_keys,
+                checkpoint_path=checkpoint_path,
+                result_path=result_path,
+            )
+            _write_judge_run_artifacts(
+                stats=stats,
+                docs=docs,
+                source=source,
+                output_dir=output_dir,
+                model=model,
+                base_url=base_url,
+                prompt_path=prompt_path,
+                prompt_sha256=prompt_sha256,
+                mode=mode,
+                keep_decisions=parsed_keep_decisions,
+                copy_kept=copy_kept,
+                jobs=jobs,
+                result_path=result_path,
+                summary_path=summary_path,
+                failures_path=failures_path,
+                api_key_provided=bool(api_key),
+            )
+            progress.log("\n* Agentic judging complete.")
+            progress.log(f"* Output directory: {output_dir}")
+            progress.log(f"* Documents attempted: {len(jobs)}")
+            progress.log(f"* Documents succeeded: {stats['succeeded']}")
+            progress.log(f"* Documents failed: {stats['failed']}")
+            progress.log(f"* Parse failures: {stats['parse_failures']}")
+        return
+
+    if output_dir is None:
+        raise click.UsageError("--artifact-dir/--output-dir could not be resolved.")
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / "judge_checkpoint.json"
+    result_path = output_dir / "judge_results.jsonl.gz"
+    summary_path = output_dir / "judge_summary.json"
+    failures_path = output_dir / "failures.json"
 
     if mode == "alcf-batch-submit":
         _run_alcf_batch_submit(
@@ -966,18 +1242,9 @@ def agentic_judge_dataset(
                 result_path=result_path,
             )
 
-        if stats["failures"]:
-            failures_path.write_text(json.dumps(stats["failures"], indent=2), encoding="utf-8")
-        expected_input_hashes = {doc["source_path"]: doc_input_sha256(doc) for doc in docs}
-        cumulative = summarize_results_file(
-            result_path,
-            model=model,
-            base_url=base_url,
-            prompt_sha256=prompt_sha256,
-            expected_input_hashes=expected_input_hashes,
-        )
-        write_summary(
-            summary_path,
+        _write_judge_run_artifacts(
+            stats=stats,
+            docs=docs,
             source=source,
             output_dir=output_dir,
             model=model,
@@ -987,18 +1254,10 @@ def agentic_judge_dataset(
             mode=mode,
             keep_decisions=parsed_keep_decisions,
             copy_kept=copy_kept,
-            total_discovered=len(docs),
-            total_attempted=cumulative["succeeded"] + stats["failed"],
-            total_succeeded=cumulative["succeeded"],
-            total_failed=stats["failed"],
-            decision_counts=cumulative["decision_counts"],
-            parse_failures=cumulative["parse_failures"],
-            current_run_attempted=len(jobs),
-            current_run_succeeded=stats["succeeded"],
-            current_run_failed=stats["failed"],
-            current_run_decision_counts=stats["decision_counts"],
-            current_run_parse_failures=stats["parse_failures"],
-            retries=4,
+            jobs=jobs,
+            result_path=result_path,
+            summary_path=summary_path,
+            failures_path=failures_path,
             api_key_provided=bool(api_key),
         )
         progress.log("\n* Agentic judging complete.")
