@@ -723,6 +723,112 @@ class TestResubmitExisting:
         assert "/eagle/me/requests/batch_requests_000.jsonl" not in {c["input_file"] for c in calls}
 
 
+class TestBatchRunMode:
+    def test_creates_named_run_under_base_and_submits(self, tmp_path, monkeypatch):
+        source = tmp_path / "63"
+        prompt = tmp_path / "rubric.md"
+        base = tmp_path / "batch_base"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _make_corpus(source, 2)
+        calls = _patch_submit(monkeypatch)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                str(source),
+                "--prompt",
+                str(prompt),
+                "--mode",
+                "alcf-batch-run",
+                "--batch-base-dir",
+                str(base),
+                "--batch-run-name",
+                "climate test/run",
+                "--model",
+                "google/gemma-3-27b-it",
+                "--api-key",
+                "secret",
+                "--limit",
+                "2",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        run_dir = base / "climate-test-run"
+        assert run_dir.exists()
+        assert (run_dir / "batch_requests.jsonl").exists()
+        assert (run_dir / "batch_manifest.json").exists()
+        assert calls[0]["input_file"] == str(run_dir / "batch_requests.jsonl")
+        assert calls[0]["output_folder_path"] == str(run_dir / "batch_output")
+        assert "Submitted ALCF batch run" in result.output
+
+    def test_wait_collects_auto_discovered_output(self, tmp_path, monkeypatch):
+        source = tmp_path / "63"
+        prompt = tmp_path / "rubric.md"
+        run_dir = tmp_path / "batch_base" / "existing_run"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _make_corpus(source, 1)
+        calls = _patch_submit(monkeypatch)
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            output_root = run_dir / "batch_output" / "batch_requests_gemma-test_uuid"
+            output_root.mkdir(parents=True, exist_ok=True)
+            manifest = json.loads((run_dir / "batch_manifest.json").read_text(encoding="utf-8"))
+            key = next(iter(manifest))
+            (output_root / "results.jsonl").write_text(
+                json.dumps(
+                    {
+                        "custom_id": key,
+                        "response": {
+                            "body": {
+                                "choices": [
+                                    {"message": {"content": '{"decision":"relevant","score":3,"rationale":"Matches."}'}}
+                                ]
+                            }
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return {"state": "completed", "batch_id": batch_id}
+
+        import araiadoc.agentic.alcf_batch as alcf_batch_mod
+
+        monkeypatch.setattr(alcf_batch_mod, "get_alcf_batch_result", fake_get)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                str(source),
+                "--prompt",
+                str(prompt),
+                "--mode",
+                "alcf-batch-run",
+                "--batch-run-dir",
+                str(run_dir),
+                "--model",
+                "google/gemma-3-27b-it",
+                "--api-key",
+                "secret",
+                "--wait",
+                "--poll-interval",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        assert (run_dir / "judge_results.jsonl.gz").exists()
+        summary = json.loads((run_dir / "judge_summary.json").read_text(encoding="utf-8"))
+        assert summary["mode"] == "alcf-batch-run"
+        assert summary["total_succeeded"] == 1
+        assert summary["decision_counts"] == {"relevant": 1}
+        assert "Documents succeeded: 1" in result.output
+
+
 class TestBatchStatusMode:
     def _write_submit_ckpt(self, output: Path, submitted: dict) -> None:
         output.mkdir(parents=True, exist_ok=True)

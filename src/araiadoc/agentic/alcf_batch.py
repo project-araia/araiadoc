@@ -499,11 +499,13 @@ def poll_alcf_batch_results(
 
 
 def _iter_batch_output_lines(output_path: Path):
-    """Yield non-empty lines from a single file or all .jsonl files in a dir."""
+    """Yield non-empty lines from a file, output dir, or parent of output dirs."""
     if output_path.is_dir():
-        files = sorted(output_path.glob("*.jsonl"))
+        files = sorted(output_path.glob("*.jsonl")) or sorted(output_path.glob("*.json"))
         if not files:
-            files = sorted(output_path.glob("*.json"))
+            files = []
+            for child in sorted(p for p in output_path.iterdir() if p.is_dir()):
+                files.extend(sorted(child.glob("*.jsonl")) or sorted(child.glob("*.json")))
     else:
         files = [output_path]
     for file in files:

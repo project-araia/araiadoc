@@ -57,7 +57,8 @@ class TestAlcfBatchRequestBuilding:
         assert obj["custom_id"] == "1"
         assert obj["url"] == "/v1/chat/completions"
         assert obj["body"]["model"] == "m"
-        assert obj["body"]["messages"][0]["content"] == "hello"
+        assert obj["body"]["messages"][0]["role"] == "system"
+        assert obj["body"]["messages"][-1] == {"role": "user", "content": "hello"}
 
     def test_write_request_file_and_manifest(self, tmp_path):
         jobs = [_make_job("1", "a"), _make_job("2", "b")]
@@ -400,6 +401,61 @@ class TestAgenticJudgeCli:
         assert "secret" not in (output / "judge_summary.json").read_text(encoding="utf-8")
         checkpoint = json.loads((output / "judge_checkpoint.json").read_text(encoding="utf-8"))
         assert len(checkpoint["completed_keys"]) == 2
+
+    def test_collect_removes_stale_failures_file_after_success(self, tmp_path):
+        source = tmp_path / "sectionized"
+        output = tmp_path / "judged"
+        prompt = tmp_path / "rubric.md"
+        batch_output = tmp_path / "batch_output.jsonl"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _write_sectionized_doc(
+            source / "00" / "1.json",
+            title="Grid",
+            abstract="Storms",
+            intro="Utility text",
+        )
+        doc = iter_sectionized_docs(source)[0]
+        output.mkdir()
+        (output / "batch_manifest.json").write_text(
+            json.dumps(
+                {
+                    "job-1": {
+                        "doc_id": doc["doc_id"],
+                        "source_path": doc["source_path"],
+                        "title": doc["title"],
+                        "input_sha256": doc_input_sha256(doc),
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (output / "failures.json").write_text(
+            json.dumps([{"error": "stale missing output from a previous run"}]),
+            encoding="utf-8",
+        )
+        batch_output.write_text(
+            _batch_output_line("job-1", '{"decision":"relevant","score":3,"rationale":"Matches."}'),
+            encoding="utf-8",
+        )
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                str(source),
+                "--prompt",
+                str(prompt),
+                "--mode",
+                "alcf-batch-collect",
+                "--output-dir",
+                str(output),
+                "--collect-batch-output",
+                str(batch_output),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Documents failed: 0" in result.output
+        assert not (output / "failures.json").exists()
 
     def test_resume_summary_counts_prior_result_rows(self, tmp_path, monkeypatch):
         source = tmp_path / "sectionized"
