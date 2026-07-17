@@ -801,6 +801,54 @@ class TestBatchStatusMode:
         assert "FileNotFoundError" in result.output
         assert "1 batch(es) FAILED" in result.output
 
+    def test_wait_shows_progress_with_submitted_age(self, tmp_path, monkeypatch):
+        output = tmp_path / "out"
+        self._write_submit_ckpt(
+            output,
+            {
+                "/eagle/me/req/batch_requests_000.jsonl": {
+                    "batch_id": "b0",
+                    "status": "pending",
+                    "submitted_at": "2026-07-16T00:00:00+00:00",
+                }
+            },
+        )
+
+        calls = {"n": 0}
+
+        def fake_get(*, base_url, api_key, batch_id, timeout):
+            calls["n"] += 1
+            state = "ongoing" if calls["n"] == 1 else "completed"
+            return {"state": state, "batch_id": batch_id}
+
+        import time as time_mod
+
+        import araiadoc.agentic.alcf_batch as alcf_batch_mod
+
+        monkeypatch.setattr(alcf_batch_mod, "get_alcf_batch_result", fake_get)
+        monkeypatch.setattr(time_mod, "sleep", lambda seconds: None)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                "--mode",
+                "alcf-batch-status",
+                "-o",
+                str(output),
+                "--api-key",
+                "secret",
+                "--wait",
+                "--poll-interval",
+                "1",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "ongoing=1" in result.output
+        assert "completed=1" in result.output
+        assert "command elapsed:" in result.output
+        assert "submitted age:" in result.output
+        assert "Waiting for ALCF batches" in result.output
+
     def test_requires_api_key(self, tmp_path, monkeypatch):
         output = tmp_path / "out"
         self._write_submit_ckpt(
