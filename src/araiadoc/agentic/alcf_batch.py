@@ -47,7 +47,10 @@ def build_batch_request_line(job: dict[str, Any], *, model: str, temperature: fl
     """Build one ALCF/OpenAI-style chat-completions batch request line."""
     body = {
         "model": model,
-        "messages": [{"role": "user", "content": job["prompt"]}],
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": job["prompt"]},
+        ],
         "temperature": temperature,
         "max_tokens": max_tokens,
     }

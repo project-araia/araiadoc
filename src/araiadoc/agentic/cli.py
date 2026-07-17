@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
-from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
+from rich.progress import Progress, ProgressColumn, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.text import Text
 
 from araiadoc.agentic.alcf_batch import (
     BatchQuotaExceeded,
@@ -24,6 +26,44 @@ from araiadoc.agentic.docs import doc_input_sha256, iter_sectionized_docs
 from araiadoc.agentic.jobs import prepare_doc_jobs
 from araiadoc.agentic.runners import run_requests_mode
 from araiadoc.agentic.util import atomic_write_json, load_json, sha256_text
+
+
+class SubmittedAgeColumn(ProgressColumn):
+    """Render elapsed wall time since the earliest recorded ALCF submission."""
+
+    def __init__(self, submitted_at: datetime | None) -> None:
+        super().__init__()
+        self.submitted_at = submitted_at
+
+    def render(self, task) -> Text:
+        if self.submitted_at is None:
+            return Text("submitted age: unknown")
+        elapsed = max(0, int((datetime.now(UTC) - self.submitted_at).total_seconds()))
+        return Text(f"submitted age: {_format_duration(elapsed)}")
+
+
+def _format_duration(seconds: int) -> str:
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _parse_checkpoint_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def parse_keep_decisions(value: str) -> set[str]:
@@ -76,9 +116,12 @@ def _run_alcf_batch_status(
             f"{submit_ckpt_path} has submitted entries but none carry a batch_id; " "nothing to poll."
         )
 
-    def _render(results: dict) -> None:
+    submitted_times = [_parse_checkpoint_time(meta.get("submitted_at")) for meta in submitted.values()]
+    earliest_submitted_at = min((t for t in submitted_times if t is not None), default=None)
+
+    def _status_lines(results: dict) -> list[str]:
         counts: dict[str, int] = {}
-        click.echo(f"\nBatch status ({len(results)}/{len(batch_ids)} polled):")
+        lines = [f"Batch status ({len(results)}/{len(batch_ids)} polled):"]
         for batch_id in batch_ids:
             res = results.get(batch_id)
             if res is None:
@@ -88,23 +131,50 @@ def _run_alcf_batch_status(
             line = f"  [{state:>9}] {batch_id}  <- {id_to_input.get(batch_id, '?')}"
             if state in ("failed", "unknown") and res.get("message"):
                 line += f"\n              {res['message'].strip().splitlines()[-1][:200]}"
-            click.echo(line)
+            lines.append(line)
         summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
-        click.echo(f"  => {summary}")
+        lines.append(f"  => {summary}")
+        return lines
+
+    def _render(results: dict) -> None:
+        click.echo("\n" + "\n".join(_status_lines(results)))
 
     click.echo(
         f"Polling {len(batch_ids)} batch(es) at {base_url_batches_result_hint(base_url)} "
         f"({'waiting until all terminal' if wait else 'single snapshot'}) ..."
     )
-    results = poll_alcf_batch_results(
-        base_url=base_url,
-        api_key=api_key,
-        batch_ids=batch_ids,
-        timeout=timeout,
-        poll_interval=poll_interval,
-        wait=wait,
-        on_update=_render,
-    )
+    if wait:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            TextColumn("command elapsed:"),
+            TimeElapsedColumn(),
+            SubmittedAgeColumn(earliest_submitted_at),
+        ) as progress:
+            progress.add_task("Waiting for ALCF batches", total=None)
+
+            def _render_wait(results: dict) -> None:
+                progress.log("\n".join(_status_lines(results)))
+
+            results = poll_alcf_batch_results(
+                base_url=base_url,
+                api_key=api_key,
+                batch_ids=batch_ids,
+                timeout=timeout,
+                poll_interval=poll_interval,
+                wait=wait,
+                on_update=_render_wait,
+            )
+    else:
+        results = poll_alcf_batch_results(
+            base_url=base_url,
+            api_key=api_key,
+            batch_ids=batch_ids,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            wait=wait,
+            on_update=_render,
+        )
 
     failed = [bid for bid in batch_ids if results.get(bid, {}).get("state") == "failed"]
     completed = [bid for bid in batch_ids if results.get(bid, {}).get("state") == "completed"]
