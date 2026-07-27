@@ -393,26 +393,37 @@ def _solr_ast_to_sql(node, text_expr: str = "body.text") -> str:
     return "FALSE"
 
 
-def _detect_body_column(con, shard: Path) -> str | None:
+def _detect_body_column(con, shard: Path, _cache: dict[str, str | None] | None = None) -> str | None:
     """Probe *shard*'s top-level schema and return the body-text SQL expression.
 
     Returns ``"body.text"`` for s2orc_v2 shards, ``"content.text"`` for
     legacy s2orc_v1 shards, or ``None`` if neither column is present (caller
     should skip the shard).
+
+    When *_cache* (a dict keyed by shard path string) is supplied, the schema
+    is probed at most once per shard.  This matters for the Q3 path, which
+    would otherwise re-run ``DESCRIBE`` once per (group, shard) pair.
     """
+    key = str(shard)
+    if _cache is not None and key in _cache:
+        return _cache[key]
     try:
         rows = con.execute(
             "DESCRIBE SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true)",
-            [[str(shard)]],
+            [[key]],
         ).fetchall()
+        cols = {r[0] for r in rows}
+        if "body" in cols:
+            result: str | None = "body.text"
+        elif "content" in cols:
+            result = "content.text"
+        else:
+            result = None
     except Exception:
-        return None
-    cols = {r[0] for r in rows}
-    if "body" in cols:
-        return "body.text"
-    if "content" in cols:
-        return "content.text"
-    return None
+        result = None
+    if _cache is not None:
+        _cache[key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +595,82 @@ def _merge_q3_tag(doc: dict, group: dict) -> dict:
     return doc
 
 
-def _write_doc_with_q3_tag(doc: dict, output_dir: Path, group: dict) -> tuple[Path, bool]:
+def _count_q3_tagged_docs(output_dir: Path) -> int:
+    count = 0
+    for path in output_dir.glob("*/*.json"):
+        try:
+            doc = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if doc.get("_araiadoc_tags", {}).get("critical_infrastructure"):
+            count += 1
+    return count
+
+
+def _load_q3_checkpoint(output_dir: Path) -> dict:
+    """Load (or initialize) the per-shard Q3 checkpoint.
+
+    The single-pass Q3 scan completes a whole shard in one query across all
+    groups, so the checkpoint tracks completed *shard filenames*
+    (``completed_shards``) rather than a per-group map.
+
+    For backward compatibility with checkpoints written by the older
+    per-(group, shard) implementation (which stored ``completed`` as a
+    ``{group_key: [shard, …]}`` map), a shard is considered done only if it
+    was completed for *every* group — i.e. the intersection across groups.
+    Partially-scanned shards from an interrupted old run are safely re-scanned
+    (writes are idempotent: ``_write_doc_with_q3_tags`` merges by corpus id).
+    """
+    cp_path = output_dir / "duckdb_q3_checkpoint.json"
+    if cp_path.exists():
+        try:
+            data = json.loads(cp_path.read_text())
+            if isinstance(data, dict):
+                if "completed_shards" in data:
+                    completed_shards = set(data.get("completed_shards", []))
+                else:
+                    # Legacy per-group shape → intersect completion across groups.
+                    legacy = data.get("completed", {})
+                    shard_sets = [set(v) for v in legacy.values()] if legacy else []
+                    completed_shards = set.intersection(*shard_sets) if shard_sets else set()
+                return {
+                    "completed_shards": completed_shards,
+                    "written": _count_q3_tagged_docs(output_dir),
+                    "matched_rows": data.get("matched_rows", 0),
+                }
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"completed_shards": set(), "written": 0, "matched_rows": 0}
+
+
+def _save_q3_checkpoint(output_dir: Path, data: dict) -> None:
+    cp_path = output_dir / "duckdb_q3_checkpoint.json"
+    tmp = cp_path.with_suffix(".json.tmp")
+    serialisable = {
+        "completed_shards": sorted(data.get("completed_shards", set())),
+        "written": data.get("written", 0),
+        "matched_rows": data.get("matched_rows", 0),
+    }
+    tmp.write_text(json.dumps(serialisable, indent=2))
+    tmp.replace(cp_path)
+
+
+# Flag-column prefix for the per-group boolean match columns appended to each
+# single-pass Q3 result row.  Chosen to be unambiguous vs. real s2orc columns.
+_Q3_FLAG_PREFIX = "__q3grp_"
+
+# How many result rows to pull from DuckDB per fetchmany() call.  Batching keeps
+# the Python-side result consumption from serializing what DuckDB parallelized
+# on the scan side, without materializing a whole shard's matches at once.
+_Q3_FETCH_BATCH = 512
+
+
+def _write_doc_with_q3_tags(doc: dict, output_dir: Path, matched_groups: list[dict]) -> tuple[Path, bool]:
+    """Write *doc* once, merging tags for *every* group it matched.
+
+    Replaces repeated read-modify-write cycles (one per matched group) with a
+    single write per document.  Returns (path, is_new).
+    """
     corpus_id = str(doc.get("corpusid", "unknown"))
     shard = corpus_id[-2:] if len(corpus_id) >= 2 else corpus_id
     shard_dir = output_dir / shard
@@ -600,121 +686,122 @@ def _write_doc_with_q3_tag(doc: dict, output_dir: Path, group: dict) -> tuple[Pa
         except (json.JSONDecodeError, OSError):
             existing = doc
 
-    _merge_q3_tag(existing, group)
+    for group in matched_groups:
+        _merge_q3_tag(existing, group)
     dest.write_text(json.dumps(existing, ensure_ascii=False))
     return dest, is_new
 
 
-def _count_q3_tagged_docs(output_dir: Path) -> int:
-    count = 0
-    for path in output_dir.glob("*/*.json"):
-        try:
-            doc = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        if doc.get("_araiadoc_tags", {}).get("critical_infrastructure"):
-            count += 1
-    return count
-
-
-def _load_q3_checkpoint(output_dir: Path) -> dict:
-    cp_path = output_dir / "duckdb_q3_checkpoint.json"
-    if cp_path.exists():
-        try:
-            data = json.loads(cp_path.read_text())
-            if isinstance(data, dict):
-                completed = data.get("completed", {})
-                data["completed"] = {key: set(value) for key, value in completed.items()}
-                data["written"] = _count_q3_tagged_docs(output_dir)
-                data.setdefault("matched_rows", 0)
-                return data
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {"completed": {}, "written": 0, "matched_rows": 0}
-
-
-def _save_q3_checkpoint(output_dir: Path, data: dict) -> None:
-    cp_path = output_dir / "duckdb_q3_checkpoint.json"
-    tmp = cp_path.with_suffix(".json.tmp")
-    serialisable = {
-        "completed": {key: sorted(value) for key, value in data.get("completed", {}).items()},
-        "written": data.get("written", 0),
-        "matched_rows": data.get("matched_rows", 0),
-    }
-    tmp.write_text(json.dumps(serialisable, indent=2))
-    tmp.replace(cp_path)
-
-
 def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
+    """Single-pass critical-infrastructure (Q3) scan.
+
+    For each shard we build ONE query that:
+      * filters to rows matching *any* Q3 group (a big OR of every group's
+        WHERE clause), and
+      * appends one boolean flag column per group (``__q3grp_<key>``) so a
+        matched row carries the exact set of groups it satisfied.
+
+    This collapses the old ``len(groups) * len(shards)`` shard scans (≈52×30)
+    down to one scan per shard, and writes each matched document exactly once
+    regardless of how many groups it matched (the old code re-read and
+    rewrote a doc once per matched group).
+    """
     import duckdb
 
     groups = get_q3_groups()
+    # Precompile each group's Solr AST once; the SQL is rebuilt per shard only
+    # because the body-text column differs between v1/v2 shards.
+    group_asts = [
+        (group, _q3_group_key(group), _SolrParser(_tokenize_solr(group["query"])).parse()) for group in groups
+    ]
+
     checkpoint = _load_q3_checkpoint(output_dir)
-    completed_by_group: dict[str, set[str]] = checkpoint["completed"]
+    completed_shards: set[str] = checkpoint["completed_shards"]
     written: int = checkpoint.get("written", 0)
     matched_rows: int = checkpoint.get("matched_rows", 0)
 
+    pending = [gz for gz in gz_files if gz.name not in completed_shards]
+    if completed_shards:
+        click.echo(
+            f"* Resuming Q3 scan: {len(completed_shards)}/{len(gz_files)} shard(s) already complete, "
+            f"{written} doc(s) previously written."
+        )
+    click.echo(f"* Q3 single-pass scan across {len(pending)} remaining shard(s) ({len(groups)} groups) \u2026")
+
+    if not pending:
+        click.echo("* Nothing to do — all shards already scanned.")
+        return written
+
+    schema_cache: dict[str, str | None] = {}
     con = duckdb.connect()
     try:
         with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
-            total = len(groups) * len(gz_files)
-            task = progress.add_task("[cyan]DuckDB scan (critical infrastructure)", total=total)
-            progress.update(task, advance=sum(len(v) for v in completed_by_group.values()))
+            task = progress.add_task("[cyan]DuckDB scan (critical infrastructure)", total=len(gz_files))
+            progress.update(task, advance=len(completed_shards))
 
-            for group in groups:
-                group_key = _q3_group_key(group)
-                completed = completed_by_group.setdefault(group_key, set())
-                ast = _SolrParser(_tokenize_solr(group["query"])).parse()
-                pending = [gz for gz in gz_files if gz.name not in completed]
-                if not pending:
+            for gz in pending:
+                text_expr = _detect_body_column(con, gz, schema_cache)
+                if text_expr is None:
+                    progress.log(
+                        f"* WARNING: shard {gz.name} has neither 'body' nor 'content' top-level column; skipping."
+                    )
+                    progress.update(task, advance=1)
                     continue
 
-                progress.log(
-                    f"* Q3 {group_key}: {group['name']} " f"({len(completed)}/{len(gz_files)} shard(s) complete)"
+                # Per-group WHERE clauses (evaluated once each in this shard).
+                group_wheres = [(gk, group, _solr_ast_to_sql(ast, text_expr)) for group, gk, ast in group_asts]
+                flag_cols = ", ".join(
+                    f"CASE WHEN ({where}) THEN TRUE ELSE FALSE END AS {_Q3_FLAG_PREFIX}{i}"
+                    for i, (_, _, where) in enumerate(group_wheres)
+                )
+                any_match = " OR ".join(f"({where})" for _, _, where in group_wheres)
+                sql = (
+                    f"SELECT *, {flag_cols} "
+                    "FROM read_ndjson(?, compression='gzip', ignore_errors=true) "
+                    f"WHERE {any_match}"
                 )
 
-                for gz in pending:
-                    text_expr = _detect_body_column(con, gz)
-                    if text_expr is None:
-                        progress.log(
-                            f"* WARNING: shard {gz.name} has neither 'body' nor 'content' "
-                            f"top-level column; skipping."
-                        )
-                        progress.update(task, advance=1)
-                        continue
+                seen_in_shard: set[str] = set()
+                try:
+                    con.execute(sql, [[str(gz)]])
+                    col_names = [desc[0] for desc in con.description]
+                    # Split real doc columns from appended per-group flag columns.
+                    flag_index = {
+                        idx: int(name[len(_Q3_FLAG_PREFIX) :])  # noqa: E203
+                        for idx, name in enumerate(col_names)
+                        if name.startswith(_Q3_FLAG_PREFIX)
+                    }
+                    doc_cols = [(idx, name) for idx, name in enumerate(col_names) if idx not in flag_index]
 
-                    where_clause = _solr_ast_to_sql(ast, text_expr)
-                    sql = (
-                        "SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true) " f"WHERE {where_clause}"
-                    )
-                    seen_in_group_shard: set[str] = set()
-                    try:
-                        con.execute(sql, [[str(gz)]])
-                        col_names = [desc[0] for desc in con.description]
-                        while True:
-                            row = con.fetchone()
-                            if row is None:
-                                break
-                            doc = dict(zip(col_names, row))
+                    while True:
+                        rows = con.fetchmany(_Q3_FETCH_BATCH)
+                        if not rows:
+                            break
+                        for row in rows:
+                            doc = {name: row[idx] for idx, name in doc_cols}
                             cid = str(doc.get("corpusid", ""))
-                            if cid in seen_in_group_shard:
+                            if cid in seen_in_shard:
                                 continue
-                            seen_in_group_shard.add(cid)
-                            matched_rows += 1
-                            _, is_new = _write_doc_with_q3_tag(doc, output_dir, group)
+                            seen_in_shard.add(cid)
+
+                            matched = [group_wheres[gi][1] for idx, gi in flag_index.items() if row[idx]]
+                            if not matched:
+                                continue
+                            matched_rows += len(matched)
+                            _, is_new = _write_doc_with_q3_tags(doc, output_dir, matched)
                             if is_new:
                                 written += 1
-                    except Exception as exc:
-                        progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
-                        progress.update(task, advance=1)
-                        continue
-
-                    completed.add(gz.name)
-                    checkpoint["completed"] = completed_by_group
-                    checkpoint["written"] = written
-                    checkpoint["matched_rows"] = matched_rows
-                    _save_q3_checkpoint(output_dir, checkpoint)
+                except Exception as exc:
+                    progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
                     progress.update(task, advance=1)
+                    continue
+
+                completed_shards.add(gz.name)
+                checkpoint["completed_shards"] = completed_shards
+                checkpoint["written"] = written
+                checkpoint["matched_rows"] = matched_rows
+                _save_q3_checkpoint(output_dir, checkpoint)
+                progress.update(task, advance=1)
     finally:
         con.close()
 
