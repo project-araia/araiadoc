@@ -393,26 +393,39 @@ def _solr_ast_to_sql(node, text_expr: str = "body.text") -> str:
     return "FALSE"
 
 
-def _detect_body_column(con, shard: Path) -> str | None:
+def _detect_body_column(con, shard: Path, _cache: dict[str, str | None] | None = None) -> str | None:
     """Probe *shard*'s top-level schema and return the body-text SQL expression.
 
     Returns ``"body.text"`` for s2orc_v2 shards, ``"content.text"`` for
     legacy s2orc_v1 shards, or ``None`` if neither column is present (caller
     should skip the shard).
+
+    When *_cache* (a dict keyed by shard path string) is supplied, the schema
+    is probed at most once per shard.  This matters for the Q3 path, which
+    otherwise re-runs ``DESCRIBE`` once per (group, shard) pair.  The cache is
+    the ONLY behavioral change vs. the original: the probe result for a given
+    shard is identical, just computed once.
     """
+    key = str(shard)
+    if _cache is not None and key in _cache:
+        return _cache[key]
     try:
         rows = con.execute(
             "DESCRIBE SELECT * FROM read_ndjson(?, compression='gzip', ignore_errors=true)",
-            [[str(shard)]],
+            [[key]],
         ).fetchall()
+        cols = {r[0] for r in rows}
+        if "body" in cols:
+            result: str | None = "body.text"
+        elif "content" in cols:
+            result = "content.text"
+        else:
+            result = None
     except Exception:
-        return None
-    cols = {r[0] for r in rows}
-    if "body" in cols:
-        return "body.text"
-    if "content" in cols:
-        return "content.text"
-    return None
+        result = None
+    if _cache is not None:
+        _cache[key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +555,12 @@ def _query_with_duckdb(
     return written
 
 
+# How many result rows to pull from DuckDB per fetchmany() call. Batching the
+# result consumption avoids per-row Python/DuckDB round-trips without
+# materializing a whole shard's matches at once.
+_Q3_FETCH_BATCH = 512
+
+
 def _q3_group_key(group: dict) -> str:
     return f"file{group['file']}_group{group['group']}"
 
@@ -654,6 +673,9 @@ def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
     written: int = checkpoint.get("written", 0)
     matched_rows: int = checkpoint.get("matched_rows", 0)
 
+    # Probe each shard's schema at most once (shared across all groups) instead
+    # of re-running DESCRIBE for every (group, shard) pair.
+    schema_cache: dict[str, str | None] = {}
     con = duckdb.connect()
     try:
         with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
@@ -674,7 +696,7 @@ def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
                 )
 
                 for gz in pending:
-                    text_expr = _detect_body_column(con, gz)
+                    text_expr = _detect_body_column(con, gz, schema_cache)
                     if text_expr is None:
                         progress.log(
                             f"* WARNING: shard {gz.name} has neither 'body' nor 'content' "
@@ -691,19 +713,23 @@ def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
                     try:
                         con.execute(sql, [[str(gz)]])
                         col_names = [desc[0] for desc in con.description]
+                        # Pull results in bounded batches rather than one row at a
+                        # time. Same per-group query and semantics as before; only
+                        # the Python-side result consumption is batched.
                         while True:
-                            row = con.fetchone()
-                            if row is None:
+                            rows = con.fetchmany(_Q3_FETCH_BATCH)
+                            if not rows:
                                 break
-                            doc = dict(zip(col_names, row))
-                            cid = str(doc.get("corpusid", ""))
-                            if cid in seen_in_group_shard:
-                                continue
-                            seen_in_group_shard.add(cid)
-                            matched_rows += 1
-                            _, is_new = _write_doc_with_q3_tag(doc, output_dir, group)
-                            if is_new:
-                                written += 1
+                            for row in rows:
+                                doc = dict(zip(col_names, row))
+                                cid = str(doc.get("corpusid", ""))
+                                if cid in seen_in_group_shard:
+                                    continue
+                                seen_in_group_shard.add(cid)
+                                matched_rows += 1
+                                _, is_new = _write_doc_with_q3_tag(doc, output_dir, group)
+                                if is_new:
+                                    written += 1
                     except Exception as exc:
                         progress.log(f"* WARNING: shard {gz.name} failed ({type(exc).__name__}: {exc}); skipping.")
                         progress.update(task, advance=1)
