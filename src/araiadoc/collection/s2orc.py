@@ -21,6 +21,7 @@ Two top-level commands are provided:
 """
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -428,6 +429,17 @@ def _detect_body_column(con, shard: Path, _cache: dict[str, str | None] | None =
     return result
 
 
+def _default_duckdb_threads() -> int:
+    return min(os.cpu_count() or 1, 8)
+
+
+def _duckdb_connection(duckdb, threads: int, memory_limit: str | None):
+    config = {"threads": str(threads)}
+    if memory_limit:
+        config["memory_limit"] = memory_limit
+    return duckdb.connect(config=config)
+
+
 # ---------------------------------------------------------------------------
 # DuckDB query helpers (per-shard loop with checkpointing)
 # ---------------------------------------------------------------------------
@@ -468,6 +480,8 @@ def _query_with_duckdb(
     query_text: str,
     output_dir: Path,
     label: str,
+    duckdb_threads: int,
+    duckdb_memory_limit: str | None,
 ) -> int:
     """Use DuckDB to filter shards by *query_text* (Solr syntax).
 
@@ -503,7 +517,11 @@ def _query_with_duckdb(
         click.echo("* Nothing to do — all shards already scanned.")
         return written
 
-    con = duckdb.connect()
+    con = _duckdb_connection(duckdb, duckdb_threads, duckdb_memory_limit)
+    click.echo(
+        f"* DuckDB settings: threads={duckdb_threads}"
+        f"{f', memory_limit={duckdb_memory_limit}' if duckdb_memory_limit else ''}."
+    )
 
     # Dedup within this run only; cross-run dedup is implicit because
     # _write_doc overwrites by corpusid.json filename.
@@ -664,7 +682,12 @@ def _save_q3_checkpoint(output_dir: Path, data: dict) -> None:
     tmp.replace(cp_path)
 
 
-def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
+def _query_q3_with_duckdb(
+    gz_files: list[Path],
+    output_dir: Path,
+    duckdb_threads: int,
+    duckdb_memory_limit: str | None,
+) -> int:
     import duckdb
 
     groups = get_q3_groups()
@@ -676,7 +699,11 @@ def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
     # Probe each shard's schema at most once (shared across all groups) instead
     # of re-running DESCRIBE for every (group, shard) pair.
     schema_cache: dict[str, str | None] = {}
-    con = duckdb.connect()
+    con = _duckdb_connection(duckdb, duckdb_threads, duckdb_memory_limit)
+    click.echo(
+        f"* DuckDB settings: threads={duckdb_threads}"
+        f"{f', memory_limit={duckdb_memory_limit}' if duckdb_memory_limit else ''}."
+    )
     try:
         with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
             total = len(groups) * len(gz_files)
@@ -808,6 +835,19 @@ def _query_q3_with_duckdb(gz_files: list[Path], output_dir: Path) -> int:
     default=None,
     help=("Ad-hoc Solr-style query string.  Supports AND, OR, NOT, parens, " "and quoted phrases."),
 )
+@click.option(
+    "--duckdb-threads",
+    default=None,
+    type=click.IntRange(min=1),
+    envvar="ARAIADOC_DUCKDB_THREADS",
+    help="DuckDB worker threads per shard scan. Defaults to min(CPU count, 8).",
+)
+@click.option(
+    "--duckdb-memory-limit",
+    default=None,
+    envvar="ARAIADOC_DUCKDB_MEMORY_LIMIT",
+    help="Optional DuckDB memory limit, e.g. '32GB'.",
+)
 def get_from_local_s2orc(
     data_dir: Path,
     output_dir: Path | None,
@@ -817,6 +857,8 @@ def get_from_local_s2orc(
     all_critical_infrastructure: bool,
     with_tags: bool,
     query: str | None,
+    duckdb_threads: int | None,
+    duckdb_memory_limit: str | None,
 ):
     """Extract documents from a local s2orc_v2 download using DuckDB.
 
@@ -848,6 +890,8 @@ def get_from_local_s2orc(
     if with_tags and not all_critical_infrastructure:
         raise click.UsageError("--with-tags is only supported with --all-critical-infrastructure.")
 
+    duckdb_threads = duckdb_threads or _default_duckdb_threads()
+
     if output_dir is None:
         if all_weather:
             output_dir = _prep_output_dir("s2orc_weather_results")
@@ -877,14 +921,14 @@ def get_from_local_s2orc(
             ids = {line.strip() for line in source_path.read_text().splitlines() if line.strip()}
 
         click.echo(f"* Looking up {len(ids)} corpus ID(s).")
-        _lookup_ids_duckdb(ids, gz_files, output_dir)
+        _lookup_ids_duckdb(ids, gz_files, output_dir, duckdb_threads, duckdb_memory_limit)
         return
 
     # ------------------------------------------------------------------ #
     # Keyword search                                                     #
     # ------------------------------------------------------------------ #
     if all_critical_infrastructure and with_tags:
-        written = _query_q3_with_duckdb(gz_files, output_dir)
+        written = _query_q3_with_duckdb(gz_files, output_dir, duckdb_threads, duckdb_memory_limit)
         click.echo(f"* Done. {written} document(s) written.")
         click.echo(f"* Output: {output_dir}")
         return
@@ -903,13 +947,19 @@ def get_from_local_s2orc(
         query_text = query
         label = "query"
 
-    written = _query_with_duckdb(gz_files, query_text, output_dir, label)
+    written = _query_with_duckdb(gz_files, query_text, output_dir, label, duckdb_threads, duckdb_memory_limit)
 
     click.echo(f"* Done. {written} document(s) written.")
     click.echo(f"* Output: {output_dir}")
 
 
-def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
+def _lookup_ids_duckdb(
+    ids: set,
+    gz_files: list,
+    output_dir: Path,
+    duckdb_threads: int,
+    duckdb_memory_limit: str | None,
+):
     """Use DuckDB to look up corpus IDs — much faster for large ID lists.
 
     Reads only the *exact* shard files supplied in ``gz_files`` (not the
@@ -942,7 +992,11 @@ def _lookup_ids_duckdb(ids: set, gz_files: list, output_dir: Path):
         return
 
     ids_list = [str(i) for i in ids]
-    con = duckdb.connect()
+    con = _duckdb_connection(duckdb, duckdb_threads, duckdb_memory_limit)
+    click.echo(
+        f"* DuckDB settings: threads={duckdb_threads}"
+        f"{f', memory_limit={duckdb_memory_limit}' if duckdb_memory_limit else ''}."
+    )
 
     query = """
         SELECT *

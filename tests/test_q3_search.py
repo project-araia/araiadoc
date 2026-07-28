@@ -5,6 +5,7 @@ from importlib import resources
 
 from click.testing import CliRunner
 
+from araiadoc.collection import s2orc
 from araiadoc.collection.s2orc import _count_q3_tagged_docs, _merge_q3_tag, get_from_local_s2orc
 from araiadoc.searches import get_q3_groups
 
@@ -84,3 +85,55 @@ def test_with_tags_is_q3_only(tmp_path):
 
     assert result.exit_code != 0
     assert "--with-tags is only supported with --all-critical-infrastructure" in result.output
+
+
+def test_get_from_local_s2orc_uses_bounded_duckdb_threads_by_default(tmp_path, monkeypatch):
+    data_dir = tmp_path / "s2orc"
+    data_dir.mkdir()
+    (data_dir / "shard.gz").write_bytes(b"")
+    captured = {}
+
+    def fake_query(gz_files, query_text, output_dir, label, duckdb_threads, duckdb_memory_limit):
+        captured["gz_files"] = gz_files
+        captured["duckdb_threads"] = duckdb_threads
+        captured["duckdb_memory_limit"] = duckdb_memory_limit
+        return 0
+
+    monkeypatch.setattr(s2orc.os, "cpu_count", lambda: 48)
+    monkeypatch.setattr(s2orc, "_query_with_duckdb", fake_query)
+
+    result = CliRunner().invoke(get_from_local_s2orc, ["-d", str(data_dir), "--all-utility"])
+
+    assert result.exit_code == 0
+    assert captured["duckdb_threads"] == 8
+    assert captured["duckdb_memory_limit"] is None
+
+
+def test_get_from_local_s2orc_duckdb_resource_overrides(tmp_path, monkeypatch):
+    data_dir = tmp_path / "s2orc"
+    data_dir.mkdir()
+    (data_dir / "shard.gz").write_bytes(b"")
+    captured = {}
+
+    def fake_query(gz_files, query_text, output_dir, label, duckdb_threads, duckdb_memory_limit):
+        captured["duckdb_threads"] = duckdb_threads
+        captured["duckdb_memory_limit"] = duckdb_memory_limit
+        return 0
+
+    monkeypatch.setattr(s2orc, "_query_with_duckdb", fake_query)
+
+    result = CliRunner().invoke(
+        get_from_local_s2orc,
+        [
+            "-d",
+            str(data_dir),
+            "--all-utility",
+            "--duckdb-threads",
+            "4",
+            "--duckdb-memory-limit",
+            "32GB",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {"duckdb_threads": 4, "duckdb_memory_limit": "32GB"}
