@@ -9,6 +9,7 @@ from typing import Any
 from rich.progress import Progress
 
 from araiadoc.agentic.artifacts import (
+    append_decision_csv,
     append_result,
     copy_kept_doc,
     make_result_row,
@@ -51,12 +52,57 @@ def chat_completion_with_retries(
     raise RuntimeError("unreachable retry loop")
 
 
+def argo_completion_with_retries(
+    *,
+    base_url: str,
+    model: str,
+    prompt: str,
+    argo_user: str,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    retries: int = 4,
+) -> str:
+    import requests
+
+    payload = {
+        "user": argo_user,
+        "model": model,
+        "system": "You are judging scientific document relevance. Return only valid JSON.",
+        "prompt": [prompt],
+        "stop": [],
+        "temperature": temperature,
+        "max_completion_tokens": max_tokens,
+    }
+    headers = {"Content-Type": "application/json"}
+    for attempt in range(retries + 1):
+        try:
+            response = requests.post(base_url, json=payload, headers=headers, timeout=timeout)
+            if response.status_code in TRANSIENT_STATUS_CODES and attempt < retries:
+                time.sleep((2**attempt) + random.uniform(0, 0.5))
+                continue
+            if response.status_code != 200:
+                raise RuntimeError(f"Argo {response.status_code}: {response.text[:200]}")
+            data = response.json()
+            if "response" in data:
+                return str(data["response"])
+            if "choices" in data:
+                return str(data["choices"][0]["message"]["content"])
+            raise RuntimeError(f"Unrecognized Argo response keys: {list(data.keys())}")
+        except requests.exceptions.RequestException:
+            if attempt >= retries:
+                raise
+            time.sleep((2**attempt) + random.uniform(0, 0.5))
+    raise RuntimeError("unreachable retry loop")
+
+
 def run_requests_mode(
     *,
     jobs: list[dict[str, Any]],
     source: Path,
     output_dir: Path,
-    api_key: str,
+    provider: str,
+    api_key: str | None,
     base_url: str,
     model: str,
     prompt_sha256: str,
@@ -69,6 +115,8 @@ def run_requests_mode(
     completed_keys: set[str],
     checkpoint_path: Path,
     result_path: Path,
+    decision_csv_path: Path,
+    argo_user: str | None,
     progress: Progress,
 ) -> dict[str, Any]:
     stats = {
@@ -81,15 +129,26 @@ def run_requests_mode(
     task = progress.add_task("[green]Judging documents", total=len(jobs))
 
     def call(job: dict[str, Any]) -> tuple[dict[str, Any], str]:
-        raw = chat_completion_with_retries(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            prompt=job["prompt"],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-        )
+        if provider == "argo":
+            raw = argo_completion_with_retries(
+                base_url=base_url,
+                model=model,
+                prompt=job["prompt"],
+                argo_user=argo_user or "",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+        else:
+            raw = chat_completion_with_retries(
+                api_key=api_key or "",
+                base_url=base_url,
+                model=model,
+                prompt=job["prompt"],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
         return job, raw
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -109,6 +168,7 @@ def run_requests_mode(
                     parsed_response=parsed_response,
                 )
                 append_result(result_path, row)
+                append_decision_csv(decision_csv_path, row)
                 completed_keys.add(job["key"])
                 write_checkpoint(
                     checkpoint_path,

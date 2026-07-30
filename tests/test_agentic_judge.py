@@ -57,8 +57,7 @@ class TestAlcfBatchRequestBuilding:
         assert obj["custom_id"] == "1"
         assert obj["url"] == "/v1/chat/completions"
         assert obj["body"]["model"] == "m"
-        assert obj["body"]["messages"][0]["role"] == "system"
-        assert obj["body"]["messages"][-1] == {"role": "user", "content": "hello"}
+        assert obj["body"]["messages"] == [{"role": "user", "content": "hello"}]
 
     def test_write_request_file_and_manifest(self, tmp_path):
         jobs = [_make_job("1", "a"), _make_job("2", "b")]
@@ -394,6 +393,10 @@ class TestAgenticJudgeCli:
             rows = [json.loads(line) for line in f]
         assert len(rows) == 2
         assert {row["decision"] for row in rows} == {"relevant", "irrelevant"}
+        csv_text = (output / "judge_decisions.csv").read_text(encoding="utf-8")
+        assert "doc_id,source_path,title,decision,score,rationale" in csv_text
+        assert "relevant" in csv_text
+        assert "irrelevant" in csv_text
         assert (output / "kept" / "00" / "1.json").exists()
         assert not (output / "kept" / "00" / "2.json").exists()
         summary = json.loads((output / "judge_summary.json").read_text(encoding="utf-8"))
@@ -522,3 +525,51 @@ class TestAgenticJudgeCli:
         assert summary["decision_counts"] == {"irrelevant": 1, "relevant": 1}
         assert summary["current_run_attempted"] == 1
         assert summary["current_run_succeeded"] == 1
+
+    def test_request_mode_supports_argo_provider(self, tmp_path, monkeypatch):
+        source = tmp_path / "sectionized"
+        output = tmp_path / "judged"
+        prompt = tmp_path / "rubric.md"
+        prompt.write_text("Judge utility relevance.", encoding="utf-8")
+        _write_sectionized_doc(
+            source / "00" / "1.json",
+            title="Grid",
+            abstract="Storms",
+            intro="Utility text",
+        )
+        calls: list[dict] = []
+
+        def fake_argo(**kwargs):
+            calls.append(kwargs)
+            return '{"decision":"relevant","score":3,"rationale":"Matches."}'
+
+        monkeypatch.setattr(runners, "argo_completion_with_retries", fake_argo)
+
+        result = CliRunner().invoke(
+            agentic_judge_dataset,
+            [
+                str(source),
+                "--prompt",
+                str(prompt),
+                "--output-dir",
+                str(output),
+                "--provider",
+                "argo",
+                "--base-url",
+                "https://apps-dev.inside.anl.gov/argoapi/api/v1/resource/chat/",
+                "--model",
+                "claudesonnet46",
+                "--argo-user",
+                "user1",
+                "--concurrency",
+                "1",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        assert calls[0]["argo_user"] == "user1"
+        assert calls[0]["model"] == "claudesonnet46"
+        with gzip.open(output / "judge_results.jsonl.gz", "rt", encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f]
+        assert rows[0]["decision"] == "relevant"

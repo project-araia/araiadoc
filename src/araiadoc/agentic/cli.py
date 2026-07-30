@@ -715,12 +715,24 @@ def _submit_with_quota_backoff(
     "--base-url",
     default=DEFAULT_BASE_URL,
     show_default=True,
-    help="OpenAI-compatible API base URL.",
+    help="API base URL. For --provider argo, pass the Argo chat resource URL.",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["openai", "argo"]),
+    default="openai",
+    show_default=True,
+    help="Request-mode provider. ALCF batch modes always use OpenAI-compatible batch JSONL.",
 )
 @click.option(
     "--api-key",
     envvar=["API_KEY", "OPENAI_API_KEY"],
-    help="API key/token. Also read from API_KEY or OPENAI_API_KEY.",
+    help="API key/token for --provider openai. Also read from API_KEY or OPENAI_API_KEY.",
+)
+@click.option(
+    "--argo-user",
+    envvar="ARGO_USER",
+    help="Argo username for --provider argo. Also read from ARGO_USER.",
 )
 @click.option(
     "--prompt",
@@ -931,7 +943,9 @@ def agentic_judge_dataset(
     source: Path | None,
     model: str,
     base_url: str,
+    provider: str,
     api_key: str | None,
+    argo_user: str | None,
     prompt_path: Path,
     output_dir: Path | None,
     mode: str,
@@ -965,6 +979,8 @@ def agentic_judge_dataset(
                 "--mode alcf-batch-status requires --artifact-dir pointing at the dir "
                 "with batch_submit_checkpoint.json."
             )
+        if provider != "openai":
+            raise click.UsageError(f"--mode {mode} only supports --provider openai.")
         _run_alcf_batch_status(
             output_dir=output_dir,
             api_key=api_key,
@@ -974,6 +990,9 @@ def agentic_judge_dataset(
             wait=wait,
         )
         return
+
+    if mode != "requests" and provider != "openai":
+        raise click.UsageError(f"--mode {mode} only supports --provider openai.")
 
     # Resubmit-existing short-circuit: the requests are already baked into
     # batch_requests*.jsonl in --artifact-dir/--output-dir, so we don't read SOURCE / the prompt
@@ -1036,12 +1055,13 @@ def agentic_judge_dataset(
     else:
         checkpoint = {"completed_keys": []}
     completed_keys = set(checkpoint.get("completed_keys", []))
+    job_key_base_url = base_url if provider == "openai" else f"{provider}:{base_url}"
     jobs = prepare_doc_jobs(
         docs=docs,
         rubric=rubric,
         prompt_sha256=prompt_sha256,
         model=model,
-        base_url=base_url,
+        base_url=job_key_base_url,
         max_input_chars=max_input_chars,
         completed_keys=completed_keys,
         resume=resume,
@@ -1166,6 +1186,7 @@ def agentic_judge_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = output_dir / "judge_checkpoint.json"
     result_path = output_dir / "judge_results.jsonl.gz"
+    decision_csv_path = output_dir / "judge_decisions.csv"
     summary_path = output_dir / "judge_summary.json"
     failures_path = output_dir / "failures.json"
 
@@ -1204,12 +1225,15 @@ def agentic_judge_dataset(
 
     with Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()) as progress:
         if mode == "requests":
-            if not api_key:
+            if provider == "openai" and not api_key:
                 raise click.UsageError("Provide --api-key or set API_KEY/OPENAI_API_KEY.")
+            if provider == "argo" and not argo_user:
+                raise click.UsageError("Provide --argo-user or set ARGO_USER.")
             stats = run_requests_mode(
                 jobs=jobs,
                 source=source,
                 output_dir=output_dir,
+                provider=provider,
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
@@ -1223,6 +1247,8 @@ def agentic_judge_dataset(
                 completed_keys=completed_keys,
                 checkpoint_path=checkpoint_path,
                 result_path=result_path,
+                decision_csv_path=decision_csv_path,
+                argo_user=argo_user,
                 progress=progress,
             )
         else:  # alcf-batch-collect

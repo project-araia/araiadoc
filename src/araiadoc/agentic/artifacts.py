@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import gzip
 import json
 import shutil
@@ -7,6 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from araiadoc.agentic.util import atomic_write_json, now_iso
+
+DECISION_CSV_COLUMNS = [
+    "doc_id",
+    "source_path",
+    "title",
+    "decision",
+    "score",
+    "rationale",
+]
 
 
 def make_result_row(
@@ -42,6 +52,16 @@ def append_result(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "at", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def append_decision_csv(csv_path: Path, row: dict[str, Any]) -> None:
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not csv_path.exists()
+    with csv_path.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=DECISION_CSV_COLUMNS, extrasaction="ignore")
+        if write_header:
+            writer.writeheader()
+        writer.writerow({col: row.get(col, "") for col in DECISION_CSV_COLUMNS})
 
 
 def copy_kept_doc(doc: dict[str, Any], source: Path, output_dir: Path) -> None:

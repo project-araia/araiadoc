@@ -56,7 +56,9 @@ Return ONLY valid JSON with this schema:
 {{
   "decision": "relevant" | "irrelevant" | "maybe",
   "score": 0 | 1 | 2 | 3,
-  "rationale": "short explanation, max 2 sentences"
+  "rationale": "2-3 sentence explanation: state which hazard(s) and
+  context(s) were identified (or absent), and why the score was assigned.
+  Be specific enough for human verification."
 }}
 
 Document:
