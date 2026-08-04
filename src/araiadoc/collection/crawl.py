@@ -9,7 +9,6 @@ from pathlib import Path
 import click
 import requests
 from bs4 import BeautifulSoup
-from crawl4ai import AsyncWebCrawler
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from semanticscholar import AsyncSemanticScholar
 
@@ -90,6 +89,7 @@ def crawl_epa(start_idx: int, stop_idx: int, search_term: list[str]):
     )
 
     async def main_epa(search_term: str, start_idx: int, stop_idx: int):
+        from crawl4ai import AsyncWebCrawler
 
         assert stop_idx > start_idx
 
@@ -272,6 +272,7 @@ def count_remote_osti(search_term: list[str], start_year: int = 2000, stop_year:
     click.echo("* Year range: " + str(start_year) + " to " + str(stop_year))
 
     async def main_osti(search_term: str, start_year: int, stop_year: int, path: Path) -> int:
+        from crawl4ai import AsyncWebCrawler
 
         browser_config, run_config, _ = _get_configs(path)
 
