@@ -4,6 +4,10 @@ Lessons learned and conventions to keep in mind when working in this repo.
 
 ---
 
+## Testing and dependencies
+
+This project uses Pixi for dependency management and testing. Enter the dev shell using `pixi shell -e dev` and run tests in the `tests/` directory with `pytest .`.
+
 ## CLI flag conventions
 
 All `araiadoc` commands that accept a search term use `--search-term` (long form) or `-t` (short form), **not** `--term`. This applies to:

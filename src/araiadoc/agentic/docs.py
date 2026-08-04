@@ -8,9 +8,13 @@ from araiadoc.agentic.constants import SKIP_JSON_FILENAMES
 from araiadoc.agentic.util import normalize_ws, sha256_text
 
 
-def iter_sectionized_docs(source: Path) -> list[dict[str, Any]]:
-    """Return normalized sectionized docs from nested JSON files under source."""
-    docs: list[dict[str, Any]] = []
+def count_sectionized_doc_files(source: Path) -> int:
+    """Count candidate JSON files without opening their contents."""
+    return sum(1 for path in source.rglob("*.json") if path.is_file() and path.name not in SKIP_JSON_FILENAMES)
+
+
+def iter_sectionized_docs_stream(source: Path):
+    """Yield normalized sectionized docs one at a time from *source*."""
     for path in sorted(source.rglob("*.json")):
         if not path.is_file() or path.name in SKIP_JSON_FILENAMES:
             continue
@@ -31,17 +35,19 @@ def iter_sectionized_docs(source: Path) -> list[dict[str, Any]]:
                 sections.append({"header": str(key), "text": text})
 
         if title or abstract or sections:
-            docs.append(
-                {
-                    "doc_id": path.stem,
-                    "source_path": rel_path,
-                    "source_file": path,
-                    "title": title,
-                    "abstract": abstract,
-                    "sections": sections,
-                }
-            )
-    return docs
+            yield {
+                "doc_id": path.stem,
+                "source_path": rel_path,
+                "source_file": path,
+                "title": title,
+                "abstract": abstract,
+                "sections": sections,
+            }
+
+
+def iter_sectionized_docs(source: Path) -> list[dict[str, Any]]:
+    """Return normalized sectionized docs from nested JSON files under source."""
+    return list(iter_sectionized_docs_stream(source))
 
 
 def doc_input_sha256(doc: dict[str, Any]) -> str:

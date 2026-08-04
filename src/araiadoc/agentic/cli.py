@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import itertools
 import json
 import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Iterable, Iterator
 
 import click
 from rich.progress import Progress, ProgressColumn, SpinnerColumn, TextColumn, TimeElapsedColumn
@@ -20,11 +22,17 @@ from araiadoc.agentic.alcf_batch import (
     submit_alcf_batch,
     write_batch_manifest,
     write_batch_request_chunks,
+    write_batch_request_chunks_stream,
 )
 from araiadoc.agentic.artifacts import summarize_results_file, write_summary
 from araiadoc.agentic.constants import DEFAULT_BASE_URL, DEFAULT_MODEL, VALID_DECISIONS
-from araiadoc.agentic.docs import doc_input_sha256, iter_sectionized_docs
-from araiadoc.agentic.jobs import prepare_doc_jobs
+from araiadoc.agentic.docs import (
+    count_sectionized_doc_files,
+    doc_input_sha256,
+    iter_sectionized_docs,
+    iter_sectionized_docs_stream,
+)
+from araiadoc.agentic.jobs import prepare_doc_jobs, prepare_doc_jobs_stream
 from araiadoc.agentic.runners import run_requests_mode
 from araiadoc.agentic.util import atomic_write_json, load_json, sha256_text
 
@@ -268,7 +276,7 @@ def base_url_batches_result_hint(base_url: str) -> str:
 
 def _run_alcf_batch_submit(
     *,
-    jobs: list,
+    jobs: Iterable[dict] | Iterator[dict] | list[dict],
     output_dir: Path,
     api_key: str | None,
     base_url: str,
@@ -306,27 +314,41 @@ def _run_alcf_batch_submit(
     chunk's LOCAL filename, so the files you copy to ALCF keep their names. The
     legacy single-path *batch_input_file* is still accepted for one-chunk runs.
     """
-    if not jobs:
+    if isinstance(jobs, list) and not jobs:
         click.echo("No documents to submit (all completed or none discovered).")
         return
 
     manifest_path = output_dir / "batch_manifest.json"
-    chunks = write_batch_request_chunks(
-        jobs,
-        output_dir,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        max_bytes=max_batch_bytes,
-    )
-    write_batch_manifest(jobs, manifest_path)
-
-    total_bytes = sum(c["num_bytes"] for c in chunks)
+    if isinstance(jobs, list):
+        chunks = write_batch_request_chunks(
+            jobs,
+            output_dir,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_bytes=max_batch_bytes,
+        )
+        write_batch_manifest(jobs, manifest_path)
+        total_jobs = len(jobs)
+        total_bytes = sum(c["num_bytes"] for c in chunks)
+    else:
+        chunks, total_jobs, total_bytes = write_batch_request_chunks_stream(
+            jobs,
+            output_dir,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_bytes=max_batch_bytes,
+            manifest_path=manifest_path,
+        )
+    if not chunks:
+        click.echo("No documents to submit (all completed or none discovered).")
+        return
     if len(chunks) == 1:
-        click.echo(f"Wrote {len(jobs)} requests ({total_bytes} bytes) to {chunks[0]['path']}")
+        click.echo(f"Wrote {total_jobs} requests ({total_bytes} bytes) to {chunks[0]['path']}")
     else:
         click.echo(
-            f"Split {len(jobs)} requests ({total_bytes} bytes) across {len(chunks)} chunks "
+            f"Split {total_jobs} requests ({total_bytes} bytes) across {len(chunks)} chunks "
             f"(--max-batch-mb={max_batch_bytes / 1_000_000:.3g}):"
         )
         for chunk in chunks:
@@ -628,7 +650,7 @@ def _write_judge_run_artifacts(
     mode: str,
     keep_decisions: set[str],
     copy_kept: bool,
-    jobs: list,
+    current_run_attempted: int,
     result_path: Path,
     summary_path: Path,
     failures_path: Path,
@@ -638,7 +660,11 @@ def _write_judge_run_artifacts(
         failures_path.write_text(json.dumps(stats["failures"], indent=2), encoding="utf-8")
     elif failures_path.exists():
         failures_path.unlink()
-    expected_input_hashes = {doc["source_path"]: doc_input_sha256(doc) for doc in docs}
+    expected_input_hashes = {}
+    total_discovered = 0
+    for doc in docs:
+        expected_input_hashes[doc["source_path"]] = doc_input_sha256(doc)
+        total_discovered += 1
     cumulative = summarize_results_file(
         result_path,
         model=model,
@@ -657,13 +683,13 @@ def _write_judge_run_artifacts(
         mode=mode,
         keep_decisions=keep_decisions,
         copy_kept=copy_kept,
-        total_discovered=len(docs),
+        total_discovered=total_discovered,
         total_attempted=cumulative["succeeded"] + stats["failed"],
         total_succeeded=cumulative["succeeded"],
         total_failed=stats["failed"],
         decision_counts=cumulative["decision_counts"],
         parse_failures=cumulative["parse_failures"],
-        current_run_attempted=len(jobs),
+        current_run_attempted=current_run_attempted,
         current_run_succeeded=stats["succeeded"],
         current_run_failed=stats["failed"],
         current_run_decision_counts=stats["decision_counts"],
@@ -1042,9 +1068,17 @@ def agentic_judge_dataset(
     parsed_keep_decisions = parse_keep_decisions(keep_decisions)
     rubric = prompt_path.read_text(encoding="utf-8")
     prompt_sha256 = sha256_text(rubric)
-    docs = iter_sectionized_docs(source)
-    if limit is not None:
-        docs = docs[:limit]
+    if mode == "alcf-batch-run" and not dry_run:
+        discovered_count = count_sectionized_doc_files(source)
+        click.echo(f"Scanning source: {discovered_count} candidate JSON files")
+        docs = iter_sectionized_docs_stream(source)
+        if limit is not None:
+            docs = itertools.islice(docs, limit)
+    else:
+        docs = iter_sectionized_docs(source)
+        discovered_count = len(docs)
+        if limit is not None:
+            docs = docs[:limit]
 
     resume_output_dir = output_dir
     if mode == "alcf-batch-run" and batch_run_dir is not None:
@@ -1056,16 +1090,19 @@ def agentic_judge_dataset(
         checkpoint = {"completed_keys": []}
     completed_keys = set(checkpoint.get("completed_keys", []))
     job_key_base_url = base_url if provider == "openai" else f"{provider}:{base_url}"
-    jobs = prepare_doc_jobs(
-        docs=docs,
-        rubric=rubric,
-        prompt_sha256=prompt_sha256,
-        model=model,
-        base_url=job_key_base_url,
-        max_input_chars=max_input_chars,
-        completed_keys=completed_keys,
-        resume=resume,
-    )
+    if mode == "alcf-batch-run" and not dry_run:
+        jobs = None
+    else:
+        jobs = prepare_doc_jobs(
+            docs=docs,
+            rubric=rubric,
+            prompt_sha256=prompt_sha256,
+            model=model,
+            base_url=job_key_base_url,
+            max_input_chars=max_input_chars,
+            completed_keys=completed_keys,
+            resume=resume,
+        )
 
     if dry_run:
         click.echo(f"Discovered documents: {len(docs)}")
@@ -1082,7 +1119,7 @@ def agentic_judge_dataset(
             batch_run_name=batch_run_name,
             source=source,
             model=model,
-            num_jobs=len(jobs),
+            num_jobs=discovered_count if limit is None else min(discovered_count, limit),
             prompt_sha256=prompt_sha256,
         )
         output_resolved = output_dir.resolve(strict=False)
@@ -1097,6 +1134,26 @@ def agentic_judge_dataset(
         click.echo(f"  {output_dir}")
         click.echo("ALCF batch result directory:")
         click.echo(f"  {batch_output_dir}")
+        prepared = 0
+
+        def stream_jobs():
+            nonlocal prepared
+            for job in prepare_doc_jobs_stream(
+                docs=docs,
+                rubric=rubric,
+                prompt_sha256=prompt_sha256,
+                model=model,
+                base_url=job_key_base_url,
+                max_input_chars=max_input_chars,
+                completed_keys=completed_keys,
+                resume=resume,
+            ):
+                prepared += 1
+                if prepared == 1 or prepared % 1000 == 0:
+                    click.echo(f"Prepared {prepared} request(s) from {discovered_count} candidate files")
+                yield job
+
+        jobs = stream_jobs()
         _run_alcf_batch_submit(
             jobs=jobs,
             output_dir=output_dir,
@@ -1155,6 +1212,7 @@ def agentic_judge_dataset(
                 checkpoint_path=checkpoint_path,
                 result_path=result_path,
             )
+            docs = iter_sectionized_docs(source)
             _write_judge_run_artifacts(
                 stats=stats,
                 docs=docs,
@@ -1167,7 +1225,7 @@ def agentic_judge_dataset(
                 mode=mode,
                 keep_decisions=parsed_keep_decisions,
                 copy_kept=copy_kept,
-                jobs=jobs,
+                current_run_attempted=prepared,
                 result_path=result_path,
                 summary_path=summary_path,
                 failures_path=failures_path,
@@ -1175,7 +1233,7 @@ def agentic_judge_dataset(
             )
             progress.log("\n* Agentic judging complete.")
             progress.log(f"* Output directory: {output_dir}")
-            progress.log(f"* Documents attempted: {len(jobs)}")
+            progress.log(f"* Documents attempted: {prepared}")
             progress.log(f"* Documents succeeded: {stats['succeeded']}")
             progress.log(f"* Documents failed: {stats['failed']}")
             progress.log(f"* Parse failures: {stats['parse_failures']}")
@@ -1280,7 +1338,7 @@ def agentic_judge_dataset(
             mode=mode,
             keep_decisions=parsed_keep_decisions,
             copy_kept=copy_kept,
-            jobs=jobs,
+            current_run_attempted=len(jobs),
             result_path=result_path,
             summary_path=summary_path,
             failures_path=failures_path,

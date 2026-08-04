@@ -186,6 +186,95 @@ def write_batch_request_chunks(
     return descriptors
 
 
+def write_batch_request_chunks_stream(
+    jobs,
+    output_dir: Path,
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_bytes: int,
+    on_job=None,
+    manifest_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Write request chunks while consuming jobs once, retaining only one chunk."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    chunk_lines: list[tuple[str, int]] = []
+    chunk_bytes = 0
+    chunks: list[dict[str, Any]] = []
+    total_jobs = 0
+    total_bytes = 0
+    manifest_file = None
+    if manifest_path is not None:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_file = manifest_path.with_name(manifest_path.name + ".tmp").open("w", encoding="utf-8")
+        manifest_file.write("{")
+
+    def flush() -> None:
+        nonlocal chunk_lines, chunk_bytes
+        if not chunk_lines:
+            return
+        index = len(chunks)
+        path = output_dir / ("batch_requests.jsonl" if index == 0 else f"batch_requests_{index:03d}.jsonl")
+        with path.open("w", encoding="utf-8") as f:
+            for line, _ in chunk_lines:
+                f.write(line)
+        chunks.append(
+            {
+                "index": None if index == 0 else index,
+                "path": path,
+                "num_requests": len(chunk_lines),
+                "num_bytes": chunk_bytes,
+            }
+        )
+        chunk_lines = []
+        chunk_bytes = 0
+
+    first_manifest_entry = True
+    for job in jobs:
+        if on_job is not None:
+            on_job(job)
+        if manifest_file is not None:
+            if not first_manifest_entry:
+                manifest_file.write(",")
+            first_manifest_entry = False
+            entry = {
+                "doc_id": job["doc"]["doc_id"],
+                "source_path": job["doc"]["source_path"],
+                "title": job["doc"].get("title", ""),
+                "input_sha256": job["input_sha256"],
+            }
+            manifest_file.write(json.dumps(job["key"], ensure_ascii=False))
+            manifest_file.write(":")
+            manifest_file.write(json.dumps(entry, ensure_ascii=False))
+        line = build_batch_request_line(job, model=model, temperature=temperature, max_tokens=max_tokens)
+        encoded_size = len(line.encode("utf-8"))
+        if encoded_size > max_bytes:
+            click.echo(
+                _CHUNK_OVERSIZE_WARNING.format(custom_id=job["key"], line_bytes=encoded_size, max_bytes=max_bytes)
+            )
+        if chunk_lines and chunk_bytes + encoded_size > max_bytes:
+            flush()
+        chunk_lines.append((line, encoded_size))
+        chunk_bytes += encoded_size
+        total_jobs += 1
+        total_bytes += encoded_size
+    flush()
+    if manifest_file is not None:
+        manifest_file.write("}")
+        manifest_file.close()
+        manifest_file.name and Path(manifest_file.name).replace(manifest_path)
+    if len(chunks) > 1:
+        for index, chunk in enumerate(chunks):
+            old_path = chunk["path"]
+            new_path = output_dir / f"batch_requests_{index:03d}.jsonl"
+            if old_path != new_path:
+                old_path.rename(new_path)
+                chunk["path"] = new_path
+                chunk["index"] = index
+    return chunks, total_jobs, total_bytes
+
+
 def discover_batch_request_chunks(output_dir: Path) -> list[dict[str, Any]]:
     """Rebuild chunk descriptors from already-written request files in *output_dir*.
 
@@ -485,7 +574,9 @@ def poll_alcf_batch_results(
                 batch_id=batch_id,
                 timeout=timeout,
             )
-        if on_update is not None:
+            if on_update is not None:
+                on_update(results)
+        if on_update is not None and not batch_ids:
             on_update(results)
         if not wait:
             return results
