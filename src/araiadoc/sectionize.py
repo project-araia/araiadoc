@@ -1512,6 +1512,11 @@ def _sectionize_one_file_s2orc_v2(
         if not success:
             return (False, corpus_id, error, "failed", report, title)
 
+        # Preserve araiadoc tags (e.g. critical-infrastructure sector/subsector
+        # metadata written by get-from-local-s2orc --with-tags).
+        if "_araiadoc_tags" in doc:
+            sectioned_text["_araiadoc_tags"] = doc["_araiadoc_tags"]
+
         with open(output_file, "w") as f:
             json.dump(sectioned_text, f, indent=4)
 
@@ -1591,6 +1596,11 @@ def _sectionize_batch_file_s2orc_v2(
                             }
                         )
                         continue
+
+                    # Preserve araiadoc tags (e.g. critical-infrastructure
+                    # sector/subsector metadata from --with-tags).
+                    if "_araiadoc_tags" in doc:
+                        sectioned_text["_araiadoc_tags"] = doc["_araiadoc_tags"]
 
                     with open(output_file, "w") as out_f:
                         json.dump(sectioned_text, out_f, indent=4)

@@ -28,7 +28,7 @@ def iter_sectionized_docs_stream(source: Path):
         abstract = normalize_ws(data.get("abstract"))
         sections: list[dict[str, str]] = []
         for key, value in data.items():
-            if key in {"title", "abstract"}:
+            if key in {"title", "abstract"} or key.startswith("_araiadoc_"):
                 continue
             text = normalize_ws(value)
             if text:
