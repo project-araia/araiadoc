@@ -42,15 +42,27 @@ def count_tags(root: Path) -> dict:
         if not isinstance(critical, dict) or not critical:
             continue
 
-        tagged_documents += 1
-        cross_tags.update({str(tag) for tag in critical.get("tags", [])})
+        document_cross_tags = {str(tag) for tag in critical.get("tags", []) if tag}
+        # Older outputs may have the same labels only in matched_groups.
+        for group in critical.get("matched_groups", []):
+            if isinstance(group, dict) and group.get("tag"):
+                document_cross_tags.add(str(group["tag"]))
+
+        document_sectors: set[str] = set()
+        document_subsectors: set[str] = set()
         for sector_record in critical.get("sectors", []):
             if not isinstance(sector_record, dict):
                 continue
             sector = sector_record.get("sector")
             if sector:
-                sectors[str(sector)] += 1
-            subsectors.update({str(value) for value in sector_record.get("subsectors", []) if value})
+                document_sectors.add(str(sector))
+            document_subsectors.update({str(value) for value in sector_record.get("subsectors", []) if value})
+
+        if document_cross_tags or document_sectors or document_subsectors:
+            tagged_documents += 1
+        cross_tags.update(document_cross_tags)
+        sectors.update(document_sectors)
+        subsectors.update(document_subsectors)
 
     return {
         "documents": documents,
